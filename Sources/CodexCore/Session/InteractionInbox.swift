@@ -131,8 +131,13 @@ struct CodexInteractionInbox: Sendable {
     mutating func disconnect(
         connectionEpoch: UInt64
     ) -> [CodexParsedServerRequest] {
-        let removed = orderedEntries().filter {
+        // Filter before sorting so reconnect cleanup only orders requests from
+        // the sealed connection; pending requests from newer connections are
+        // not part of the returned cleanup sequence.
+        let removed = entries.values.filter {
             $0.request.key.connectionEpoch == connectionEpoch
+        }.sorted {
+            $0.arrivalOrdinal < $1.arrivalOrdinal
         }
         for entry in removed {
             entries.removeValue(forKey: entry.request.key)

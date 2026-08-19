@@ -33,14 +33,19 @@ enum CodexRealtimeObserverError: Error, Sendable, Equatable {
 }
 
 struct CodexRealtimeObserverHub {
-    private struct Entry {
+    private struct Key: Hashable, Sendable {
         let connectionEpoch: UInt64
         let threadID: String
+    }
+
+    private struct Entry {
+        let key: Key
         let continuation: AsyncThrowingStream<CodexRealtimeEvent, Error>.Continuation
     }
 
     private var nextID: UInt64 = 1
     private var entries: [CodexRealtimeObservationID: Entry] = [:]
+    private var observerIDsByKey: [Key: Set<CodexRealtimeObservationID>] = [:]
 
     mutating func observe(
         connectionEpoch: UInt64,
@@ -57,11 +62,12 @@ struct CodexRealtimeObserverHub {
             bufferingPolicy: .bufferingNewest(2_048)
         )
         pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
+        let key = Key(connectionEpoch: connectionEpoch, threadID: threadID)
         entries[id] = Entry(
-            connectionEpoch: connectionEpoch,
-            threadID: threadID,
+            key: key,
             continuation: pair.continuation
         )
+        observerIDsByKey[key, default: []].insert(id)
         return (id, pair.stream)
     }
 
@@ -70,10 +76,13 @@ struct CodexRealtimeObserverHub {
         connectionEpoch: UInt64,
         event: CodexRealtimeEvent
     ) -> Int {
+        let key = Key(connectionEpoch: connectionEpoch, threadID: event.threadID)
+        guard let matchingIDs = observerIDsByKey[key] else { return 0 }
+
         var delivered = 0
         var terminated: [CodexRealtimeObservationID] = []
-        for (id, entry) in entries
-        where entry.connectionEpoch == connectionEpoch && entry.threadID == event.threadID {
+        for id in matchingIDs {
+            guard let entry = entries[id] else { continue }
             switch entry.continuation.yield(event) {
             case .enqueued, .dropped:
                 delivered += 1
@@ -84,30 +93,44 @@ struct CodexRealtimeObserverHub {
             }
         }
         for id in terminated {
-            entries.removeValue(forKey: id)
+            _ = removeEntry(for: id)
         }
         return delivered
     }
 
     @discardableResult
     mutating func cancel(_ id: CodexRealtimeObservationID) -> Bool {
-        guard let entry = entries.removeValue(forKey: id) else { return false }
+        guard let entry = removeEntry(for: id) else { return false }
         entry.continuation.finish(throwing: CancellationError())
         return true
     }
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let ids = entries.compactMap { id, entry in
-            entry.connectionEpoch == connectionEpoch ? id : nil
+        var ids: [CodexRealtimeObservationID] = []
+        for (key, matchingIDs) in observerIDsByKey where key.connectionEpoch == connectionEpoch {
+            ids.append(contentsOf: matchingIDs)
         }
         for id in ids {
-            entries.removeValue(forKey: id)?.continuation.finish(
+            removeEntry(for: id)?.continuation.finish(
                 throwing: CodexRealtimeObserverError.disconnected(
                     connectionEpoch: connectionEpoch
                 )
             )
         }
         return ids.count
+    }
+
+    private mutating func removeEntry(for id: CodexRealtimeObservationID) -> Entry? {
+        guard let entry = entries.removeValue(forKey: id) else { return nil }
+        if var ids = observerIDsByKey[entry.key] {
+            ids.remove(id)
+            if ids.isEmpty {
+                observerIDsByKey.removeValue(forKey: entry.key)
+            } else {
+                observerIDsByKey[entry.key] = ids
+            }
+        }
+        return entry
     }
 }

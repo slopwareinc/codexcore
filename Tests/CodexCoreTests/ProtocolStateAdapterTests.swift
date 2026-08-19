@@ -599,6 +599,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
             resumeResponseJSON(includeItemsCursor: false)
         )
         response.removeValue(forKey: "turnsBackwardsCursor")
+        response["futureResponseSetting"] = .string("preserved")
 
         let adaptation = try adapter.adaptResponse(
             context,
@@ -610,6 +611,12 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }.first)
         XCTAssertNil(history.resumeCut?.turnsBackwardsCursor)
         XCTAssertNil(history.resumeCut?.itemsBackwardsCursor)
+        let settings = try XCTUnwrap(adaptation.mutations.compactMap { mutation -> [String: CodexJSONValue]? in
+            guard case .threadSettingsReplaced(_, let settings) = mutation else { return nil }
+            return settings
+        }.first)
+        XCTAssertEqual(settings["futureResponseSetting"], .string("preserved"))
+        XCTAssertNil(settings["thread"])
     }
 
     func testLegacyResumeAuthoritativelyReplacesDifferentlyIdentifiedLiveItems() throws {

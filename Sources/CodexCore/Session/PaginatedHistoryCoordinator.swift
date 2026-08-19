@@ -339,6 +339,7 @@ public struct PaginatedHistoryCoordinator: Sendable {
         var activeTurnRequestID: PaginatedHistoryRequestID?
         var itemChains: [TurnID: ItemChain] = [:]
         var pendingItemTurns: [TurnID] = []
+        var pendingItemTurnIndex = 0
         var activeItemRequestToTurn: [PaginatedHistoryRequestID: TurnID] = [:]
         var bufferedLiveEvents: [PaginatedHistoryBufferedLiveEvent]
         var bufferedLiveCursors: Set<CodexWireCursor>
@@ -758,8 +759,9 @@ public struct PaginatedHistoryCoordinator: Sendable {
         var effects: [PaginatedHistoryEffect] = []
 
         while paging.activeItemRequestToTurn.count < policy.maximumConcurrentItemPages,
-              !paging.pendingItemTurns.isEmpty {
-            let turnID = paging.pendingItemTurns.removeFirst()
+              paging.pendingItemTurnIndex < paging.pendingItemTurns.count {
+            let turnID = paging.pendingItemTurns[paging.pendingItemTurnIndex]
+            paging.pendingItemTurnIndex += 1
             guard let chain = paging.itemChains[turnID] else { continue }
             guard !chain.pageState.isExhausted, let cursor = chain.pageState.nextCursor else {
                 paging.itemChains[turnID] = chain
@@ -785,6 +787,7 @@ public struct PaginatedHistoryCoordinator: Sendable {
         paging.turnsPage.nextCursor = nil
         let itemHead = paging.cut.itemsBackwardsCursor
         paging.pendingItemTurns = paging.newestFirstTurnOrder
+        paging.pendingItemTurnIndex = 0
         for turnID in paging.newestFirstTurnOrder {
             paging.itemChains[turnID] = ItemChain(turnID: turnID, headCursor: itemHead)
         }
@@ -795,7 +798,7 @@ public struct PaginatedHistoryCoordinator: Sendable {
     private mutating func finishIfReady(threadID: ThreadID) -> [PaginatedHistoryEffect] {
         guard case .paging(let paging)? = scopes[threadID],
               paging.turnsPage.isExhausted,
-              paging.pendingItemTurns.isEmpty,
+              paging.pendingItemTurnIndex >= paging.pendingItemTurns.count,
               paging.activeItemRequestToTurn.isEmpty,
               paging.itemChains.values.allSatisfy({ $0.pageState.isExhausted }) else {
             return []

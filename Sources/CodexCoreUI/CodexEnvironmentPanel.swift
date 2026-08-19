@@ -210,7 +210,24 @@ public struct CodexProjectEnvironmentPanel: View {
     }
 
     private func prepareHandoff() {
-        session.prepareModal(threadTitle: threadTitle)
+        let sourcePath = session.environment.workspacePath
+        let fallbackPath = CodexProjectEnvironmentPanelSession.defaultTargetPath(
+            sourcePath: sourcePath,
+            threadTitle: threadTitle
+        )
+        session.prepareModal(threadTitle: threadTitle, targetPath: fallbackPath)
+
+        Task { @MainActor in
+            guard let repositoryURL = await CodexWorkspaceGitProbe.repositoryRoot(
+                at: URL(fileURLWithPath: sourcePath)
+            ) else { return }
+            let resolvedPath = CodexProjectEnvironmentPanelSession.defaultTargetPath(
+                sourcePath: sourcePath,
+                threadTitle: threadTitle,
+                repositoryURL: repositoryURL
+            )
+            session.replaceModalTargetPath(resolvedPath, replacing: fallbackPath)
+        }
     }
 
     @MainActor

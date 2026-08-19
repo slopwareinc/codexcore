@@ -83,6 +83,31 @@ struct CodexSidebarProjectOrderingTests {
         #expect(snapshot.projects[1].rows.map(\.id) == ["alpha-new", "alpha-old"])
     }
 
+    @Test func projectChatOrderingPreservesRecencyTitleAndSourceOrderTies() {
+        let project = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: Date().timeIntervalSince1970)
+        let session = CodexSidebarNavigationSession(currentWorkspacePath: project.workspacePath)
+        let chats = [
+            CodexThreadSummary(id: "same-title-first", title: "Same", workspacePath: project.workspacePath, recencyAt: 100),
+            CodexThreadSummary(id: "older", title: "Older", workspacePath: project.workspacePath, recencyAt: 50),
+            CodexThreadSummary(id: "same-title-second", title: "Same", workspacePath: project.workspacePath, recencyAt: 100),
+            CodexThreadSummary(id: "same-time-alpha", title: "Alpha", workspacePath: project.workspacePath, recencyAt: 100),
+        ]
+
+        let snapshot = session.snapshot(
+            projects: [project],
+            chats: chats,
+            currentWorkspacePath: project.workspacePath,
+            currentThreadID: nil
+        )
+
+        #expect(snapshot.projects[0].rows.map(\.id) == [
+            "same-time-alpha",
+            "same-title-first",
+            "same-title-second",
+            "older",
+        ])
+    }
+
     @Test func movingAProjectUpdatesOnlyTheExplicitProjectOrder() {
         let projects = ["Alpha", "Beta", "Gamma"].map {
             CodexProjectSummary(workspacePath: "/tmp/\($0)")

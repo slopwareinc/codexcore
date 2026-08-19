@@ -111,23 +111,51 @@ struct StateInvalidation: Sendable, Hashable {
         turnKeys: Set<TurnKey> = [],
         itemKeys: Set<ItemKey> = []
     ) {
+        // Normalize descendant indexes once so scope matching can stay at set
+        // intersection speed. Callers may provide only item or turn keys while
+        // thread and turn observers still need to include their descendants.
+        var normalizedThreadIDs = threadIDs
+        normalizedThreadIDs.formUnion(turnKeys.lazy.map(\.threadID))
+        normalizedThreadIDs.formUnion(itemKeys.lazy.map(\.threadID))
+
+        var normalizedTurnKeys = turnKeys
+        normalizedTurnKeys.formUnion(itemKeys.lazy.map(\.turnKey))
+
         self.revision = revision
         self.fields = fields
-        self.threadIDs = threadIDs
-        self.turnKeys = turnKeys
+        self.threadIDs = normalizedThreadIDs
+        self.turnKeys = normalizedTurnKeys
         self.itemKeys = itemKeys
     }
 
     init(_ batch: CanonicalStateChangeBatch) {
-        self.init(
-            revision: batch.revision,
-            fields: batch.changes.reduce(into: StateFieldMask()) { fields, change in
-                fields.formUnion(change.observationFields)
-            },
-            threadIDs: batch.affectedThreadIDs,
-            turnKeys: batch.affectedTurnKeys,
-            itemKeys: batch.affectedItemKeys
-        )
+        // Derive all invalidation indexes in one walk. This is on the committed
+        // transaction hot path, and the three batch accessors otherwise each
+        // allocate and scan the same change list independently.
+        var fields = StateFieldMask()
+        var threadIDs: Set<ThreadID> = []
+        var turnKeys: Set<TurnKey> = []
+        var itemKeys: Set<ItemKey> = []
+        for change in batch.changes {
+            fields.formUnion(change.observationFields)
+            if let threadID = change.threadID {
+                threadIDs.insert(threadID)
+            }
+            if let turnKey = change.turnKey {
+                turnKeys.insert(turnKey)
+            }
+            if let itemKey = change.itemKey {
+                itemKeys.insert(itemKey)
+            }
+        }
+        // The change-to-entity mapping above inserts each descendant's thread
+        // and turn key in the same walk, so the indexes are already normalized.
+        // Assign directly to avoid scanning the resulting sets a second time.
+        self.revision = batch.revision
+        self.fields = fields
+        self.threadIDs = threadIDs
+        self.turnKeys = turnKeys
+        self.itemKeys = itemKeys
     }
 
     func affects(_ scope: StateObservationScope) -> Bool {
@@ -141,12 +169,9 @@ struct StateInvalidation: Sendable, Hashable {
         case .threads(let observed):
             guard !observed.isEmpty else { return false }
             return !threadIDs.isDisjoint(with: observed)
-                || turnKeys.contains { observed.contains($0.threadID) }
-                || itemKeys.contains { observed.contains($0.threadID) }
         case .turns(let observed):
             guard !observed.isEmpty else { return false }
             return !turnKeys.isDisjoint(with: observed)
-                || itemKeys.contains { observed.contains($0.turnKey) }
         case .items(let observed):
             return !observed.isEmpty && !itemKeys.isDisjoint(with: observed)
         }

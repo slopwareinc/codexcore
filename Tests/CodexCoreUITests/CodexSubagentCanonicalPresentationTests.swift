@@ -4,6 +4,28 @@ import Foundation
 import Testing
 
 struct CodexSubagentCanonicalPresentationTests {
+    @Test func logicalAgentPathPrecedesGeneratedNicknameForDisplay() {
+        let agent = CodexSubagentV2(
+            threadID: "child",
+            agentPath: "/root/extra_subagent_4",
+            nickname: "Cicero"
+        )
+        #expect(agent.displayName == "Extra Subagent 4")
+
+        let nicknameOnly = CodexSubagentV2(
+            threadID: "child",
+            nickname: "Cicero"
+        )
+        #expect(nicknameOnly.displayName == "Cicero")
+
+        let rollout = CodexSubagentV2(
+            threadID: "child",
+            agentPath: "/Users/test/.codex/sessions/rollout-2026-08-19.jsonl",
+            nickname: "Cicero"
+        )
+        #expect(rollout.displayName == "Cicero")
+    }
+
     @Test func graphProjectionRegistersRecursiveDescendantsWithExactLifecycle() throws {
         let root = CodexThreadGraphKey(hostID: "host-a", threadID: "root")
         let child = CodexThreadGraphKey(hostID: "host-a", threadID: "child")
@@ -131,6 +153,7 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(child.nickname == "Scout")
         #expect(child.role == "explorer")
         #expect(child.agentPath == "/root/scout")
+        #expect(child.displayName == "Scout")
         #expect(child.transcript.turns.isEmpty)
     }
 
@@ -280,6 +303,86 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(duration == 2_000)
     }
 
+    @Test func staleIndexCannotRegressAnAuthoritativeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyParentSnapshot(parentSnapshot(), parentThreadID: "parent")
+        _ = store.applyChildSnapshot(childSnapshot(), threadID: "child")
+
+        let root = CodexThreadGraphKey(hostID: "local", threadID: "parent")
+        let child = CodexThreadGraphKey(hostID: "local", threadID: "child")
+        _ = store.applyGraphSnapshot(
+            .init(
+                revision: StateRevision(5),
+                nodes: [
+                    root: .init(key: root, children: [child]),
+                    child: .init(key: child, parent: root, lifecycle: .running),
+                ],
+                edges: [],
+                actions: [],
+                roots: [root]
+            ),
+            root: root
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("A graph refresh without newer lifecycle evidence must not regress completion")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(2),
+                threads: [indexChild(revision: StateRevision(2))]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("A stale active index must not regress an authoritative completion")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(4),
+                threads: [indexChild(revision: StateRevision(4))]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("An equal-revision index must not outrank the exact child snapshot")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(5),
+                threads: [indexChild(
+                    revision: StateRevision(5),
+                    latestTurnStatus: .completed
+                )]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("An active thread must not override its terminal latest turn")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(6),
+                threads: [indexChild(
+                    revision: StateRevision(6),
+                    latestTurnID: "new-turn"
+                )]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .working = store.agent(threadID: "child")?.status else {
+            Issue.record("A newer in-progress turn must reactivate the child")
+            return
+        }
+    }
+
     @Test func childMetadataSummaryUsesExactOrderedLatestTurn() throws {
         let threadID: ThreadID = "child"
         let olderTurnID: TurnID = "older"
@@ -401,6 +504,18 @@ struct CodexSubagentCanonicalPresentationTests {
         )
         #expect(!secondRefreshChanged)
         #expect(mapper.lifecycleEvents.first?.id == firstID)
+    }
+
+    @Test func mapperPrioritizesFailedAgentStatusWithoutBuildingStatusArray() throws {
+        var mapper = CodexAgentStateMapper()
+        _ = mapper.applyCanonicalSnapshot(
+            parentSnapshot(agentStatuses: ["shutdown", "errored"]),
+            parentThreadID: "parent",
+            projectedChildren: []
+        )
+
+        let event = try #require(mapper.lifecycleEvents.first)
+        #expect(event.status == .failed)
     }
 
     @Test func closeAgentRemainsClosedAfterChildRefresh() throws {
@@ -584,11 +699,17 @@ private extension CodexSubagentCanonicalPresentationTests {
 
     func parentSnapshot(
         close: Bool = false,
-        agentStatus: String? = nil
+        agentStatus: String? = nil,
+        agentStatuses: [String] = []
     ) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "parent"
         let turnID: TurnID = "parent-turn"
         let itemID: ItemID = close ? "close" : "spawn"
+        let agentStates = agentStatus.map {
+            ["child": CodexJSONValue.dictionary(["status": .string($0)])]
+        } ?? Dictionary(uniqueKeysWithValues: agentStatuses.enumerated().map { index, status in
+            ("agent-\(index)", CodexJSONValue.dictionary(["status": .string(status)]))
+        })
         let item = CanonicalItem(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
             kind: .collabAgentToolCall,
@@ -599,9 +720,7 @@ private extension CodexSubagentCanonicalPresentationTests {
                 "status": .string("completed"),
                 "receiverThreadIds": .array([.string("child")]),
                 "prompt": close ? .null : .string("Inspect the repository"),
-                "agentsStates": .dictionary(agentStatus.map {
-                    ["child": .dictionary(["status": .string($0)])]
-                } ?? [:]),
+                "agentsStates": .dictionary(agentStates),
             ],
             authority: .completed,
             completedAt: ProtocolMilliseconds(1_700_000_000_000),
@@ -669,7 +788,7 @@ private extension CodexSubagentCanonicalPresentationTests {
             agentRole: "explorer",
             createdAt: ProtocolSeconds(1_700_000_000),
             parentThreadID: "parent",
-            path: "/tmp/rollout-child.jsonl",
+            path: "/Users/test/.codex/sessions/rollout-child.jsonl",
             source: .dictionary([
                 "subagent": .dictionary([
                     "thread_spawn": .dictionary([
@@ -698,13 +817,15 @@ private extension CodexSubagentCanonicalPresentationTests {
     }
 
     func indexChild(
+        revision: StateRevision = StateRevision(2),
+        latestTurnID: TurnID = "child-turn",
         latestTurnStatus: CanonicalTurnStatus? = .inProgress
     ) -> CanonicalThreadIndexSummary {
         CanonicalThreadIndexSummary(
             id: "child",
             order: 1,
             status: .active(flags: []),
-            latestTurnID: "child-turn",
+            latestTurnID: latestTurnID,
             latestTurnStatus: latestTurnStatus,
             isArchived: false,
             isLoaded: true,
@@ -715,10 +836,10 @@ private extension CodexSubagentCanonicalPresentationTests {
             agentNickname: "Scout",
             agentRole: "explorer",
             agentPath: "/root/scout",
-            path: "/tmp/rollout-child.jsonl",
+            path: "/Users/test/.codex/sessions/rollout-child.jsonl",
             updatedAt: ProtocolSeconds(1_700_000_000),
-            lastChangedRevision: StateRevision(2),
-            attentionRevision: StateRevision(2),
+            lastChangedRevision: revision,
+            attentionRevision: revision,
             hasPendingServerRequest: false
         )
     }

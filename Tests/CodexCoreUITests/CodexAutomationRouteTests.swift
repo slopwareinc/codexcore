@@ -156,6 +156,31 @@ final class CodexAutomationRouteTests: XCTestCase {
         XCTAssertNotNil(lifecycle.automations[0].nextRunAt)
     }
 
+    func testLifecycleInitializationPreservesDuplicateIDsAndChronologicalOrder() {
+        let older = Date(timeIntervalSince1970: 1_700_000_000)
+        let newer = Date(timeIntervalSince1970: 1_800_000_000)
+        let laterDuplicate = CodexAutomation(
+            id: "duplicate",
+            name: "Later duplicate",
+            prompt: "Run later",
+            status: .running,
+            createdAt: newer
+        )
+        let earlierDuplicate = CodexAutomation(
+            id: "duplicate",
+            name: "Earlier duplicate",
+            prompt: "Run earlier",
+            createdAt: older
+        )
+
+        let lifecycle = CodexAutomationLifecycle(automations: [laterDuplicate, earlierDuplicate])
+
+        XCTAssertEqual(lifecycle.automations.map(\.id), ["duplicate", "duplicate"])
+        XCTAssertEqual(lifecycle.automations.map(\.name), ["Earlier duplicate", "Later duplicate"])
+        XCTAssertEqual(lifecycle.automations.map(\.status), [.enabled, .enabled])
+        XCTAssertEqual(lifecycle.automations.map(\.createdAt), [older, newer])
+    }
+
     func testFileStoreRoundTripsOfficialAutomationFields() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

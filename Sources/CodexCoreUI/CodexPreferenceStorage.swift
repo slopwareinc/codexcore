@@ -126,7 +126,8 @@ private enum CodexPreferenceStorageCodec {
         currentKey: String,
         legacyKeys: [String],
         from store: any CodexStringListPreferenceStore,
-        onFailure: CodexPreferenceFailureHandler? = nil
+        onFailure: CodexPreferenceFailureHandler? = nil,
+        preloadedCurrentValue: [String]? = nil
     ) -> [String] {
         var keys: [String] = []
         for key in [currentKey] + legacyKeys where !keys.contains(key) {
@@ -134,7 +135,12 @@ private enum CodexPreferenceStorageCodec {
         }
 
         for key in keys {
-            let values = store.loadStrings(forKey: key)
+            let values: [String]
+            if key == currentKey, let preloadedCurrentValue {
+                values = preloadedCurrentValue
+            } else {
+                values = store.loadStrings(forKey: key)
+            }
             guard !values.isEmpty else { continue }
             if key != currentKey {
                 _ = saveStrings(values, forKey: currentKey, to: store, onFailure: onFailure)
@@ -224,16 +230,17 @@ public enum CodexUnreadThreadStorage {
         from store: any CodexStringListPreferenceStore,
         onFailure: CodexPreferenceFailureHandler? = nil
     ) -> Set<ThreadID> {
-        let hasCurrentValue = !store.loadStrings(forKey: key).isEmpty
+        let currentValue = store.loadStrings(forKey: key)
         let normalizedIDs = normalized(
             CodexPreferenceStorageCodec.loadStrings(
                 currentKey: key,
                 legacyKeys: legacyKeys,
                 from: store,
-                onFailure: onFailure
+                onFailure: onFailure,
+                preloadedCurrentValue: currentValue
             )
         )
-        if !hasCurrentValue, !normalizedIDs.isEmpty {
+        if currentValue.isEmpty, !normalizedIDs.isEmpty {
             _ = CodexPreferenceStorageCodec.saveStrings(
                 normalizedIDs.sorted(),
                 forKey: key,

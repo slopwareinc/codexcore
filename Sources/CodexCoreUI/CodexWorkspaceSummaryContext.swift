@@ -61,11 +61,20 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
         guard let turnDiff, !turnDiff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let lines = turnDiff.split(separator: "\n", omittingEmptySubsequences: false)
-        let added = lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
-        let removed = lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
-        let files = max(1, lines.filter { $0.hasPrefix("diff --git ") }.count)
-        return "+\(added) -\(removed) across \(files) file(s)"
+        var added = 0
+        var removed = 0
+        var files = 0
+        for line in turnDiff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("+") && !line.hasPrefix("+++") {
+                added += 1
+            } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+                removed += 1
+            }
+            if line.hasPrefix("diff --git ") {
+                files += 1
+            }
+        }
+        return "+\(added) -\(removed) across \(max(1, files)) file(s)"
     }
 }
 
@@ -108,7 +117,17 @@ enum CodexWorkspaceGitProbe {
         return commonDirectory != worktreeGitDirectory
     }
 
-    static func repositoryRoot(at url: URL) -> URL? {
+    /// Resolve a repository root without making the caller's actor wait on a
+    /// Git subprocess. This is used while preparing the worktree modal; the
+    /// modal has an immediate path fallback and may refine it after this task
+    /// completes.
+    static func repositoryRoot(at url: URL) async -> URL? {
+        await Task.detached(priority: .utility) {
+            repositoryRootSynchronously(at: url)
+        }.value
+    }
+
+    private static func repositoryRootSynchronously(at url: URL) -> URL? {
         let directory = url.standardizedFileURL
         let process = Process()
         let output = Pipe()

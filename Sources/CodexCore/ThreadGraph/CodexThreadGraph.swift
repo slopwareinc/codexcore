@@ -323,8 +323,10 @@ public struct CodexThreadGraphSnapshot: Sendable, Equatable {
         var seen: Set<CodexThreadGraphKey> = [root]
         var queue = nodes[root]?.children ?? []
         var result: [CodexThreadGraphKey] = []
-        while !queue.isEmpty {
-            let next = queue.removeFirst()
+        var queueIndex = 0
+        while queueIndex < queue.count {
+            let next = queue[queueIndex]
+            queueIndex += 1
             guard seen.insert(next).inserted else { continue }
             result.append(next)
             queue.append(contentsOf: nodes[next]?.children ?? [])
@@ -344,6 +346,14 @@ public enum CodexThreadGraphProjector {
         var edges: [CodexThreadGraphEdge] = []
         var actions: [CodexThreadGraphAction] = []
         var edgeSet: Set<CodexThreadGraphEdge> = []
+        let sortedThreadIDs = snapshot.threads.keys.sorted()
+        var orderedThreadIDs: [ThreadID] = []
+        orderedThreadIDs.reserveCapacity(snapshot.threadOrder.count + sortedThreadIDs.count)
+        var seenThreadIDs: Set<ThreadID> = []
+        for threadID in snapshot.threadOrder + sortedThreadIDs
+        where seenThreadIDs.insert(threadID).inserted {
+            orderedThreadIDs.append(threadID)
+        }
 
         func key(_ id: ThreadID) -> CodexThreadGraphKey {
             .init(hostID: hostID, threadID: id)
@@ -356,7 +366,7 @@ public enum CodexThreadGraphProjector {
             if edgeSet.insert(edge).inserted { edges.append(edge) }
         }
 
-        for threadID in snapshot.threadOrder + snapshot.threads.keys.sorted() {
+        for threadID in orderedThreadIDs {
             guard let thread = snapshot.threads[threadID] else { continue }
             ensure(threadID)
             let graphKey = key(threadID)
@@ -385,7 +395,7 @@ public enum CodexThreadGraphProjector {
             }
         }
 
-        let orderedItems = canonicalItemOrder(snapshot)
+        let orderedItems = canonicalItemOrder(snapshot, threadIDs: orderedThreadIDs)
         for item in orderedItems where item.kind == .collabAgentToolCall {
             let payload = item.payload
             let senderID = ThreadID(
@@ -491,12 +501,6 @@ public enum CodexThreadGraphProjector {
             nodes[childKey] = node
         }
 
-        var orderedThreadIDs: [ThreadID] = []
-        var seenThreadIDs: Set<ThreadID> = []
-        for threadID in snapshot.threadOrder + snapshot.threads.keys.sorted()
-        where seenThreadIDs.insert(threadID).inserted {
-            orderedThreadIDs.append(threadID)
-        }
         let order = Dictionary(
             uniqueKeysWithValues:
                 orderedThreadIDs.enumerated().map { ($0.element, $0.offset) }
@@ -538,8 +542,10 @@ public enum CodexThreadGraphProjector {
         }
         var queue = roots.map { ($0, 0) }
         var visited: Set<CodexThreadGraphKey> = []
-        while !queue.isEmpty {
-            let (next, depth) = queue.removeFirst()
+        var queueIndex = 0
+        while queueIndex < queue.count {
+            let (next, depth) = queue[queueIndex]
+            queueIndex += 1
             guard visited.insert(next).inserted else { continue }
             nodes[next]?.depth = depth
             queue.append(contentsOf: (nodes[next]?.children ?? []).map { ($0, depth + 1) })
@@ -573,10 +579,13 @@ public enum CodexThreadGraphProjector {
         return .topLevel
     }
 
-    private static func canonicalItemOrder(_ snapshot: CanonicalStateSnapshot) -> [CanonicalItem] {
+    private static func canonicalItemOrder(
+        _ snapshot: CanonicalStateSnapshot,
+        threadIDs: [ThreadID]
+    ) -> [CanonicalItem] {
         var seen: Set<ItemKey> = []
         var result: [CanonicalItem] = []
-        for threadID in snapshot.threadOrder + snapshot.threads.keys.sorted() {
+        for threadID in threadIDs {
             for turn in snapshot.turns(in: threadID) {
                 for item in snapshot.items(in: turn.key) where seen.insert(item.key).inserted {
                     result.append(item)

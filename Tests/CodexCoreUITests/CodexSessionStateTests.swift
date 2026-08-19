@@ -269,6 +269,17 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.referencedFiles, [document])
     }
 
+    func testComposerFileReferenceDeduplicationKeepsFirstOccurrenceOrder() {
+        let first = CodexReferencedFile(path: "/tmp/readme.md", displayName: "first", kind: .file)
+        let replacement = CodexReferencedFile(path: "/tmp/readme.md", displayName: "replacement", kind: .file)
+        let second = CodexReferencedFile(path: "/tmp/notes.md", kind: .file)
+        var session = CodexComposerStateSession(activeThreadID: "thread-a")
+
+        session.setReferencedFiles([first, replacement, second], for: "thread-a")
+
+        XCTAssertEqual(session.referencedFiles, [first, second])
+    }
+
     func testClearingTransientThreadStatePreservesUnsentFileReferencesLikeDraftText() {
         let document = CodexReferencedFile(path: "/tmp/readme.md", kind: .file)
         var session = CodexComposerStateSession(draft: "Unsent", activeThreadID: nil)
@@ -325,6 +336,26 @@ final class CodexSessionStateTests: XCTestCase {
             mainChatSession: &mainChat
         )
         XCTAssertEqual(composer.dequeueQueuedFollowUpSubmission(isSending: false), submission)
+    }
+
+    func testComposerFollowUpQueueDrainsLargeFIFOWithoutChangingOrder() {
+        var composer = CodexComposerStateSession(activeThreadID: "thread-a")
+        for index in 0..<1_024 {
+            composer.enqueueFollowUp(CodexComposerSubmission(
+                prompt: "follow-up-\(index)",
+                clientID: "client-\(index)",
+                threadID: "thread-a"
+            ))
+        }
+
+        for index in 0..<1_024 {
+            XCTAssertEqual(
+                composer.dequeueQueuedFollowUp(isSending: false),
+                "follow-up-\(index)"
+            )
+        }
+        XCTAssertTrue(composer.queuedFollowUps.isEmpty)
+        XCTAssertNil(composer.dequeueQueuedFollowUp(isSending: false))
     }
 
     func testQueuedAndFailedAttachmentSubmissionsStayWithOriginThread() throws {

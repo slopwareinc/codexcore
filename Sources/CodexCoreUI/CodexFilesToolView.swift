@@ -42,6 +42,10 @@ public final class CodexFileTreeNode: Identifiable {
     public func invalidateChildren() {
         children = nil
     }
+
+    func setLoadedChildren(_ children: [CodexFileTreeNode]) {
+        self.children = children
+    }
 }
 
 public struct CodexFileTreeLoader {
@@ -64,6 +68,19 @@ public struct CodexFileTreeLoader {
     }
 
     public func children(of directoryURL: URL) -> [CodexFileTreeNode] {
+        entries(of: directoryURL).map(makeNode)
+    }
+
+    /// Performs directory enumeration away from the main actor. The outline
+    /// view asks its data source for children synchronously, so callers use the
+    /// returned entries to populate nodes only after the I/O has completed.
+    static func childrenAsync(of directoryURL: URL) async -> [CodexFileTreeEntry] {
+        await Task.detached(priority: .utility) {
+            CodexFileTreeLoader().entries(of: directoryURL)
+        }.value
+    }
+
+    private func entries(of directoryURL: URL) -> [CodexFileTreeEntry] {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .localizedNameKey]
         let urls: [URL]
         do {
@@ -76,13 +93,11 @@ public struct CodexFileTreeLoader {
             return []
         }
 
-        return urls.compactMap { url in
-            fileTreeNode(for: url, resourceKeys: keys)
-        }
+        return urls.compactMap { fileTreeEntry(for: $0, resourceKeys: keys) }
         .sorted(by: Self.sortNodes)
     }
 
-    private func fileTreeNode(for url: URL, resourceKeys: Set<URLResourceKey>) -> CodexFileTreeNode? {
+    private func fileTreeEntry(for url: URL, resourceKeys: Set<URLResourceKey>) -> CodexFileTreeEntry? {
         let values = try? url.resourceValues(forKeys: resourceKeys)
         let name = values?.localizedName ?? url.lastPathComponent
         let isDirectory = values?.isDirectory == true
@@ -100,7 +115,7 @@ public struct CodexFileTreeLoader {
             kind = .file
         }
 
-        return CodexFileTreeNode(url: url.standardizedFileURL, name: name, kind: kind)
+        return CodexFileTreeEntry(url: url.standardizedFileURL, name: name, kind: kind)
     }
 
     public static func sortNodes(_ lhs: CodexFileTreeNode, _ rhs: CodexFileTreeNode) -> Bool {
@@ -108,6 +123,22 @@ public struct CodexFileTreeLoader {
         if lhs.kind != .directory, rhs.kind == .directory { return false }
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
     }
+
+    private static func sortNodes(_ lhs: CodexFileTreeEntry, _ rhs: CodexFileTreeEntry) -> Bool {
+        if lhs.kind == .directory, rhs.kind != .directory { return true }
+        if lhs.kind != .directory, rhs.kind == .directory { return false }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+
+    private func makeNode(_ entry: CodexFileTreeEntry) -> CodexFileTreeNode {
+        CodexFileTreeNode(url: entry.url, name: entry.name, kind: entry.kind)
+    }
+}
+
+struct CodexFileTreeEntry: Sendable {
+    let url: URL
+    let name: String
+    let kind: CodexFileTreeNodeKind
 }
 
 public enum CodexFilesPathFormatter {
@@ -272,6 +303,7 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
         context.coordinator.rootNode = rootNode
         context.coordinator.refreshIdentity = refreshIdentity
         if shouldReload {
+            context.coordinator.cancelPendingLoads()
             outlineView.reloadData()
         }
         context.coordinator.selectVisibleURL(selectedURL, in: outlineView)
@@ -287,6 +319,8 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
         var refreshIdentity: UUID
         weak var outlineView: NSOutlineView?
         private var isUpdatingSelection = false
+        private var childLoadTasks: [URL: Task<Void, Never>] = [:]
+        private var pendingExpansions: Set<URL> = []
 
         init(selectedURL: Binding<URL?>, rootNode: CodexFileTreeNode, refreshIdentity: UUID) {
             self.selectedURL = selectedURL
@@ -295,16 +329,31 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            node(for: item).loadChildren().count
+            let node = node(for: item)
+            guard let children = node.children else {
+                requestChildren(for: node, in: outlineView, expandWhenLoaded: false)
+                return 0
+            }
+            return children.count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            node(for: item).loadChildren()[index]
+            node(for: item).children?[index] ?? node(for: item)
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
             guard let node = item as? CodexFileTreeNode else { return false }
             return node.isExpandable
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
+            guard let node = item as? CodexFileTreeNode, node.isExpandable else { return false }
+            guard node.areChildrenLoaded else {
+                pendingExpansions.insert(node.id)
+                requestChildren(for: node, in: outlineView, expandWhenLoaded: true)
+                return false
+            }
+            return true
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -343,6 +392,44 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
 
         private func node(for item: Any?) -> CodexFileTreeNode {
             (item as? CodexFileTreeNode) ?? rootNode
+        }
+
+        private func requestChildren(
+            for node: CodexFileTreeNode,
+            in outlineView: NSOutlineView,
+            expandWhenLoaded: Bool
+        ) {
+            if expandWhenLoaded {
+                pendingExpansions.insert(node.id)
+            }
+            guard childLoadTasks[node.id] == nil else { return }
+            let expectedRefreshIdentity = refreshIdentity
+            childLoadTasks[node.id] = Task { [weak self, node] in
+                let entries = await CodexFileTreeLoader.childrenAsync(of: node.url)
+                guard !Task.isCancelled else { return }
+                guard let self, self.refreshIdentity == expectedRefreshIdentity else { return }
+                node.setLoadedChildren(entries.map {
+                    CodexFileTreeNode(url: $0.url, name: $0.name, kind: $0.kind)
+                })
+                self.childLoadTasks[node.id] = nil
+                let shouldExpand = self.pendingExpansions.remove(node.id) != nil
+                if node === self.rootNode {
+                    outlineView.reloadData()
+                } else {
+                    outlineView.reloadItem(node, reloadChildren: true)
+                }
+                if shouldExpand {
+                    outlineView.expandItem(node)
+                }
+            }
+        }
+
+        func cancelPendingLoads() {
+            for task in childLoadTasks.values {
+                task.cancel()
+            }
+            childLoadTasks.removeAll(keepingCapacity: true)
+            pendingExpansions.removeAll(keepingCapacity: true)
         }
     }
 }

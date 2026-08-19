@@ -180,15 +180,25 @@ private final class CodexStderrRing: @unchecked Sendable {
     }
 
     func append(_ chunk: Data) {
-        guard !chunk.isEmpty else { return }
+        chunk.withUnsafeBytes { bytes in
+            append(bytes)
+        }
+    }
+
+    /// Appends bytes synchronously while the caller's buffer is valid. Keeping
+    /// the copy inside the ring avoids a temporary Data allocation on the
+    /// nonisolated stderr drain path.
+    func append(_ bytes: UnsafeRawBufferPointer) {
+        guard !bytes.isEmpty else { return }
 
         lock.withLock {
-            if chunk.count >= maximumByteCount {
-                data = Data(chunk.suffix(maximumByteCount))
+            if bytes.count >= maximumByteCount {
+                let start = bytes.baseAddress!.advanced(by: bytes.count - maximumByteCount)
+                data = Data(bytes: start, count: maximumByteCount)
                 return
             }
 
-            data.append(chunk)
+            data.append(contentsOf: bytes.bindMemory(to: UInt8.self))
             guard data.count > maximumByteCount else { return }
             data = Data(data.suffix(maximumByteCount))
         }
@@ -485,11 +495,17 @@ public actor CodexStdioTransport: CodexFrameTransport {
 
                 var buffer = [UInt8](repeating: 0, count: 4_096)
                 readLoop: while true {
-                    let bytesRead = buffer.withUnsafeMutableBytes { raw in
-                        read(descriptor, raw.baseAddress, raw.count)
+                    let bytesRead = buffer.withUnsafeMutableBytes { raw -> Int in
+                        let count = read(descriptor, raw.baseAddress, raw.count)
+                        if count > 0 {
+                            stderrCapture.append(UnsafeRawBufferPointer(
+                                start: raw.baseAddress!,
+                                count: count
+                            ))
+                        }
+                        return count
                     }
                     if bytesRead > 0 {
-                        stderrCapture.append(Data(buffer[0..<bytesRead]))
                         continue
                     }
                     if bytesRead == 0 { break readLoop }

@@ -1129,28 +1129,42 @@ public struct CodexSlashCommand: Identifiable, Equatable, Sendable {
         matching draft: String
     ) -> [CodexSlashCommand] {
         guard let invocation = invocation(from: draft) else { return [] }
-        let commands = commands.filter {
+        let query = invocation.query
+        let mayShowCommand: (CodexSlashCommand) -> Bool = {
             $0.isEnabled && (!$0.requiresEmptyComposer || !invocation.hasOtherContent)
         }
-        let query = invocation.query
-        guard !query.isEmpty else { return commands }
+        if query.isEmpty {
+            return commands.filter(mayShowCommand)
+        }
         let needle = query.lowercased()
 
-        let prefixMatches = commands.filter { command in
-            command.id.lowercased().hasPrefix(needle) ||
-                command.title.lowercased().hasPrefix(needle)
+        var prefixMatches: [CodexSlashCommand] = []
+        var primaryMatches: [CodexSlashCommand] = []
+        var detailMatches: [CodexSlashCommand] = []
+        prefixMatches.reserveCapacity(commands.count)
+        primaryMatches.reserveCapacity(commands.count)
+        detailMatches.reserveCapacity(commands.count)
+
+        for command in commands {
+            guard mayShowCommand(command) else { continue }
+            let id = command.id.lowercased()
+            let title = command.title.lowercased()
+            if id.hasPrefix(needle) || title.hasPrefix(needle) {
+                prefixMatches.append(command)
+                continue
+            }
+            if id.contains(needle) || title.contains(needle) {
+                primaryMatches.append(command)
+                continue
+            }
+            if command.detail.lowercased().contains(needle) {
+                detailMatches.append(command)
+            }
         }
+
         if !prefixMatches.isEmpty { return prefixMatches }
-
-        let primaryMatches = commands.filter { command in
-            command.id.lowercased().contains(needle) ||
-                command.title.lowercased().contains(needle)
-        }
         if !primaryMatches.isEmpty { return primaryMatches }
-
-        return commands.filter { command in
-            command.detail.lowercased().contains(needle)
-        }
+        return detailMatches
     }
 
     public func withAvailability(_ isEnabled: Bool) -> CodexSlashCommand {

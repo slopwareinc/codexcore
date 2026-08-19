@@ -84,20 +84,29 @@ public struct CodexThreadListSession: Sendable {
         currentWorkspacePath: String,
         errorMessage: (Error) -> String
     ) async -> CodexThreadListActivity? {
+        let currentRequest = CodexRequest.threadList(.init(
+            archived: false,
+            cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
+            limit: 50,
+            sortDirection: .desc,
+            sortKey: .recencyAt
+        ))
+        let allRequest = CodexRequest.threadList(.init(
+            archived: false,
+            limit: 100,
+            sortDirection: .desc,
+            sortKey: .recencyAt
+        ))
+
+        // These lists are independent reads. Start both requests together so
+        // sidebar readiness is bounded by the slower response rather than the
+        // sum of the two round trips; applyThreadList remains deterministic.
+        async let currentResponse = codex.perform(currentRequest)
+        async let allResponse = codex.perform(allRequest)
         do {
-            let currentRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
-                archived: false,
-                cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
-                limit: 50,
-                sortDirection: .desc,
-                sortKey: .recencyAt
-            ))))
-            let allRaw = try CodexJSONValue(encoding: await codex.perform(CodexRequest.threadList(.init(
-                archived: false,
-                limit: 100,
-                sortDirection: .desc,
-                sortKey: .recencyAt
-            ))))
+            let (currentResponse, allResponse) = try await (currentResponse, allResponse)
+            let currentRaw = try CodexJSONValue(encoding: currentResponse)
+            let allRaw = try CodexJSONValue(encoding: allResponse)
             applyThreadList(currentRaw: currentRaw, allRaw: allRaw, currentWorkspacePath: currentWorkspacePath)
             return nil
         } catch {

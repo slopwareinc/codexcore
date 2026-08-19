@@ -61,10 +61,21 @@ public struct CodexSubagentV2: Identifiable, Sendable {
     }
 
     public var displayName: String {
-        if let nickname, !nickname.isEmpty { return nickname }
-        let raw = agentPath?.split(separator: "/").last.map(String.init)
+        let raw = Self.logicalPathLeaf(agentPath)
+            ?? nickname.flatMap { $0.isEmpty ? nil : $0 }
             ?? "agent-\(threadID.split(separator: "-").first ?? Substring(threadID))"
         return raw.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private static func logicalPathLeaf(_ path: String?) -> String? {
+        guard let path else { return nil }
+        let lowercased = path.lowercased()
+        guard !lowercased.hasSuffix(".jsonl"),
+              !lowercased.contains("/.codex/sessions/")
+        else { return nil }
+        let leaf = path.split(separator: "/").last.map(String.init)
+        guard let leaf, !leaf.lowercased().hasPrefix("rollout-") else { return nil }
+        return leaf
     }
 }
 
@@ -128,6 +139,7 @@ struct CodexSubagentChildSnapshotSummary: Sendable, Equatable {
     var metadata: CanonicalThreadMetadata
     var threadStatus: CanonicalThreadStatus
     var latestTurn: CanonicalTurn?
+    var statusRevision: StateRevision
 
     init?(
         snapshot: CanonicalStateSnapshot,
@@ -142,6 +154,7 @@ struct CodexSubagentChildSnapshotSummary: Sendable, Equatable {
         self.metadata = thread.metadata
         self.threadStatus = thread.status
         self.latestTurn = latestTurn
+        self.statusRevision = latestTurn?.lastChangedRevision ?? thread.lastChangedRevision
     }
 }
 
@@ -183,8 +196,21 @@ extension CodexSubagentStoreV2 {
 /// retaining child presentations here. `applyChildSnapshot` remains a standalone
 /// value API for hosts that render `CodexSubagentsPanelV2` directly.
 public struct CodexSubagentStoreV2: Sendable {
+    private enum StatusAuthority: Int, Sendable {
+        case graph
+        case parent
+        case index
+        case child
+    }
+
+    private struct StatusStamp: Sendable {
+        var revision: StateRevision
+        var authority: StatusAuthority
+    }
+
     private var agentsByID: [String: CodexSubagentV2] = [:]
     private var discoveriesByID: [String: CodexSubagentDiscoveryV2] = [:]
+    private var statusStampsByID: [String: StatusStamp] = [:]
 
     public init() {}
 
@@ -238,13 +264,21 @@ public struct CodexSubagentStoreV2: Sendable {
             agent.depth = node.depth ?? agent.depth
             agent.collaborationLifecycle = node.lifecycle ?? agent.collaborationLifecycle
             agent.statusMessage = node.errorMessage ?? node.resultMessage ?? agent.statusMessage
+            agentsByID[discovery.threadID] = agent
             if let lifecycle = node.lifecycle {
                 let status = Self.status(from: lifecycle, message: agent.statusMessage)
-                if Self.shouldApplyDiscoveryStatus(status, over: agent.status) {
-                    agent.status = status
+                if Self.shouldApplyDiscoveryStatus(
+                    status,
+                    over: agentsByID[discovery.threadID]?.status
+                ) {
+                    mergeStatus(
+                        status,
+                        threadID: discovery.threadID,
+                        revision: .zero,
+                        authority: .graph
+                    )
                 }
             }
-            agentsByID[discovery.threadID] = agent
         }
         return discoveries
     }
@@ -257,7 +291,7 @@ public struct CodexSubagentStoreV2: Sendable {
         parentThreadID: ThreadID
     ) -> [CodexSubagentDiscoveryV2] {
         var currentDiscoveries: [String: CodexSubagentDiscoveryV2] = [:]
-        var closeStates: [String: CodexSubagentLiveStatusV2] = [:]
+        var closeStates: [String: (CodexSubagentLiveStatusV2, StateRevision)] = [:]
 
         for item in orderedItems(snapshot, threadID: parentThreadID) {
             switch item.kind {
@@ -275,9 +309,12 @@ public struct CodexSubagentStoreV2: Sendable {
                     _ = register(discovery)
                     currentDiscoveries[id] = discoveriesByID[id] ?? discovery
                 }
-                applyAgentStatePayload(item.payload.object("agentsStates"))
+                applyAgentStatePayload(
+                    item.payload.object("agentsStates"),
+                    revision: item.lastChangedRevision
+                )
                 if item.payload.string("tool") == "closeAgent", item.authority == .completed {
-                    for id in ids { closeStates[id] = .closed }
+                    for id in ids { closeStates[id] = (.closed, item.lastChangedRevision) }
                 }
 
             case .subAgentActivity:
@@ -297,7 +334,14 @@ public struct CodexSubagentStoreV2: Sendable {
             }
         }
 
-        for (id, status) in closeStates { agentsByID[id]?.status = status }
+        for (id, value) in closeStates {
+            mergeStatus(
+                value.0,
+                threadID: id,
+                revision: value.1,
+                authority: .parent
+            )
+        }
         return currentDiscoveries.values.sorted { $0.threadID < $1.threadID }
     }
 
@@ -328,11 +372,13 @@ public struct CodexSubagentStoreV2: Sendable {
                 parentThreadID: parentThreadID.rawValue
             )
             if let status = Self.status(from: summary),
-               Self.shouldApplyIndexStatus(
-                   summary,
-                   over: agentsByID[id]?.status
-               ) {
-                agentsByID[id]?.status = status
+               Self.shouldApplyIndexStatus(summary, over: agentsByID[id]?.status) {
+                mergeStatus(
+                    status,
+                    threadID: id,
+                    revision: summary.lastChangedRevision,
+                    authority: .index
+                )
             }
         }
         return currentDiscoveries.sorted { $0.threadID < $1.threadID }
@@ -402,13 +448,6 @@ public struct CodexSubagentStoreV2: Sendable {
         agent.parentThreadID =
             summary.metadata.parentThreadID?.rawValue ?? agent.parentThreadID
         agent.depth = agent.agentPath.map(Self.depth) ?? agent.depth
-        if !Self.isClosed(agent.status) {
-            agent.status = Self.status(
-                threadStatus: summary.threadStatus,
-                latestTurn: summary.latestTurn,
-                fallback: agent.status
-            )
-        }
         if let createdAt = summary.metadata.createdAt?.rawValue {
             agent.createdAt = Date(timeIntervalSince1970: TimeInterval(createdAt))
         }
@@ -416,6 +455,17 @@ public struct CodexSubagentStoreV2: Sendable {
             Date(timeIntervalSince1970: TimeInterval($0.rawValue))
         }
         agentsByID[id] = agent
+        mergeStatus(
+            Self.status(
+                threadStatus: summary.threadStatus,
+                latestTurn: summary.latestTurn,
+                fallback: agent.status
+            ),
+            threadID: id,
+            revision: summary.statusRevision,
+            authority: .child
+        )
+        agent = agentsByID[id] ?? agent
         return previous.agentPath != agent.agentPath
             || previous.nickname != agent.nickname
             || previous.role != agent.role
@@ -504,11 +554,13 @@ public struct CodexSubagentStoreV2: Sendable {
     public mutating func remove(threadID: ThreadID) {
         agentsByID.removeValue(forKey: threadID.rawValue)
         discoveriesByID.removeValue(forKey: threadID.rawValue)
+        statusStampsByID.removeValue(forKey: threadID.rawValue)
     }
 
     public mutating func removeAll() {
         agentsByID.removeAll(keepingCapacity: false)
         discoveriesByID.removeAll(keepingCapacity: false)
+        statusStampsByID.removeAll(keepingCapacity: false)
     }
 
     public mutating func updateMetadata(
@@ -569,7 +621,10 @@ private extension CodexSubagentStoreV2 {
         return isNew
     }
 
-    mutating func applyAgentStatePayload(_ states: [String: CodexJSONValue]?) {
+    mutating func applyAgentStatePayload(
+        _ states: [String: CodexJSONValue]?,
+        revision: StateRevision
+    ) {
         guard let states else { return }
         for (id, rawState) in states {
             guard let state = CodexJSONCoercion.dictionary(from: rawState),
@@ -581,9 +636,31 @@ private extension CodexSubagentStoreV2 {
             agentsByID[id]?.statusMessage = message
             let status = Self.status(from: lifecycle, message: message)
             if Self.shouldApplyDiscoveryStatus(status, over: agentsByID[id]?.status) {
-                agentsByID[id]?.status = status
+                mergeStatus(
+                    status,
+                    threadID: id,
+                    revision: revision,
+                    authority: .parent
+                )
             }
         }
+    }
+
+    private mutating func mergeStatus(
+        _ status: CodexSubagentLiveStatusV2,
+        threadID: String,
+        revision: StateRevision,
+        authority: StatusAuthority
+    ) {
+        guard let current = agentsByID[threadID]?.status else { return }
+        if Self.isClosed(current) { return }
+        if !Self.isClosed(status), let stamp = statusStampsByID[threadID] {
+            guard revision > stamp.revision
+                || (revision == stamp.revision && authority.rawValue >= stamp.authority.rawValue)
+            else { return }
+        }
+        agentsByID[threadID]?.status = status
+        statusStampsByID[threadID] = .init(revision: revision, authority: authority)
     }
 
     static func status(
@@ -660,9 +737,6 @@ private extension CodexSubagentStoreV2 {
         }
     }
 
-    /// Parent collaboration payloads and graph nodes are discovery fallbacks.
-    /// Once an exact child/index view reaches a terminal state, those broader
-    /// sources cannot move it backwards. Explicit closure remains terminal.
     static func shouldApplyDiscoveryStatus(
         _ incoming: CodexSubagentLiveStatusV2,
         over current: CodexSubagentLiveStatusV2?
@@ -672,9 +746,6 @@ private extension CodexSubagentStoreV2 {
         return true
     }
 
-    /// A concrete latest-turn status is authoritative, including a new
-    /// in-progress turn that resumes a completed child. Thread activity alone
-    /// is only a fallback and cannot downgrade an existing terminal result.
     static func shouldApplyIndexStatus(
         _ summary: CanonicalThreadIndexSummary,
         over current: CodexSubagentLiveStatusV2?
@@ -684,6 +755,7 @@ private extension CodexSubagentStoreV2 {
         case .unknown?, nil: !isTerminal(current)
         }
     }
+
 }
 
 private extension Dictionary where Key == String, Value == CodexJSONValue {

@@ -95,6 +95,7 @@ final class CodexCoreAppModel {
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
     private var pendingSteerSubmissions: [CodexComposerSubmission] = []
+    private var pendingSteerSubmissionHead = 0
     private var isProcessingSteerSubmissions = false
     private var processActivityTokens: [String: NSObjectProtocol] = [:]
     private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
@@ -153,7 +154,9 @@ final class CodexCoreAppModel {
             directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
         )
         self.automationNotifications = CodexAutomationNotificationService()
-        self.automationLifecycle = CodexAutomationLifecycle(automations: automationStore.load())
+        // Automation files are loaded by the scheduler task after launch. Do
+        // not enumerate and parse the user's Codex home during @MainActor init.
+        self.automationLifecycle = CodexAutomationLifecycle()
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
         self.pluginCatalogActionProviderOverride = pluginCatalogActionProvider
@@ -281,7 +284,9 @@ final class CodexCoreAppModel {
             // complete, so ready is never exposed during the wire handshake.
             authSession.connectedAfterHandshake(server: server)
             accountMenuSummary = CodexAccountMenuSummary(account: nil, serverName: server)
-            accountPreferredDisplayName = CodexAuthTokenProfileReader.displayName(codexHome: codex.codexHome)
+            accountPreferredDisplayName = await CodexAuthTokenProfileReader.displayNameAsync(
+                codexHome: codex.codexHome
+            )
 
             do {
                 configRequirements = try await codex.perform(CodexRequest.configRequirementsRead()).requirements
@@ -507,10 +512,13 @@ final class CodexCoreAppModel {
             flushQueuedFollowUps()
         }
 
-        while !pendingSteerSubmissions.isEmpty {
-            let next = pendingSteerSubmissions.removeFirst()
+        while pendingSteerSubmissionHead < pendingSteerSubmissions.count {
+            let next = pendingSteerSubmissions[pendingSteerSubmissionHead]
+            pendingSteerSubmissionHead += 1
             await processSteerSubmission(next)
         }
+        pendingSteerSubmissions.removeAll(keepingCapacity: true)
+        pendingSteerSubmissionHead = 0
     }
 
     private func processSteerSubmission(_ submission: CodexComposerSubmission) async {
@@ -1285,19 +1293,26 @@ final class CodexCoreAppModel {
             errorMessage: CodexErrorFormat.localizedDescription
         )
         guard !Task.isCancelled, self.codex === codex else { return }
-        configurationSession = session
+        configurationSession.mergeStartupCatalogs(from: session)
         applyPreferredModel(for: currentThreadID)
     }
 
-    private func refreshSlashCommands(using codex: Codex, forceReload: Bool = false) async {
-        var session = configurationSession
-        _ = await session.refreshSlashCommands(
-            using: codex,
-            cwds: workspaceRoots,
-            forceReload: forceReload,
-            errorMessage: CodexErrorFormat.localizedDescription
-        )
-        configurationSession = session
+    func refreshSlashCommands(using codex: Codex, forceReload: Bool = false) async {
+        do {
+            let response = try await codex.perform(CodexRequest.skillsList(.init(
+                cwds: workspaceRoots.isEmpty ? nil : workspaceRoots,
+                forceReload: forceReload ? true : nil
+            )))
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = configurationSession.applySlashCommandResponse(
+                try CodexJSONValue(encoding: response)
+            )
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = configurationSession.failSlashCommandRefresh(
+                message: CodexErrorFormat.localizedDescription(error)
+            )
+        }
     }
 
     func refreshRecentChats() async {
@@ -1440,6 +1455,10 @@ final class CodexCoreAppModel {
     }
 
     private func runAutomationScheduler() async {
+        let loaded: CodexAutomationLoadResult = await automationStore.load()
+        guard !Task.isCancelled else { return }
+        automationLifecycle = CodexAutomationLifecycle(automations: loaded.automations)
+
         while !Task.isCancelled {
             await withProcessActivity(
                 reason: "Checking scheduled Codex automations"

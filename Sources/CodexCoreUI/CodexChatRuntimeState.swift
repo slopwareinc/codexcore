@@ -211,8 +211,9 @@ public struct CodexChatRuntimeState: Sendable {
         }
 
         hasCanonicalSnapshot = true
-        let turns = snapshot.canonical.turns(in: selectedThreadID)
-        let latestTurn = turns.last
+        let latestTurn = thread.turnOrder.reversed().lazy.compactMap { turnID in
+            snapshot.canonical.turns[TurnKey(threadID: selectedThreadID, turnID: turnID)]
+        }.first
         canonicalIsSending = thread.status.isActive || latestTurn?.status == .inProgress
         canonicalPlan = (latestTurn?.plan ?? []).map { step in
             TurnPlanStep(step: step.step, status: Self.planStatus(step.status))

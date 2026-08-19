@@ -5,6 +5,19 @@ public enum CodexAuthTokenProfileReader {
         displayName(authFileURL: codexHome.authFileURL)
     }
 
+    /// Reads the auth profile without making the caller's actor wait on disk I/O.
+    /// The parsing helpers are value-only, so the complete read/decode can stay
+    /// off the main actor before the display name crosses back to the caller.
+    public static func displayNameAsync(codexHome: CodexHome = .default) async -> String? {
+        await displayNameAsync(authFileURL: codexHome.authFileURL)
+    }
+
+    public static func displayNameAsync(authFileURL: URL) async -> String? {
+        return await Task.detached(priority: .utility) {
+            displayName(authFileURL: authFileURL)
+        }.value
+    }
+
     public static func displayName(authFileURL: URL) -> String? {
         guard let data = try? Data(contentsOf: authFileURL) else { return nil }
         return displayName(authJSONData: data)

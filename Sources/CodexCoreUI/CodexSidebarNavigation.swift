@@ -479,17 +479,40 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             }
         let orderedProjects = orderedProjects(visibleProjects)
         let pinnedProjectIDSet = Set(pinnedProjectIDs)
+        var chatsByWorkspacePath: [String: [CodexThreadSummary]] = [:]
+        var chatOrderByID: [String: Int] = [:]
+        chatsByWorkspacePath.reserveCapacity(projectChats.count)
+        chatOrderByID.reserveCapacity(projectChats.count)
+        for (order, chat) in projectChats.enumerated() {
+            let path = CodexProjectSummary.normalizedPath(
+                chat.workspacePath ?? normalizedCurrent
+            )
+            chatsByWorkspacePath[path, default: []].append(chat)
+            chatOrderByID[chat.id] = order
+        }
 
         let projectGroups = orderedProjects.map { project in
-            let sortedChats = projectChats
-                .filter { chat in
-                    project.contains(workspacePath: chat.workspacePath ?? normalizedCurrent)
-                }
+            var chatsForProject: [CodexThreadSummary] = []
+            var seenPaths: Set<String> = []
+            for sourceFolder in project.sourceFolders {
+                let path = CodexProjectSummary.normalizedPath(sourceFolder)
+                guard seenPaths.insert(path).inserted else { continue }
+                chatsForProject.append(contentsOf: chatsByWorkspacePath[path] ?? [])
+            }
+            let sortedChats = chatsForProject
                 .sorted { lhs, rhs in
                     let leftPinned = pinnedIDSet.contains(lhs.id)
                     let rightPinned = pinnedIDSet.contains(rhs.id)
                     if leftPinned != rightPinned { return leftPinned && !rightPinned }
-                    return Self.compareByRecency(lhs, rhs)
+                    let leftRecency = lhs.recencyAt ?? lhs.updatedAt ?? lhs.createdAt ?? 0
+                    let rightRecency = rhs.recencyAt ?? rhs.updatedAt ?? rhs.createdAt ?? 0
+                    if leftRecency != rightRecency { return leftRecency > rightRecency }
+                    let titleComparison = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+                    if titleComparison != .orderedSame {
+                        return titleComparison == .orderedAscending
+                    }
+                    return (chatOrderByID[lhs.id] ?? Int.max)
+                        < (chatOrderByID[rhs.id] ?? Int.max)
                 }
             let visibleChats = Array(sortedChats.prefix(Self.projectChatPreviewLimit))
             return CodexSidebarProjectGroup(

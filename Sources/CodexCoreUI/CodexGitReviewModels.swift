@@ -513,6 +513,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public let pullRequestExists: Bool
     public let ignoredChangeCount: Int
     private let fileIndexByID: [String: Int]
+    private let stagedDiffStats: CodexGitReviewDiffStats
 
     public init(
         revision: CodexGitReviewRevision = .manual,
@@ -544,6 +545,19 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
                 result[entry.element.id] = entry.offset
             }
         }
+        var stagedCount = 0
+        var stagedAddedLines = 0
+        var stagedRemovedLines = 0
+        for file in files where file.isStaged {
+            stagedCount += 1
+            stagedAddedLines += file.addedLines
+            stagedRemovedLines += file.removedLines
+        }
+        self.stagedDiffStats = CodexGitReviewDiffStats(
+            changedFiles: stagedCount,
+            addedLines: stagedAddedLines,
+            removedLines: stagedRemovedLines
+        )
         self.reviewFilePaths = reviewFilePaths
         self.unpushedCommitCount = max(0, unpushedCommitCount)
         self.pullRequestExists = pullRequestExists
@@ -621,8 +635,8 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         CodexGitBranchDirtySummary(
             branchName: branchName,
             dirtyFileCount: files.count,
-            stagedFileCount: stagedFiles.count,
-            unstagedFileCount: unstagedFiles.count,
+            stagedFileCount: stagedDiffStats.changedFiles,
+            unstagedFileCount: files.count - stagedDiffStats.changedFiles,
             unpushedCommitCount: unpushedCommitCount
         )
     }
@@ -659,7 +673,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public func commitStats(includeUnstaged: Bool) -> CodexGitReviewDiffStats {
         includeUnstaged
             ? diffStats
-            : CodexGitReviewDiffStats.from(stagedFiles)
+            : stagedDiffStats
     }
 
     public var reviewFileList: CodexGitReviewFileListPresentation {

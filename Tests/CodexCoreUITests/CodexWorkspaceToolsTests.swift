@@ -55,6 +55,48 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testMountedToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
+        let first = CodexWorkspacePanelState()
+        first.terminalSessions = [
+            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp"),
+            CodexTerminalSession(id: "terminal-first", workingDirectory: "/tmp"),
+        ]
+        first.browserSessions = [CodexBrowserSession(id: "browser-shared")]
+        first.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp"))
+        first.filePreviewSessions = [
+            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
+        ]
+
+        let second = CodexWorkspacePanelState()
+        second.terminalSessions = [
+            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp/other"),
+            CodexTerminalSession(id: "terminal-second", workingDirectory: "/tmp"),
+        ]
+        second.browserSessions = [
+            CodexBrowserSession(id: "browser-shared"),
+            CodexBrowserSession(id: "browser-second"),
+        ]
+        second.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp/other"))
+        second.filePreviewSessions = [
+            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
+            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/second.swift")),
+        ]
+
+        let mounted = CodexMountedWorkspaceToolSessions(panels: [first, second])
+
+        XCTAssertEqual(mounted.terminal.map(\.id), ["terminal-shared", "terminal-first", "terminal-second"])
+        XCTAssertEqual(mounted.browser.map(\.id), ["browser-shared", "browser-second"])
+        XCTAssertEqual(mounted.files.map(\.id), ["files-shared"])
+        XCTAssertEqual(
+            mounted.filePreview.map(\.id),
+            [
+                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/shared.swift"), ref: nil),
+                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/second.swift"), ref: nil),
+            ]
+        )
+    }
+
+    @MainActor
     func testPanelStateOpensSingleFilesSessionAndReselectsExisting() {
         let panel = CodexWorkspacePanelState()
         let first = panel.openFiles(workspacePath: "/tmp/workspace")
@@ -118,6 +160,20 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         panel.openSubagent(id: "agent-b")
         XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
+    }
+
+    @MainActor
+    func testClosingSelectedSubagentSkipsItsFallbackIDWithoutChangingOrder() {
+        let panel = CodexWorkspacePanelState()
+        panel.openSubagent(id: "agent-a")
+
+        panel.closeSubagent(
+            id: "agent-a",
+            fallbackTabIDs: ["agent-a", "review", "plan"]
+        )
+
+        XCTAssertNil(panel.openSubagentTabID)
+        XCTAssertEqual(panel.selectedTabID, "review")
     }
 
     @MainActor
@@ -219,6 +275,18 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertTrue(root.areChildrenLoaded)
         XCTAssertEqual(children.map(\.name), ["child"])
         XCTAssertFalse(children[0].areChildrenLoaded)
+    }
+
+    func testFileTreeLoaderAsyncChildrenPreserveOrderingAndFiltering() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("zeta"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: workspace.appendingPathComponent("aardvark.txt").path, contents: Data())
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace)
+
+        XCTAssertEqual(entries.map(\.name), ["zeta", "aardvark.txt"])
+        XCTAssertEqual(entries.map(\.kind), [.directory, .file])
     }
 
     func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {

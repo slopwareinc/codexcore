@@ -301,17 +301,129 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         forceReloadSkills: Bool = false,
         errorMessage: (Error) -> String
     ) async -> [CodexChatConfigurationActivity] {
-        [
-            await refreshPermissionProfiles(using: codex, errorMessage: errorMessage),
-            await refreshCollaborationModes(using: codex, errorMessage: errorMessage),
-            await refreshModelOptions(using: codex, errorMessage: errorMessage),
-            await refreshSlashCommands(
-                using: codex,
-                cwds: cwds,
-                forceReload: forceReloadSkills,
-                errorMessage: errorMessage
-            )
-        ]
+        // These are independent reads. Fetch them together, then apply the
+        // results in the historical order so selection reconciliation and the
+        // activity log remain deterministic. Each child captures failures as
+        // values; this keeps a single failed catalog from suppressing the
+        // successful catalogs or changing the existing fallback behavior.
+        async let permissionProfiles: Result<CodexJSONValue, Error> = {
+            do {
+                return .success(try CodexJSONValue(encoding: await codex.perform(
+                    CodexRequest.permissionProfileList(.init())
+                )))
+            } catch {
+                return .failure(error)
+            }
+        }()
+        async let collaborationModes: Result<CodexJSONValue, Error> = {
+            do {
+                return .success(try CodexJSONValue(encoding: await codex.perform(
+                    CodexRequest.collaborationModeList(.init())
+                )))
+            } catch {
+                return .failure(error)
+            }
+        }()
+        async let modelOptions: Result<CodexSchemaModelListResponse, Error> = {
+            do {
+                return .success(try await codex.perform(
+                    CodexRequest.modelList(.init(includeHidden: false))
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }()
+        async let slashCommands: Result<CodexJSONValue, Error> = {
+            do {
+                return .success(try CodexJSONValue(encoding: await codex.perform(
+                    CodexRequest.skillsList(.init(
+                        cwds: cwds.isEmpty ? nil : cwds,
+                        forceReload: forceReloadSkills ? true : nil
+                    )
+                ))))
+            } catch {
+                return .failure(error)
+            }
+        }()
+
+        let (
+            permissionProfilesResult,
+            collaborationModesResult,
+            modelOptionsResult,
+            slashCommandsResult
+        ) = await (
+            permissionProfiles,
+            collaborationModes,
+            modelOptions,
+            slashCommands
+        )
+
+        let permissionActivity: CodexChatConfigurationActivity
+        switch permissionProfilesResult {
+        case .success(let raw):
+            permissionActivity = applyPermissionProfileResponse(raw)
+        case .failure(let error):
+            permissionActivity = failPermissionProfileRefresh(message: errorMessage(error))
+        }
+
+        let collaborationActivity: CodexChatConfigurationActivity
+        switch collaborationModesResult {
+        case .success(let raw):
+            collaborationActivity = applyCollaborationModeResponse(raw)
+        case .failure(let error):
+            collaborationActivity = failCollaborationModeRefresh(message: errorMessage(error))
+        }
+
+        let modelActivity: CodexChatConfigurationActivity
+        switch modelOptionsResult {
+        case .success(let response):
+            modelActivity = applyModelResponse(response)
+        case .failure(let error):
+            modelActivity = failModelRefresh(message: errorMessage(error))
+        }
+
+        let slashActivity: CodexChatConfigurationActivity
+        switch slashCommandsResult {
+        case .success(let raw):
+            slashActivity = applySlashCommandResponse(raw)
+        case .failure(let error):
+            slashActivity = failSlashCommandRefresh(message: errorMessage(error))
+        }
+
+        return [permissionActivity, collaborationActivity, modelActivity, slashActivity]
+    }
+
+    /// Installs catalogs fetched from a snapshot without replacing live
+    /// selections that may have changed while those requests were in flight.
+    package mutating func mergeStartupCatalogs(
+        from refreshed: CodexChatConfigurationSession
+    ) {
+        permissionProfiles = refreshed.permissionProfiles
+        let options = CodexApprovalSelection.options(
+            from: permissionProfiles,
+            requirements: managedPolicyRequirements
+        )
+        catalogApprovalOptions = options
+        reconcileApprovalOptions()
+        if !options.contains(ambientApprovalSelection) {
+            ambientApprovalSelection = Self.safeFallbackApprovalSelection(in: options)
+        }
+        if !hasActiveThreadPermissionConfiguration,
+           !approvalOptions.contains(approvalSelection) {
+            selectedApprovalSelection = ambientApprovalSelection
+        }
+
+        collaborationModes = refreshed.collaborationModes
+        syncPlanModeReasoning()
+
+        let usesServerDefaults = modelSelection.id == CodexModelSelection.appServerDefault.id
+        installModelOptions(refreshed.modelOptions)
+        let selection = usesServerDefaults
+            ? CodexModelSelection.preferredDefault(from: modelOptions)
+            : selectedModel(from: modelOptions)
+        selectModel(selection, useServerDefaults: usesServerDefaults)
+
+        slashCommands = refreshed.slashCommands
     }
 
     @discardableResult
@@ -435,8 +547,10 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failModelRefresh(message: String) -> CodexChatConfigurationActivity {
-        installModelOptions(CodexModelSelection.defaultOptions)
-        selectModel(.appServerDefault)
+        if modelOptions.isEmpty || modelOptions == CodexModelSelection.defaultOptions {
+            installModelOptions(CodexModelSelection.defaultOptions)
+            selectModel(.appServerDefault)
+        }
         return CodexChatConfigurationActivity(title: "Model list unavailable", detail: message)
     }
 

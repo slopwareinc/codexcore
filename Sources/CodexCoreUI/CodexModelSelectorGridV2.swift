@@ -176,7 +176,15 @@ public struct CodexModelGridV2: Equatable, Sendable {
     public static func currentGenerationOptions(
         from options: [CodexModelSelection]
     ) -> [CodexModelSelection] {
-        options.filter { isCurrentGeneration($0, among: options) }
+        // Resolve the anchor once. Calling `isCurrentGeneration` from the filter
+        // would scan `options` for the default model for every candidate.
+        let anchor = options.first(where: \.isDefault) ?? options.first
+        guard let generation = generationKey(for: anchor) else {
+            return options.contains(where: \.isDefault)
+                ? options.filter(\.isDefault)
+                : options
+        }
+        return options.filter { generationKey(for: $0) == generation }
     }
 
     private static func isSpeedModel(_ model: CodexModelSelection) -> Bool {

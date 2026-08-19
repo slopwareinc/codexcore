@@ -49,11 +49,20 @@ public struct CodexChatStatusSummaryContext: Equatable, Sendable {
 
 public enum CodexChatUtilitySession {
     public static func transcriptText(transcript: CodexTranscriptV2) -> String {
-        transcript.turns.flatMap { turn in
-            let userMessages = ([turn.userMessage].compactMap { $0 } + turn.steeredMessages)
-                .map { "You: \($0.text)" }
-            return userMessages + [turn.finalAnswer.map { "Codex: \($0.text)" }].compactMap { $0 }
-        }.joined(separator: "\n\n")
+        var lines: [String] = []
+        lines.reserveCapacity(transcript.turns.count)
+        for turn in transcript.turns {
+            if let userMessage = turn.userMessage {
+                lines.append("You: \(userMessage.text)")
+            }
+            for steeredMessage in turn.steeredMessages {
+                lines.append("You: \(steeredMessage.text)")
+            }
+            if let finalAnswer = turn.finalAnswer {
+                lines.append("Codex: \(finalAnswer.text)")
+            }
+        }
+        return lines.joined(separator: "\n\n")
     }
 
     public static func tokenUsageSummary(_ usage: ThreadTokenUsage) -> String {

@@ -24,4 +24,3 @@ Tag: `v0.147.0+codexcore.0.10.0`
 - Requires `codex-cli 0.147.0` or a newer patch on the `0.147` protocol line. Protocol bindings were generated from exact stable `0.147.0`.
 - Full reads and forks support paginated threads. Paginated rollback remains unsupported by the upstream runtime.
 - Removed Sparkle and the in-app updater completely. This release is published as source and an annotated tag only; no prebuilt app binary is attached.
-

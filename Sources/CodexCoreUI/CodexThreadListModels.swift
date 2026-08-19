@@ -266,17 +266,19 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
         primary: String? = nil
     ) -> [String] {
         var seen: Set<String> = []
-        var result = paths.compactMap { path -> String? in
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let normalized = normalizedPath(trimmed)
-            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
-            return normalized
-        }
+        var result: [String] = []
+        result.reserveCapacity(paths.count + (primary == nil ? 0 : 1))
         if let primary {
             let normalizedPrimary = normalizedPath(primary)
-            result.removeAll { $0 == normalizedPrimary }
-            result.insert(normalizedPrimary, at: 0)
+            seen.insert(normalizedPrimary)
+            result.append(normalizedPrimary)
+        }
+        for path in paths {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = normalizedPath(trimmed)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
         }
         return result
     }

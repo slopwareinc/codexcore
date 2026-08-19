@@ -217,7 +217,9 @@ public struct ThreadLeaseRegistry: Sendable {
     }
 
     public func snapshots() -> [ThreadLeaseSnapshot] {
-        entries.keys.sorted().compactMap(snapshot(for:))
+        entries
+            .sorted { $0.key < $1.key }
+            .map { Self.snapshot(threadID: $0.key, entry: $0.value) }
     }
 
     /// Acquires a lease. The first lease reconciles immediately when a ready
@@ -350,12 +352,11 @@ public struct ThreadLeaseRegistry: Sendable {
 
         let orderedThreadIDs = entries
             .filter { !$0.value.leases.isEmpty }
+            .map { (threadID: $0.key, reconnectPriority: $0.value.reconnectPriority) }
             .sorted { lhs, rhs in
-                let left = (lhs.value.reconnectPriority, lhs.key)
-                let right = (rhs.value.reconnectPriority, rhs.key)
-                return left < right
+                (lhs.reconnectPriority, lhs.threadID) < (rhs.reconnectPriority, rhs.threadID)
             }
-            .map(\.key)
+            .map(\.threadID)
 
         var effects: [ThreadLeaseEffect] = []
         for threadID in orderedThreadIDs {

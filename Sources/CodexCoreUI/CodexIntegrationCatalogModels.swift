@@ -735,22 +735,25 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
 
     public static func plugins(from response: CodexJSONValue) -> [CodexPluginSummary] {
         let featuredIDs = featuredPluginIDs(from: response)
-        return marketplaces(from: response)
-            .flatMap { marketplace in
-                marketplace.plugins.compactMap { CodexPluginSummary(raw: $0, marketplace: marketplace.context) }
-            }
-            .map { plugin in
-                var plugin = plugin
+        let marketplaceEntries = marketplaces(from: response)
+        var plugins: [CodexPluginSummary] = []
+        plugins.reserveCapacity(marketplaceEntries.reduce(0) { $0 + $1.plugins.count })
+        for marketplace in marketplaceEntries {
+            for rawPlugin in marketplace.plugins {
+                guard var plugin = CodexPluginSummary(raw: rawPlugin, marketplace: marketplace.context) else {
+                    continue
+                }
                 plugin.isFeatured = featuredIDs.contains(plugin.protocolID)
                     || featuredIDs.contains(plugin.id)
                     || featuredIDs.contains(plugin.name)
-                return plugin
+                plugins.append(plugin)
             }
-            .sorted { lhs, rhs in
-                if lhs.installed != rhs.installed { return lhs.installed && !rhs.installed }
-                if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
-                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
+        }
+        return plugins.sorted { lhs, rhs in
+            if lhs.installed != rhs.installed { return lhs.installed && !rhs.installed }
+            if lhs.enabled != rhs.enabled { return lhs.enabled && !rhs.enabled }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     private static func featuredPluginIDs(from response: CodexJSONValue) -> Set<String> {
@@ -1062,8 +1065,15 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
     }
 
     public static func join(catalog: [CodexSchemaAppInfo], installed: [CodexSchemaInstalledApp]) -> [CodexAppSummary] {
-        let installedByID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
-        let catalogIDs = Set(catalog.map(\.id))
+        var installedByID = Dictionary<String, CodexSchemaInstalledApp>(minimumCapacity: installed.count)
+        for app in installed {
+            // Keep the existing last-record-wins behavior for duplicate runtime IDs.
+            installedByID[app.id] = app
+        }
+        var catalogIDs = Set<String>(minimumCapacity: catalog.count)
+        for app in catalog {
+            catalogIDs.insert(app.id)
+        }
         return catalog.map { CodexAppSummary(catalog: $0, installed: installedByID[$0.id]) }
             + installedByID.values
                 .filter { !catalogIDs.contains($0.id) }
@@ -1278,17 +1288,19 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     public static func loadErrorMessages(from response: CodexJSONValue) -> [String] {
         guard case .dictionary(let object) = response,
               case .array(let entries)? = object["data"] else { return [] }
-        return entries.flatMap { entry -> [String] in
+        var messages: [String] = []
+        for entry in entries {
             guard case .dictionary(let fields) = entry,
-                  case .array(let errors)? = fields["errors"] else { return [] }
+                  case .array(let errors)? = fields["errors"] else { continue }
             let cwd = Self.string(in: fields, keys: ["cwd"])
-            return errors.compactMap { error in
+            for error in errors {
                 guard case .dictionary(let details) = error,
-                      let message = Self.string(in: details, keys: ["message"])?.nilIfBlank else { return nil }
+                      let message = Self.string(in: details, keys: ["message"])?.nilIfBlank else { continue }
                 let path = Self.string(in: details, keys: ["path"])?.nilIfBlank ?? cwd?.nilIfBlank
-                return path.map { "\($0): \(message)" } ?? message
+                messages.append(path.map { "\($0): \(message)" } ?? message)
             }
         }
+        return messages
     }
 
     public var scopeLabel: String {

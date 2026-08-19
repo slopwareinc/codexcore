@@ -290,13 +290,12 @@ public struct CodexAutomationLifecycle: Equatable, Sendable {
     public private(set) var automations: [CodexAutomation]
 
     public init(automations: [CodexAutomation] = []) {
-        self.automations = automations.map { automation in
-            var recovered = automation
-            if recovered.status == .running {
-                recovered.status = .enabled
-            }
-            return recovered
-        }.sorted { $0.createdAt < $1.createdAt }
+        var recovered = automations
+        for index in recovered.indices where recovered[index].status == .running {
+            recovered[index].status = .enabled
+        }
+        recovered.sort { $0.createdAt < $1.createdAt }
+        self.automations = recovered
     }
 
     public mutating func save(_ automation: CodexAutomation, now: Date = Date()) {

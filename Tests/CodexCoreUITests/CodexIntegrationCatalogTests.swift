@@ -86,6 +86,23 @@ final class CodexIntegrationCatalogTests: XCTestCase {
             CodexSlashCommand.filteredCommands(matching: "/rea").map(\.title),
             ["Reasoning"]
         )
+        let precedenceCommands = [
+            CodexSlashCommand(id: "prefix", title: "Needle", detail: "detail needle", systemImage: "1"),
+            CodexSlashCommand(id: "contains", title: "Contains needle", detail: "detail", systemImage: "2"),
+            CodexSlashCommand(id: "detail", title: "Other", detail: "Needle detail", systemImage: "3")
+        ]
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: precedenceCommands, matching: "/needle").map(\.id),
+            ["prefix"]
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: Array(precedenceCommands.dropFirst()), matching: "/needle").map(\.id),
+            ["contains"]
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: [precedenceCommands[2]], matching: "/needle").map(\.id),
+            ["detail"]
+        )
         XCTAssertEqual(
             CodexSlashCommand.filteredCommands(matching: "/").map(\.title),
             CodexSlashCommand.observedCommands.map(\.title)
@@ -335,6 +352,33 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         )
     }
 
+    func testPluginCatalogSkipsMalformedEntriesAndMarksFeaturedPlugins() {
+        let response: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("local"),
+                    "plugins": .array([
+                        .dictionary([
+                            "authPolicy": .string("ON_USE"),
+                            "enabled": .bool(false),
+                            "id": .string("valid"),
+                            "installPolicy": .string("AVAILABLE"),
+                            "installed": .bool(false),
+                            "name": .string("valid")
+                        ]),
+                        .string("malformed")
+                    ])
+                ])
+            ]),
+            "featuredPluginIds": .array([.string("valid")])
+        ])
+
+        let plugins = CodexPluginSummary.plugins(from: response)
+
+        XCTAssertEqual(plugins.map(\.id), ["local:valid"])
+        XCTAssertTrue(plugins[0].isFeatured)
+    }
+
     func testPluginSummaryResolvesRelativeManifestIconsAgainstPublishedSourcePath() throws {
         let raw: CodexJSONValue = .dictionary([
             "id": .string("gmail@openai-curated-remote"),
@@ -499,6 +543,39 @@ final class CodexIntegrationCatalogTests: XCTestCase {
 
         XCTAssertEqual(current.plugins.map(\.displayName), ["Linear"])
         XCTAssertEqual(current.skills.map(\.displayName), ["Writer"])
+    }
+
+    func testPluginResponseKeepsProtocolAndSummaryIDsDistinct() {
+        let raw: CodexJSONValue = .dictionary([
+            "marketplaces": .array([
+                .dictionary([
+                    "name": .string("local"),
+                    "plugins": .array([
+                        .dictionary([
+                            "id": .string("github@local"),
+                            "name": .string("github"),
+                            "installed": .bool(true),
+                            "enabled": .bool(true),
+                            "installPolicy": .string("INSTALLED_BY_DEFAULT"),
+                            "authPolicy": .string("ON_USE")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+        var session = CodexIntegrationCatalogSession(
+            loadingPluginReadIDs: ["local:github@local", "stale"]
+        )
+
+        _ = session.applyPluginResponse(
+            raw,
+            configuredEnabled: ["github@local": false]
+        )
+
+        XCTAssertEqual(session.plugins.map(\.id), ["local:github@local"])
+        XCTAssertEqual(session.plugins.map(\.protocolID), ["github@local"])
+        XCTAssertEqual(session.plugins.map(\.enabled), [false])
+        XCTAssertEqual(session.loadingPluginReadIDs, ["local:github@local"])
     }
 
     func testCatalogSessionOptimisticallyTogglesAndRestoresPluginsAndSkillsByCanonicalIdentity() throws {

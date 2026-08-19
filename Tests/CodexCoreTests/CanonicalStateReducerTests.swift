@@ -282,6 +282,31 @@ final class CanonicalStateReducerTests: XCTestCase {
         XCTAssertEqual(graph.turns[first.turnKey]?.itemOrder, [first.itemID, second.itemID])
     }
 
+    func testLargeTurnSnapshotPreservesExistingAndIncomingItemOrder() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let turnKey = TurnKey(threadID: "thread", turnID: "large-turn")
+        let itemIDs = (0..<2_048).map { ItemID("item-\($0)") }
+        let initialIDs = Array(itemIDs.prefix(128))
+
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(key: turnKey, itemOrder: initialIDs),
+            items: initialIDs.map { item(ItemKey(threadID: turnKey.threadID, turnID: turnKey.turnID, itemID: $0)) },
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph)
+
+        let incomingIDs = itemIDs.reversed()
+        _ = reducer.apply(.turnSnapshot(
+            CanonicalTurn(key: turnKey, itemOrder: Array(incomingIDs)),
+            items: itemIDs.map { item(ItemKey(threadID: turnKey.threadID, turnID: turnKey.turnID, itemID: $0)) },
+            itemPolicy: .mergePreservingExistingOrder
+        ), to: &graph)
+
+        let expectedOrder = initialIDs + incomingIDs.filter { !initialIDs.contains($0) }
+        XCTAssertEqual(graph.turns[turnKey]?.itemOrder, expectedOrder)
+        XCTAssertEqual(graph.items.count, itemIDs.count)
+    }
+
     func testItemOnlyDeltaBumpsItsAggregateTurnRevisionWithoutTouchingOtherTurns() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()
@@ -639,6 +664,34 @@ final class CanonicalStateReducerTests: XCTestCase {
 
         _ = reducer.apply(.itemStarted(item(key)), to: &graph)
         XCTAssertEqual(graph.items[key]?.liveOverlay.agentMessage.chunks, ["two", "three"])
+        XCTAssertEqual(reducer.bufferedOrphanDeltaCount, 0)
+        XCTAssertEqual(reducer.bufferedOrphanUTF8ByteCount, 0)
+    }
+
+    func testOrphanBufferHighChurnKeepsNewestPerItemDeltasInOrder() throws {
+        let perItemLimit = 256
+        var reducer = CanonicalStateReducer(configuration: .init(
+            maximumOrphanDeltaCount: perItemLimit,
+            maximumOrphanUTF8Bytes: 1_000_000,
+            maximumOrphanDeltasPerItem: perItemLimit
+        ))
+        var graph = CanonicalStateGraph()
+        let key = itemKey()
+
+        for index in 0..<(perItemLimit * 4) {
+            _ = reducer.apply(
+                .itemDelta(key: key, delta: .agentMessage("delta-\(index)")),
+                to: &graph
+            )
+        }
+
+        XCTAssertEqual(reducer.bufferedOrphanDeltaCount, perItemLimit)
+        _ = reducer.apply(.itemStarted(item(key)), to: &graph)
+
+        XCTAssertEqual(
+            graph.items[key]?.liveOverlay.agentMessage.chunks,
+            (perItemLimit * 3..<(perItemLimit * 4)).map { "delta-\($0)" }
+        )
         XCTAssertEqual(reducer.bufferedOrphanDeltaCount, 0)
         XCTAssertEqual(reducer.bufferedOrphanUTF8ByteCount, 0)
     }

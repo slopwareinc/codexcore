@@ -208,6 +208,41 @@ final class CodexSessionRetentionTests: XCTestCase {
         await session.stop()
     }
 
+    func testUnleasedDetailRetentionStaysBoundedDuringRepeatedEviction() async throws {
+        let transport = RetentionTestTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(
+                reconnectPolicy: .disabled,
+                maximumRetainedUnleasedThreadDetails: 2
+            )
+        )
+        _ = try await session.start()
+
+        for index in 0..<40 {
+            try await sendTerminalTurn(
+                threadID: ThreadID("churn-\(index)"),
+                transport: transport
+            )
+        }
+
+        try await waitUntil {
+            let snapshot = await session.canonicalSnapshot()
+            return snapshot.turns[TurnKey(threadID: "churn-0", turnID: "turn")] == nil
+                && snapshot.turns[TurnKey(threadID: "churn-38", turnID: "turn")] != nil
+                && snapshot.turns[TurnKey(threadID: "churn-39", turnID: "turn")] != nil
+        }
+
+        let snapshot = await session.canonicalSnapshot()
+        let retainedTurnCount = (0..<40).reduce(into: 0) { count, index in
+            if snapshot.turns[TurnKey(threadID: ThreadID("churn-\(index)"), turnID: "turn")] != nil {
+                count += 1
+            }
+        }
+        XCTAssertEqual(retainedTurnCount, 2)
+        await session.stop()
+    }
+
     private func sendTerminalTurn(
         threadID: ThreadID,
         transport: RetentionTestTransport

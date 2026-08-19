@@ -72,11 +72,31 @@ enum CodexTranscriptFileCitationLink {
         else { url = nil }
         guard let url, url.scheme == "codex-file",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let path = components.queryItems?.first(where: { $0.name == "path" })?.value
+              let queryItems = components.queryItems
         else { return nil }
-        let line = components.queryItems?.first(where: { $0.name == "line" })?.value.flatMap(Int.init)
-        let column = components.queryItems?.first(where: { $0.name == "column" })?.value.flatMap(Int.init)
-        return .init(path: path, line: line, column: column)
+        var path: String?
+        var line: String?
+        var column: String?
+        var sawPath = false
+        var sawLine = false
+        var sawColumn = false
+        for item in queryItems {
+            switch item.name {
+            case "path" where !sawPath:
+                path = item.value
+                sawPath = true
+            case "line" where !sawLine:
+                line = item.value
+                sawLine = true
+            case "column" where !sawColumn:
+                column = item.value
+                sawColumn = true
+            default:
+                continue
+            }
+        }
+        guard let path else { return nil }
+        return .init(path: path, line: line.flatMap(Int.init), column: column.flatMap(Int.init))
     }
 }
 
@@ -323,13 +343,13 @@ struct CodexTranscriptRenderSnapshot: @unchecked Sendable {
     var threadID: String
     var sectionIDs: [String]
     var itemIDsBySection: [String: [CodexTranscriptRenderItemID]]
+    /// The flattened display order is shared by collection, find, and minimap
+    /// paths. Keep it with the immutable snapshot so repeated reads do not
+    /// allocate and flatten every section again.
+    let orderedItemIDs: [CodexTranscriptRenderItemID]
     var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem]
     var changedItemIDs: Set<CodexTranscriptRenderItemID>
     var diagnostics: CodexTranscriptRenderDiagnostics
-
-    var orderedItemIDs: [CodexTranscriptRenderItemID] {
-        sectionIDs.flatMap { itemIDsBySection[$0] ?? [] }
-    }
 }
 
 struct CodexTranscriptAppKitTheme: @unchecked Sendable {
@@ -795,11 +815,19 @@ actor CodexTranscriptRenderProjector {
                                 ))
                             } else if isRowExpanded, let detail {
                                 let bounded = Self.bounded(detail, limit: 20_000)
-                                let prepared = Self.prepareExpandedOutput(
-                                    bounded,
-                                    row: row,
-                                    theme: theme
-                                )
+                                let prepared = cachedPreparedText(
+                                    content: bounded,
+                                    style: Self.expandedOutputCacheStyle(for: row),
+                                    theme: theme,
+                                    cacheHits: &preparedTextCacheHits,
+                                    cacheMisses: &preparedTextCacheMisses
+                                ) {
+                                    Self.prepareExpandedOutput(
+                                        bounded,
+                                        row: row,
+                                        theme: theme
+                                    )
+                                }
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
                                     fingerprint: "detail:\(bounded)",
@@ -1052,6 +1080,11 @@ actor CodexTranscriptRenderProjector {
         })
         previousBlocksBySourceID = previousBlocksBySourceID.filter { liveSourcePrefixes.contains($0.key) }
         sourceTextBySourceID = sourceTextBySourceID.filter { liveSourcePrefixes.contains($0.key) }
+        var orderedItemIDs: [CodexTranscriptRenderItemID] = []
+        orderedItemIDs.reserveCapacity(itemsByID.count)
+        for sectionID in sections {
+            orderedItemIDs.append(contentsOf: itemIDsBySection[sectionID] ?? [])
+        }
         projectionCount += 1
         let elapsed = startedAt.duration(to: .now)
         let milliseconds = Double(elapsed.components.seconds) * 1_000
@@ -1071,6 +1104,7 @@ actor CodexTranscriptRenderProjector {
             threadID: presentation.threadID,
             sectionIDs: sections,
             itemIDsBySection: itemIDsBySection,
+            orderedItemIDs: orderedItemIDs,
             itemsByID: itemsByID,
             changedItemIDs: changedIDs,
             diagnostics: diagnostics
@@ -2015,6 +2049,15 @@ private extension CodexTranscriptRenderProjector {
         ))
     }
 
+    static func expandedOutputCacheStyle(for row: CodexWorkRowV2) -> String {
+        switch row {
+        case .command:
+            return "expanded-output-command"
+        default:
+            return "expanded-output-plain"
+        }
+    }
+
     static func prepareUserMessage(
         _ user: CodexUserMessageV2,
         text: String,
@@ -2256,8 +2299,7 @@ private extension CodexTranscriptRenderProjector {
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
-            let ordered = value.agentNames.filter { value.agentMessages[$0] != nil }
-                + value.agentMessages.keys.filter { !value.agentNames.contains($0) }.sorted()
+            let ordered = value.orderedMessageAgentNames
             let replies = ordered.compactMap { agent in
                 value.agentMessages[agent].map { "\(agent)\n\($0)" }
             }.joined(separator: "\n\n")

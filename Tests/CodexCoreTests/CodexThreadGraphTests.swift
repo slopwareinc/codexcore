@@ -161,6 +161,108 @@ final class CodexThreadGraphTests: XCTestCase {
         XCTAssertEqual(graph.nodes[key("child")]?.lifecycle, .running)
         XCTAssertFalse(graph.nodes[key("child")]?.isLoaded ?? true)
     }
+
+    func testThreadStoragePathNeverBecomesLogicalAgentPath() {
+        let child = CanonicalThread(
+            id: "child",
+            metadata: .init(
+                agentNickname: "Cicero",
+                parentThreadID: "parent",
+                path: "/Users/test/.codex/sessions/rollout-child.jsonl",
+                source: .dictionary([
+                    "subagent": .dictionary([
+                        "thread_spawn": .dictionary([
+                            "agent_path": .string("/root/extra_subagent_4"),
+                        ]),
+                    ]),
+                ])
+            ),
+            status: .idle,
+            isLoaded: true,
+            consistency: .authoritative
+        )
+        let graph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["parent", "child"],
+                threads: [thread("parent"), child],
+                items: []
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(graph.nodes[key("child")]?.agentPath, "/root/extra_subagent_4")
+    }
+
+    func testPartialThreadOrderUsesStableSortedFallbackForGraphAndItems() {
+        let graph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["root"],
+                threads: [
+                    thread("z", parent: "root"),
+                    thread("root"),
+                    thread("a", parent: "root"),
+                ],
+                items: [
+                    collabItem(
+                        parent: "z",
+                        turn: "turn-z",
+                        item: "item-z",
+                        receivers: [],
+                        status: "completed",
+                        agentStates: [:]
+                    ),
+                    collabItem(
+                        parent: "a",
+                        turn: "turn-a",
+                        item: "item-a",
+                        receivers: [],
+                        status: "completed",
+                        agentStates: [:]
+                    ),
+                ]
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(graph.nodes[key("root")]?.children, [key("a"), key("z")])
+        XCTAssertEqual(
+            graph.actions.map { $0.sourceItem.threadID },
+            [ThreadID("a"), ThreadID("z")]
+        )
+    }
+
+    func testDuplicateThreadOrderEntriesDoNotChangeProjection() {
+        let threads = [
+            thread("root"),
+            thread("child", parent: "root"),
+        ]
+        let uniqueGraph = CodexThreadGraphProjector.project(
+            makeSnapshot(threadOrder: ["root", "child"], threads: threads, items: []),
+            hostID: "host"
+        )
+        let duplicateGraph = CodexThreadGraphProjector.project(
+            makeSnapshot(
+                threadOrder: ["root", "root", "child", "root", "child"],
+                threads: threads,
+                items: []
+            ),
+            hostID: "host"
+        )
+
+        XCTAssertEqual(duplicateGraph, uniqueGraph)
+    }
+
+    func testWaitTargetDeduplicationPreservesFirstOccurrenceOrder() {
+        let first = key("first")
+        let second = key("second")
+
+        XCTAssertEqual(
+            CodexThreadGraphService.stableUniqueTargets([
+                first, second, first, first, second,
+            ]),
+            [first, second]
+        )
+    }
 }
 
 extension CodexThreadGraphTests {

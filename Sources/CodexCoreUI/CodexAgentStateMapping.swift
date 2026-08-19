@@ -170,13 +170,22 @@ private extension CodexAgentStateMapper {
         payload: [String: CodexJSONValue]
     ) -> CodexAgentLifecycleEvent.Status {
         if tool == "closeAgent", completed { return .closed }
-        let statuses = payload.object("agentsStates")?.values.compactMap {
-            CodexJSONCoercion.dictionary(from: $0)?.string("status")?.lowercased()
-        } ?? []
-        if statuses.contains(where: {
-            $0 == "interrupted" || $0 == "errored" || $0 == "notfound"
-        }) { return .failed }
-        if statuses.contains("shutdown") { return .closed }
+        var hasShutdown = false
+        if let agentStates = payload.object("agentsStates") {
+            for value in agentStates.values {
+                guard let object = CodexJSONCoercion.dictionary(from: value),
+                      let status = CodexJSONCoercion.flatString(from: object["status"])?.lowercased() else {
+                    continue
+                }
+                if status == "interrupted" || status == "errored" || status == "notfound" {
+                    return .failed
+                }
+                if status == "shutdown" {
+                    hasShutdown = true
+                }
+            }
+        }
+        if hasShutdown { return .closed }
         if completed, tool == "wait" { return .completed }
         if completed, tool == "spawnAgent" { return .running }
         return completed ? .completed : (tool == "spawnAgent" ? .spawning : .running)

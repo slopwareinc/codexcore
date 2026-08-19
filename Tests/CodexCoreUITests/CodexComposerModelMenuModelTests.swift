@@ -63,6 +63,26 @@ final class CodexComposerModelMenuModelTests: XCTestCase {
         XCTAssertNil(missingSpeedState.speedItems.last?.selection)
     }
 
+    func testModelMenuPartitionsServiceTierSpeedOptionsWithoutChangingOrder() {
+        let standardFirst = CodexModelSelection(id: "gpt-5.5", displayName: "GPT-5.5")
+        let fastTier = CodexModelSelection(
+            id: "gpt-5.4",
+            displayName: "GPT-5.4",
+            serviceTiers: [CodexModelServiceTier(id: "fast", displayName: "Fast", detail: "Accelerated")]
+        )
+        let standardLast = CodexModelSelection(id: "gpt-5.3", displayName: "GPT-5.3")
+
+        let state = CodexComposerModelMenuModel.state(
+            modelOptions: [standardFirst, fastTier, standardLast],
+            selectedModel: fastTier,
+            selectedReasoning: .medium
+        )
+
+        XCTAssertEqual(state.gptFamilyItems.map(\.selection.id), ["gpt-5.5", "gpt-5.3"])
+        XCTAssertEqual(state.speedItems.map(\.selection?.id), ["gpt-5.5", "gpt-5.4"])
+        XCTAssertEqual(state.speedItems.map(\.isSelected), [false, true])
+    }
+
     func testReasoningReconciliationPreservesSupportedCurrentOrFallsBackToDefault() {
         let strict = CodexModelSelection(
             id: "strict",

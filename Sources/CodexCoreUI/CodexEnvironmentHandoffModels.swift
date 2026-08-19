@@ -415,6 +415,16 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
         handoffFailure = nil
     }
 
+    /// Refines the generated destination only while it still has its fallback
+    /// value. A user edit wins over the asynchronous repository-root lookup.
+    public mutating func replaceModalTargetPath(
+        _ targetPath: String,
+        replacing fallbackPath: String
+    ) {
+        guard modal?.targetPath == fallbackPath else { return }
+        modal?.targetPath = targetPath
+    }
+
     public mutating func apply(_ completion: CodexWorktreeHandoffCompletion) {
         environment = completion.environment
         lastActivity = completion.activity
@@ -430,7 +440,23 @@ public struct CodexProjectEnvironmentPanelSession: Equatable, Sendable {
         let source = sourcePath.trimmedForHandoff
         guard !source.isEmpty else { return "" }
         let sourceURL = URL(fileURLWithPath: source).standardizedFileURL
-        let repositoryURL = CodexWorkspaceGitProbe.repositoryRoot(at: sourceURL) ?? sourceURL
+        // This helper is intentionally render-safe. Repository-root
+        // resolution belongs to the async panel action, never to a button or
+        // SwiftUI value calculation that can run on the main actor.
+        return defaultTargetPath(
+            sourcePath: source,
+            threadTitle: threadTitle,
+            repositoryURL: sourceURL
+        )
+    }
+
+    static func defaultTargetPath(
+        sourcePath: String,
+        threadTitle: String,
+        repositoryURL: URL
+    ) -> String {
+        let source = sourcePath.trimmedForHandoff
+        guard !source.isEmpty else { return "" }
         let branchName = CodexWorktreeHandoffModalState.defaultBranchName(for: threadTitle)
         let slug = branchName
             .replacingOccurrences(of: "codex/", with: "")

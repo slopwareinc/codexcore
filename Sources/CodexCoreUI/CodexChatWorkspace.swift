@@ -62,6 +62,51 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     }
 }
 
+/// Stable, first-seen tool-session unions for the mounted chat panels.
+///
+/// The workspace keeps each tool category in its own deck, so each category
+/// needs an independent identity set. Collecting all four categories together
+/// avoids rebuilding the mounted-panel array and traversing every panel four
+/// times during one side-panel composition.
+@MainActor
+struct CodexMountedWorkspaceToolSessions {
+    let terminal: [CodexTerminalSession]
+    let browser: [CodexBrowserSession]
+    let files: [CodexFilesSession]
+    let filePreview: [CodexFilePreviewSession]
+
+    init(panels: [CodexWorkspacePanelState]) {
+        var terminalIDs = Set<String>()
+        var browserIDs = Set<String>()
+        var filesIDs = Set<String>()
+        var filePreviewIDs = Set<String>()
+        var terminal: [CodexTerminalSession] = []
+        var browser: [CodexBrowserSession] = []
+        var files: [CodexFilesSession] = []
+        var filePreview: [CodexFilePreviewSession] = []
+
+        for panel in panels {
+            for session in panel.terminalSessions where terminalIDs.insert(session.id).inserted {
+                terminal.append(session)
+            }
+            for session in panel.browserSessions where browserIDs.insert(session.id).inserted {
+                browser.append(session)
+            }
+            if let session = panel.filesSession, filesIDs.insert(session.id).inserted {
+                files.append(session)
+            }
+            for session in panel.filePreviewSessions where filePreviewIDs.insert(session.id).inserted {
+                filePreview.append(session)
+            }
+        }
+
+        self.terminal = terminal
+        self.browser = browser
+        self.files = files
+        self.filePreview = filePreview
+    }
+}
+
 /// A complete reusable Codex chat workspace: transcript, header, composer, and agent panels.
 public struct CodexChatWorkspaceView: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -640,28 +685,13 @@ public struct CodexChatWorkspaceView: View {
     // switching chats is a visibility toggle instead of remounting surfaces. The
     // active `panel` is appended last (and always observed) so its sessions stay
     // current; ids dedupe repeats.
-    private var mountedTerminalSessions: [CodexTerminalSession] {
-        var seen = Set<String>()
-        return (mountedPanels + [panel]).flatMap(\.terminalSessions).filter { seen.insert($0.id).inserted }
-    }
-
-    private var mountedBrowserSessions: [CodexBrowserSession] {
-        var seen = Set<String>()
-        return (mountedPanels + [panel]).flatMap(\.browserSessions).filter { seen.insert($0.id).inserted }
-    }
-
-    private var mountedFilesSessions: [CodexFilesSession] {
-        var seen = Set<String>()
-        return (mountedPanels + [panel]).compactMap(\.filesSession).filter { seen.insert($0.id).inserted }
-    }
-
-    private var mountedFilePreviewSessions: [CodexFilePreviewSession] {
-        var seen = Set<String>()
-        return (mountedPanels + [panel]).flatMap(\.filePreviewSessions).filter { seen.insert($0.id).inserted }
+    private var mountedWorkspaceTools: CodexMountedWorkspaceToolSessions {
+        CodexMountedWorkspaceToolSessions(panels: mountedPanels + [panel])
     }
 
     private func agentSidePanel(resizable: Bool, showsCloseButton: Bool) -> some View {
-        CodexAgentSidePanel(
+        let mountedTools = mountedWorkspaceTools
+        return CodexAgentSidePanel(
             tabs: panelTabs,
             selectedTabID: $panel.selectedTabID,
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
@@ -669,10 +699,10 @@ public struct CodexChatWorkspaceView: View {
             browserSessions: panel.browserSessions,
             filesSessions: panel.filesSession.map { [$0] } ?? [],
             filePreviewSessions: panel.filePreviewSessions,
-            mountedTerminalSessions: mountedTerminalSessions,
-            mountedBrowserSessions: mountedBrowserSessions,
-            mountedFilesSessions: mountedFilesSessions,
-            mountedFilePreviewSessions: mountedFilePreviewSessions,
+            mountedTerminalSessions: mountedTools.terminal,
+            mountedBrowserSessions: mountedTools.browser,
+            mountedFilesSessions: mountedTools.files,
+            mountedFilePreviewSessions: mountedTools.filePreview,
             modelOptions: modelOptions,
             workspaceURL: URL(fileURLWithPath: workspacePath),
             selectedReviewFilePath: transcriptReviewRequest?.selectedFilePath,

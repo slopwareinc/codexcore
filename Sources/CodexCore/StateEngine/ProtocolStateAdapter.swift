@@ -1096,6 +1096,14 @@ private extension ProtocolStateAdapter {
         "createdAt", "objective", "status", "threadId", "timeUsedSeconds",
         "tokenBudget", "tokensUsed", "updatedAt",
     ]
+
+    // These exclusions are reused for every thread lifecycle response. Keeping
+    // them static avoids rebuilding a Set literal on each response while
+    // retaining the existing top-level settings filtering semantics.
+    static let threadSettingsResponseWireFields: Set<String> = ["thread"]
+    static let threadResumeResponseWireFields: Set<String> = [
+        "initialTurnsPage", "itemsBackwardsCursor", "thread", "turnsBackwardsCursor",
+    ]
 }
 
 extension Dictionary where Key == String, Value == CodexJSONValue {
@@ -1227,7 +1235,7 @@ private extension ProtocolStateAdapter {
                 settings: try responseThreadSettings(
                     result,
                     method: context.method.rawValue,
-                    excluding: ["thread"]
+                    excluding: Self.threadSettingsResponseWireFields
                 )
             ))
             return .state(mutations)
@@ -1257,9 +1265,7 @@ private extension ProtocolStateAdapter {
                 settings: try responseThreadSettings(
                     result,
                     method: context.method.rawValue,
-                    excluding: [
-                        "initialTurnsPage", "itemsBackwardsCursor", "thread", "turnsBackwardsCursor",
-                    ]
+                    excluding: Self.threadResumeResponseWireFields
                 )
             ))
             let initialPage = value.initialTurnsPage
@@ -1326,7 +1332,7 @@ private extension ProtocolStateAdapter {
                 settings: try responseThreadSettings(
                     result,
                     method: context.method.rawValue,
-                    excluding: ["thread"]
+                    excluding: Self.threadSettingsResponseWireFields
                 )
             ))
             return .state(mutations)

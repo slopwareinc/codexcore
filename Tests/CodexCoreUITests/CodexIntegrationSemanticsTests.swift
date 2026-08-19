@@ -79,6 +79,21 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
 
     }
 
+    func testCatalogAppsUseLatestDuplicateRuntimeMetadata() {
+        let catalog = [CodexSchemaAppInfo(id: "github", isAccessible: true, name: "GitHub")]
+        let installed = [
+            CodexSchemaInstalledApp(callable: false, enabled: true, id: "github", runtimeName: "Old Runtime"),
+            CodexSchemaInstalledApp(callable: true, enabled: false, id: "github", runtimeName: "Latest Runtime"),
+        ]
+
+        let joined = CodexAppSummary.join(catalog: catalog, installed: installed)
+
+        XCTAssertEqual(joined.map(\.id), ["github"])
+        XCTAssertEqual(joined[0].runtimeName, "Latest Runtime")
+        XCTAssertEqual(joined[0].runtimeEnabled, false)
+        XCTAssertEqual(joined[0].runtimeCallable, true)
+    }
+
     func testSkillsRequireAuthoritativeEnabledStateAndKeepCwdIdentity() {
         let missingEnabled: CodexJSONValue = .dictionary([
             "name": .string("deploy"),
@@ -123,6 +138,35 @@ final class CodexIntegrationSemanticsTests: XCTestCase {
         session.applySkillResponse(response)
         XCTAssertEqual(session.skillLoadErrors, ["/repo/.agents/skills/broken/SKILL.md: invalid front matter"])
         XCTAssertNil(session.skillErrorMessage)
+    }
+
+    func testSkillListErrorsPreserveEntryAndErrorOrder() {
+        let response: CodexJSONValue = .dictionary([
+            "data": .array([
+                .dictionary([
+                    "cwd": .string("/repo-a"),
+                    "errors": .array([
+                        .dictionary(["message": .string("first")]),
+                        .string("malformed"),
+                        .dictionary(["message": .string("second")]),
+                    ])
+                ]),
+                .dictionary([
+                    "cwd": .string("/repo-b"),
+                    "errors": .array([
+                        .dictionary([
+                            "path": .string("/repo-b/SKILL.md"),
+                            "message": .string("third")
+                        ])
+                    ])
+                ])
+            ])
+        ])
+
+        XCTAssertEqual(
+            CodexSkillSummary.loadErrorMessages(from: response),
+            ["/repo-a: first", "/repo-a: second", "/repo-b/SKILL.md: third"]
+        )
     }
 
 

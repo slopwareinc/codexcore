@@ -49,4 +49,26 @@ struct CodexWorkspaceSummaryContextTests {
         #expect(context.plan?.progressLabel == "1/2")
         #expect(context.diffStatsLine == "+1 -0 across 1 file(s)")
     }
+
+    @Test func diffStatsLineCountsChangesAcrossMultipleFilesWithoutHeaders() {
+        let context = CodexWorkspaceSummaryContext(
+            workspacePath: "/tmp/Project",
+            turnDiff: """
+            diff --git a/A.swift b/A.swift
+            --- a/A.swift
+            +++ b/A.swift
+            @@ -1 +1,2 @@
+            +added
+            -removed
+
+            diff --git a/B.swift b/B.swift
+            --- a/B.swift
+            +++ b/B.swift
+            @@ -1 +1 @@
+             unchanged
+            """
+        )
+
+        #expect(context.diffStatsLine == "+1 -1 across 2 file(s)")
+    }
 }

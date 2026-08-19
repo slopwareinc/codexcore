@@ -16,13 +16,18 @@ enum CodexVoiceLog {
         .appendingPathComponent("Logs/CodexCore/voice.jsonl")
     private static let fallbackFileURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("CodexCore/voice.jsonl")
-    private(set) static var fileURL = preferredFileURL
-
     private static let logger = Logger(
         subsystem: "com.slopware.codexcore",
         category: "voice"
     )
     private static let maximumFileSize = 25 * 1_024 * 1_024
+    private static let fileWriter = CodexVoiceLogFileWriter(
+        preferredURL: preferredFileURL,
+        fallbackURL: fallbackFileURL,
+        maximumFileSize: maximumFileSize,
+        logger: logger
+    )
+    static var fileURL: URL { fileWriter.fileURL }
 
     static func sanitizedFields(_ fields: [String: String]) -> [String: String] {
         let sensitiveTokens = [
@@ -72,7 +77,7 @@ enum CodexVoiceLog {
         case .error:
             logger.error("\(line, privacy: .public)")
         }
-        appendToFile(line)
+        fileWriter.enqueue(line)
     }
 
     static func encodedJSON<T: Encodable>(_ value: T) -> String {
@@ -84,28 +89,71 @@ enum CodexVoiceLog {
         return text
     }
 
-    private static func appendToFile(_ line: String) {
-        let candidates = fileURL == fallbackFileURL
-            ? [fallbackFileURL]
-            : [preferredFileURL, fallbackFileURL]
-        var lastError: Error?
-        for candidate in candidates {
-            do {
-                try append(line, to: candidate)
-                fileURL = candidate
-                return
-            } catch {
-                lastError = error
+}
+
+/// Serializes voice log persistence away from the main actor. The queue keeps
+/// event order intact while allowing telemetry call sites to return without
+/// waiting on directory, metadata, rotation, or file-write I/O.
+final class CodexVoiceLogFileWriter: @unchecked Sendable {
+    private let queue = DispatchQueue(
+        label: "com.slopware.codexcore.voice-log",
+        qos: .utility
+    )
+    private let preferredURL: URL
+    private let fallbackURL: URL
+    private let maximumFileSize: Int
+    private let logger: Logger
+    private var activeURL: URL
+
+    init(
+        preferredURL: URL,
+        fallbackURL: URL,
+        maximumFileSize: Int,
+        logger: Logger
+    ) {
+        self.preferredURL = preferredURL
+        self.fallbackURL = fallbackURL
+        self.maximumFileSize = maximumFileSize
+        self.logger = logger
+        self.activeURL = preferredURL
+    }
+
+    var fileURL: URL {
+        queue.sync { activeURL }
+    }
+
+    func enqueue(_ line: String) {
+        queue.async { [self] in
+            let candidates = activeURL == fallbackURL
+                ? [fallbackURL]
+                : [preferredURL, fallbackURL]
+            var lastError: Error?
+            for candidate in candidates {
+                do {
+                    try append(line, to: candidate)
+                    activeURL = candidate
+                    return
+                } catch {
+                    lastError = error
+                }
             }
-        }
-        if let lastError {
-            logger.error(
-                "voice log file write failed: \(String(describing: lastError), privacy: .public)"
-            )
+            if let lastError {
+                logger.error(
+                    "voice log file write failed: \(String(describing: lastError), privacy: .public)"
+                )
+            }
         }
     }
 
-    private static func append(_ line: String, to destination: URL) throws {
+    func flush() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func append(_ line: String, to destination: URL) throws {
         let manager = FileManager.default
         let directory = destination.deletingLastPathComponent()
         try manager.createDirectory(

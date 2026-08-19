@@ -295,12 +295,14 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
         configuredEnabled: [String: Bool] = [:]
     ) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
+        var availableIDs: Set<String> = []
+        availableIDs.reserveCapacity(plugins.count)
         for index in plugins.indices {
             if let enabled = configuredEnabled[plugins[index].protocolID] {
                 plugins[index].enabled = enabled
             }
+            availableIDs.insert(plugins[index].id)
         }
-        let availableIDs = Set(plugins.map(\.id))
         // List refreshes can reflect install, upgrade, or marketplace changes.
         // Invalidate relationship snapshots so an open detail refetches plugin/read.
         pluginReadDetails = [:]

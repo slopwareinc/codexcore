@@ -186,6 +186,68 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         }
     }
 
+    func testRealtimeHubIndexRemovesCancelledObserversAndRetainsMatchingSiblings() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let cancelled = hub.observe(connectionEpoch: 7, threadID: "voice")
+        let retained = hub.observe(connectionEpoch: 7, threadID: "voice")
+        _ = hub.observe(connectionEpoch: 7, threadID: "other")
+        XCTAssertTrue(hub.cancel(cancelled.id))
+
+        let event = CodexRealtimeEvent.transcriptDone(.init(
+            role: "assistant",
+            text: "Ready",
+            threadID: "voice"
+        ))
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 1)
+
+        var cancelledIterator = cancelled.events.makeAsyncIterator()
+        do {
+            _ = try await cancelledIterator.next()
+            XCTFail("Cancelled realtime stream should fail")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        var retainedIterator = retained.events.makeAsyncIterator()
+        let received = try await retainedIterator.next()
+        XCTAssertEqual(received, event)
+
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 7), 2)
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 0)
+    }
+
+    func testRealtimeHubDisconnectRemovesEveryThreadInOneEpochOnly() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let first = hub.observe(connectionEpoch: 7, threadID: "voice-a")
+        let second = hub.observe(connectionEpoch: 7, threadID: "voice-b")
+        let retained = hub.observe(connectionEpoch: 8, threadID: "voice-a")
+
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 7), 2)
+        let event = CodexRealtimeEvent.transcriptDone(.init(
+            role: "assistant",
+            text: "Ready",
+            threadID: "voice-a"
+        ))
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: event), 0)
+        XCTAssertEqual(hub.publish(connectionEpoch: 8, event: event), 1)
+
+        var firstIterator = first.events.makeAsyncIterator()
+        var secondIterator = second.events.makeAsyncIterator()
+        do {
+            _ = try await firstIterator.next()
+            XCTFail("Disconnected observer should fail")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 7))
+        }
+        do {
+            _ = try await secondIterator.next()
+            XCTFail("Disconnected observer should fail")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .disconnected(connectionEpoch: 7))
+        }
+        XCTAssertTrue(hub.cancel(retained.id))
+    }
+
     func testOperationHubsRouteKeyedEventsAndTearDownByEpoch() async throws {
         var fileHub = CodexFSChangeObserverHub()
         let fileObservation = fileHub.observe(connectionEpoch: 4, watchID: "watch")
@@ -212,6 +274,15 @@ final class SessionOperationPrimitivesTests: XCTestCase {
             connectionEpoch: 2,
             processHandle: "process"
         )
+        XCTAssertThrowsError(try processHub.observe(
+            connectionEpoch: 2,
+            processHandle: "process"
+        )) { error in
+            XCTAssertEqual(
+                error as? CodexProcessObserverError,
+                .duplicateActiveProcess(connectionEpoch: 2, processHandle: "process")
+            )
+        }
         let output = CodexSchemaProcessOutputDeltaNotification(
             capReached: false,
             deltaBase64: "aGVsbG8=",
@@ -241,6 +312,7 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertEqual(processIteratorValue2, .exited(exited))
         let processIteratorValue3 = try await processIterator.next()
         XCTAssertNil(processIteratorValue3)
+        XCTAssertEqual(processHub.observerCount, 0)
 
         var fuzzyHub = CodexFuzzyFileSearchObserverHub()
         let fuzzyObservation = fuzzyHub.observe(connectionEpoch: 8, sessionID: "search")
@@ -283,6 +355,21 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         let newIteratorValue1 = try await newIterator.next()
         XCTAssertEqual(newIteratorValue1, sharedChange)
         XCTAssertTrue(epochHub.cancel(newEpoch.id))
+    }
+
+    func testFilesystemHubFansOutAndCleansUpIndexedObservers() {
+        var hub = CodexFSChangeObserverHub()
+        let first = hub.observe(connectionEpoch: 1, watchID: "watch", maximumChangeCount: 1)
+        let second = hub.observe(connectionEpoch: 1, watchID: "watch", maximumChangeCount: 2)
+        let change = CodexSchemaFSChangedNotification(changedPaths: [], watchID: "watch")
+
+        XCTAssertEqual(hub.publish(connectionEpoch: 1, notification: change), 2)
+        XCTAssertEqual(hub.publish(connectionEpoch: 1, notification: change), 1)
+        XCTAssertEqual(hub.observerCount, 1)
+        XCTAssertTrue(hub.cancel(second.id))
+        XCTAssertEqual(hub.observerCount, 0)
+        XCTAssertEqual(hub.finish(connectionEpoch: 1, watchID: "watch"), 0)
+        withExtendedLifetime(first) {}
     }
 
     func testGlobalAndImportOperationHubsSupportCancellationAndEpochTeardown() async throws {

@@ -220,6 +220,13 @@ struct CodexSubagentPresentationCoordinatorTests {
             scope: .thread("child", fields: .all)
         )
         let selectionID = try #require(coordinator.selectedProjection?.selectionID)
+        coordinator.applyChildSnapshot(duplicateSnapshot, "child", selectionID)
+        try await eventually {
+            coordinator.selectedProjection?.latestSnapshotRevision
+                == duplicateSnapshot.revision
+                && coordinator.selectedProjection?.projectionTask == nil
+                && coordinator.selectedProjection?.pendingProjection == nil
+        }
         let scheduleCount = coordinator.diagnostics.childProjectionScheduleCount
         coordinator.applyChildSnapshot(duplicateSnapshot, "child", selectionID)
         coordinator.applyChildSnapshot(

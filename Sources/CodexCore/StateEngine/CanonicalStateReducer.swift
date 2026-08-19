@@ -183,7 +183,47 @@ internal struct CanonicalStateReducer: Sendable {
         let utf8ByteCount: Int
     }
 
-    private var orphanDeltas: [ItemKey: [OrphanDelta]] = [:]
+    /// FIFO storage for one missing item's deltas. A head index avoids shifting
+    /// every retained delta when the per-item orphan cap evicts under churn.
+    private struct OrphanDeltaQueue: Sendable {
+        private var storage: [OrphanDelta?] = []
+        private var head = 0
+        private(set) var utf8ByteCount = 0
+
+        var count: Int { storage.count - head }
+        var isEmpty: Bool { head == storage.count }
+
+        mutating func append(_ entry: OrphanDelta) {
+            storage.append(entry)
+            utf8ByteCount += entry.utf8ByteCount
+        }
+
+        mutating func removeFirst() -> OrphanDelta? {
+            guard head < storage.count, let entry = storage[head] else { return nil }
+            storage[head] = nil
+            head += 1
+            utf8ByteCount -= entry.utf8ByteCount
+            reclaimConsumedPrefix()
+            return entry
+        }
+
+        var entries: [OrphanDelta] {
+            storage[head...].compactMap { $0 }
+        }
+
+        private mutating func reclaimConsumedPrefix() {
+            guard head > 0 else { return }
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= storage.count {
+                storage.removeSubrange(0..<head)
+                head = 0
+            }
+        }
+    }
+
+    private var orphanDeltas: [ItemKey: OrphanDeltaQueue] = [:]
     private var orphanKeyOrder: [ItemKey] = []
     private var orphanDeltaCount = 0
     private var orphanUTF8ByteCount = 0
@@ -1045,6 +1085,7 @@ private extension CanonicalStateReducer {
             mergeItem(
                 item,
                 preservingCompleted: isHistoryPage,
+                orderAlreadyEnsured: true,
                 revision: revision,
                 graph: &graph,
                 changes: &changes
@@ -1121,6 +1162,7 @@ private extension CanonicalStateReducer {
     mutating func mergeItem(
         _ incoming: CanonicalItem,
         preservingCompleted: Bool = false,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
@@ -1138,14 +1180,23 @@ private extension CanonicalStateReducer {
             completeItem(
                 incoming,
                 authoritativePayload: incoming.consistency == .authoritative,
+                orderAlreadyEnsured: orderAlreadyEnsured,
                 revision: revision,
                 graph: &graph,
                 changes: &changes
             )
         case .started:
-            startItem(incoming, revision: revision, graph: &graph, changes: &changes)
+            startItem(
+                incoming,
+                orderAlreadyEnsured: orderAlreadyEnsured,
+                revision: revision,
+                graph: &graph,
+                changes: &changes
+            )
         case .placeholder:
-            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+            if !orderAlreadyEnsured {
+                ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+            }
             guard var current = graph.items[incoming.key] else {
                 var inserted = incoming
                 inserted.lastChangedRevision = revision
@@ -1169,11 +1220,14 @@ private extension CanonicalStateReducer {
 
     mutating func startItem(
         _ incoming: CanonicalItem,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
     ) {
-        ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        if !orderAlreadyEnsured {
+            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        }
 
         if var current = graph.items[incoming.key] {
             if current.authority == .completed {
@@ -1250,6 +1304,7 @@ private extension CanonicalStateReducer {
     mutating func completeItem(
         _ incoming: CanonicalItem,
         authoritativePayload: Bool,
+        orderAlreadyEnsured: Bool = false,
         revision: StateRevision,
         graph: inout CanonicalStateGraph,
         changes: inout [CanonicalStateChange]
@@ -1260,7 +1315,9 @@ private extension CanonicalStateReducer {
             graph: &graph,
             changes: &changes
         )
-        ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        if !orderAlreadyEnsured {
+            ensureItemOrder(incoming.key, revision: revision, graph: &graph, changes: &changes)
+        }
         let previous = graph.items[incoming.key]
         var completed = incoming
         completed.authority = .completed
@@ -1461,11 +1518,11 @@ private extension CanonicalStateReducer {
 
     mutating func bufferOrphan(_ delta: ItemDelta, for key: ItemKey) -> [ItemKey] {
         if orphanDeltas[key] == nil {
-            orphanDeltas[key] = []
+            orphanDeltas[key] = .init()
             orphanKeyOrder.append(key)
         }
         let entry = OrphanDelta(delta: delta, utf8ByteCount: delta.utf8ByteCount)
-        orphanDeltas[key, default: []].append(entry)
+        orphanDeltas[key, default: .init()].append(entry)
         orphanDeltaCount += 1
         orphanUTF8ByteCount += entry.utf8ByteCount
 
@@ -1482,12 +1539,11 @@ private extension CanonicalStateReducer {
     }
 
     mutating func dropOldestOrphan(for key: ItemKey) -> Bool {
-        guard var entries = orphanDeltas[key], !entries.isEmpty else {
+        guard var entries = orphanDeltas[key], let dropped = entries.removeFirst() else {
             orphanDeltas.removeValue(forKey: key)
             orphanKeyOrder.removeAll { $0 == key }
             return false
         }
-        let dropped = entries.removeFirst()
         orphanDeltaCount -= 1
         orphanUTF8ByteCount -= dropped.utf8ByteCount
         if entries.isEmpty {
@@ -1500,11 +1556,11 @@ private extension CanonicalStateReducer {
     }
 
     private mutating func takeOrphans(for key: ItemKey) -> [OrphanDelta]? {
-        guard let entries = orphanDeltas.removeValue(forKey: key) else { return nil }
+        guard let queue = orphanDeltas.removeValue(forKey: key) else { return nil }
         orphanKeyOrder.removeAll { $0 == key }
-        orphanDeltaCount -= entries.count
-        orphanUTF8ByteCount -= entries.reduce(into: 0) { $0 += $1.utf8ByteCount }
-        return entries
+        orphanDeltaCount -= queue.count
+        orphanUTF8ByteCount -= queue.utf8ByteCount
+        return queue.entries
     }
 
     mutating func discardOrphans(for key: ItemKey) {
@@ -1521,7 +1577,9 @@ private extension CanonicalStateReducer {
     }
 }
 
-private extension CanonicalStateChange {
+// Kept module-visible so StateObservation can derive all invalidation indexes
+// in one pass without duplicating this change-to-entity mapping.
+extension CanonicalStateChange {
     var threadID: ThreadID? {
         switch self {
         case .threadInserted(let id), .threadUpdated(let id), .threadTurnsReplaced(let id),

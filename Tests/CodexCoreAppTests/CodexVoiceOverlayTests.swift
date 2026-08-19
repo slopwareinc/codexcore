@@ -1,6 +1,7 @@
 import AppKit
 import CodexCore
 import Foundation
+import OSLog
 import Testing
 import XCTest
 @testable import CodexCoreApp
@@ -139,6 +140,30 @@ struct CodexVoiceOverlayTests {
             "phase": "listening",
         ])
         #expect(safe == ["displayID": "42", "phase": "listening"])
+    }
+
+    @Test("Voice log writer preserves queued event contents")
+    @MainActor
+    func voiceLogWriterEnqueuesAndFlushes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-voice-log-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferred = root.appendingPathComponent("preferred/voice.jsonl")
+        let fallback = root.appendingPathComponent("fallback/voice.jsonl")
+        let writer = CodexVoiceLogFileWriter(
+            preferredURL: preferred,
+            fallbackURL: fallback,
+            maximumFileSize: 1024,
+            logger: Logger(subsystem: "CodexCoreTests", category: "voice-log")
+        )
+
+        writer.enqueue(#"{"event":"first"}"#)
+        writer.enqueue(#"{"event":"second"}"#)
+        await writer.flush()
+
+        let contents = try String(contentsOf: preferred, encoding: .utf8)
+        #expect(contents == "{\"event\":\"first\"}\n{\"event\":\"second\"}\n")
+        #expect(writer.fileURL == preferred)
     }
 
     @Test("Voice advertises the explicit end-call dynamic tool")

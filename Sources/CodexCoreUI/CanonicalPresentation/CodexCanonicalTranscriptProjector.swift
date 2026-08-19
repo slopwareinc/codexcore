@@ -41,13 +41,26 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
         let old = fullRebuild ? nil : previous
         let intents = unresolvedIntents(snapshot: snapshot, threadID: threadID)
         let intentByTurn = intentsByTurn(intents)
-        let echoedIntentIDs = try echoedIntentIDs(
-            snapshot: snapshot,
-            threadID: threadID,
-            checkpoint: checkpoint
-        )
-        let visibleIntents = intents.filter { !echoedIntentIDs.contains($0.id) }
-        let visibleIntentByTurn = intentsByTurn(visibleIntents)
+        let echoedIDs: Set<SubmissionIntentID>
+        if intents.isEmpty {
+            // There is nothing to hide when no local intents are unresolved.
+            // Avoid scanning the complete canonical transcript in this common
+            // case; the echoed IDs only affect optimistic intent projection.
+            echoedIDs = []
+        } else {
+            echoedIDs = try echoedIntentIDs(
+                snapshot: snapshot,
+                threadID: threadID,
+                checkpoint: checkpoint
+            )
+        }
+        let visibleIntentByTurn = intentByTurn.compactMapValues { turnIntents in
+            let visible = turnIntents.filter { !echoedIDs.contains($0.id) }
+            return visible.isEmpty ? nil : visible
+        }
+        // Keep the globally sorted intent order for provisional turns; the
+        // grouped view above is only used for per-turn projection/revisions.
+        let visibleIntents = intents.filter { !echoedIDs.contains($0.id) }
         let order = try projectedTurnOrder(
             snapshot: snapshot,
             threadID: threadID,

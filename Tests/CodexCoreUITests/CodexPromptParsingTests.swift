@@ -6,6 +6,39 @@ import XCTest
 /// parsing was removed with the legacy Connection/Store prompt path; typed
 /// inbox projection is covered by `CodexPromptStateSessionTests`.
 final class CodexPromptParsingTests: XCTestCase {
+    func testSlashFilteringCombinesAvailabilityAndMatchPrecedenceWithoutReordering() {
+        let commands = [
+            CodexSlashCommand(
+                id: "disabled-prefix",
+                title: "Needle",
+                detail: "ignored",
+                systemImage: "1",
+                isEnabled: false
+            ),
+            CodexSlashCommand(
+                id: "prefix",
+                title: "Needle",
+                detail: "primary",
+                systemImage: "2"
+            ),
+            CodexSlashCommand(
+                id: "contains",
+                title: "Contains needle",
+                detail: "secondary",
+                systemImage: "3"
+            )
+        ]
+
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: commands, matching: "/needle").map(\.id),
+            ["prefix"]
+        )
+        XCTAssertEqual(
+            CodexSlashCommand.filteredCommands(from: commands, matching: "/").map(\.id),
+            ["prefix", "contains"]
+        )
+    }
+
     func testPermissionProfilesParseAppServerAccessOptions() throws {
         let raw = CodexJSONValue.dictionary([
             "data": .array([

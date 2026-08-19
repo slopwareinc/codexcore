@@ -623,6 +623,7 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.renderedItemIDsForTesting.contains {
             $0.rawValue.hasSuffix(":inline-activity:research:detail")
         })
+        let initialProjectionCount = coordinator.diagnostics.render.projectionCount
 
         // The transcript-only initializer creates a fresh presentation for
         // every streamed update. That refresh must not erase live UI state.
@@ -643,6 +644,24 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect(coordinator.renderedItemIDsForTesting.contains {
             $0.rawValue.hasSuffix(":inline-activity:research:detail")
         })
+        #expect(coordinator.diagnostics.render.projectionCount > initialProjectionCount)
+
+        let projectionCount = coordinator.diagnostics.render.projectionCount
+        coordinator.update(
+            presentation: presentation(label: "Checking lessons", expanded: false),
+            presentationStore: nil,
+            bottomContentInset: 0,
+            contentHorizontalOffset: 0,
+            swiftUITheme: .officialDark,
+            colorScheme: .dark,
+            clipboardService: CodexNoopClipboardService(),
+            productToolRenderer: nil,
+            onOpenSubagent: { _ in },
+            onEditUserMessage: { _ in },
+            onForkChat: nil
+        )
+        await coordinator.waitForProjectionForTesting()
+        #expect(coordinator.diagnostics.render.projectionCount == projectionCount)
     }
 
     @Test func singleLineAssistantRepliesFitTheirNativeTextLayout() async throws {

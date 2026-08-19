@@ -679,7 +679,7 @@ public enum CodexBlockProjector {
     }
 
     static func listIndentUnit(lines: [String], startIndex: Int, rootIndent: Int) -> Int {
-        var indents: [Int] = []
+        var minimumPositiveDelta: Int?
         var index = startIndex
         while index < lines.count {
             let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
@@ -689,7 +689,10 @@ public enum CodexBlockProjector {
             }
             let indent = indentationColumns(lines[index])
             if matchListMarker(trimmed) != nil, indent >= rootIndent {
-                indents.append(indent)
+                let delta = indent - rootIndent
+                if delta > 0 {
+                    minimumPositiveDelta = min(minimumPositiveDelta ?? delta, delta)
+                }
                 index += 1
                 continue
             }
@@ -699,8 +702,7 @@ public enum CodexBlockProjector {
             }
             break
         }
-        let positiveDeltas = indents.map { $0 - rootIndent }.filter { $0 > 0 }
-        return max(1, positiveDeltas.min() ?? 4)
+        return max(1, minimumPositiveDelta ?? 4)
     }
 
     static func isBlockquoteLine(_ trimmed: String) -> Bool {

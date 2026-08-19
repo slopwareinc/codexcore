@@ -537,6 +537,124 @@ public actor CodexSession:
         let data: Data
     }
 
+    /// FIFO storage for outbound frames. A head index keeps normal dequeue
+    /// operations constant-time, while consumed slots are cleared immediately
+    /// so large frame payloads do not remain retained until compaction.
+    private struct OutboundFrameQueue: Sendable {
+        private var storage: [OutboundFrame?] = []
+        private var head = 0
+
+        var first: OutboundFrame? {
+            guard head < storage.count else { return nil }
+            return storage[head]
+        }
+
+        mutating func append(_ frame: OutboundFrame) {
+            storage.append(frame)
+        }
+
+        mutating func removeFirst() {
+            guard head < storage.count else { return }
+            storage[head] = nil
+            head += 1
+            reclaimConsumedPrefix()
+        }
+
+        mutating func removeAll(where shouldRemove: (OutboundFrame) -> Bool) {
+            guard head < storage.count else { return }
+
+            var writeIndex = head
+            for readIndex in head..<storage.count {
+                guard let frame = storage[readIndex] else { continue }
+                if shouldRemove(frame) {
+                    storage[readIndex] = nil
+                } else {
+                    if writeIndex != readIndex {
+                        storage[writeIndex] = frame
+                        storage[readIndex] = nil
+                    }
+                    writeIndex += 1
+                }
+            }
+
+            if writeIndex < storage.count {
+                storage.removeSubrange(writeIndex..<storage.count)
+            }
+            if writeIndex == head {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else {
+                reclaimConsumedPrefix()
+            }
+        }
+
+        private mutating func reclaimConsumedPrefix() {
+            guard head > 0 else { return }
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= storage.count {
+                storage.removeSubrange(0..<head)
+                head = 0
+            }
+        }
+    }
+
+    /// Ordered retention storage with constant-time head eviction. Consumed
+    /// prefixes are periodically reclaimed so repeated bounded churn cannot
+    /// retain an ever-growing backing array.
+    private struct IndexedRetentionOrder<Element> {
+        private var storage: [Element] = []
+        private var head = 0
+
+        var count: Int { storage.count - head }
+
+        mutating func append(_ element: Element) {
+            storage.append(element)
+        }
+
+        mutating func removeFirst() -> Element? {
+            guard head < storage.count else { return nil }
+            let element = storage[head]
+            head += 1
+            reclaimConsumedPrefix()
+            return element
+        }
+
+        mutating func removeAll(where shouldRemove: (Element) -> Bool) {
+            guard head < storage.count else { return }
+
+            var writeIndex = head
+            for readIndex in head..<storage.count {
+                let element = storage[readIndex]
+                guard !shouldRemove(element) else { continue }
+                if writeIndex != readIndex {
+                    storage[writeIndex] = element
+                }
+                writeIndex += 1
+            }
+
+            if writeIndex == head {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else {
+                storage.removeSubrange(writeIndex..<storage.count)
+                reclaimConsumedPrefix()
+            }
+        }
+
+        private mutating func reclaimConsumedPrefix() {
+            guard head > 0 else { return }
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= storage.count {
+                storage.removeSubrange(0..<head)
+                head = 0
+            }
+        }
+    }
+
     private struct BufferedEnvelope: Sendable {
         let cursor: CodexWireCursor
         let envelope: CodexJSONRPCEnvelope
@@ -616,12 +734,14 @@ public actor CodexSession:
     private var pendingClientRequests: [ClientRequestKey: PendingClientRequest] = [:]
     private var handshakeRequestKey: ClientRequestKey?
     private var bufferedHandshakeEnvelopes: [BufferedEnvelope] = []
-    private var outboundFrames: [OutboundFrame] = []
+    private var outboundFrames = OutboundFrameQueue()
     private var outboundDrainTask: Task<Void, Never>?
     private var outboundWriteInFlightToken: UInt64?
     private var leaseEffectQueue: [ThreadLeaseEffect] = []
+    private var leaseEffectQueueHead = 0
     private var leaseEffectDrainTask: Task<Void, Never>?
     private var historyEffectQueue: [PaginatedHistoryEffect] = []
+    private var historyEffectQueueHead = 0
     private var historyEffectDrainTask: Task<Void, Never>?
     private var historyRequestTasks: [PaginatedHistoryRequestID: Task<Void, Never>] = [:]
     private var startWaiters: [UInt64: CheckedContinuation<InitializeResponse, Error>] = [:]
@@ -629,13 +749,13 @@ public actor CodexSession:
     private var historyWaiters: [ThreadID: [UInt64: HistoryWaiter]] = [:]
     private var loginWaiters: [CodexLoginKey: [UInt64: CheckedContinuation<CodexLoginCompletion, Error>]] = [:]
     private var retainedLoginCompletions: [CodexLoginKey: CodexLoginCompletion] = [:]
-    private var retainedLoginOrder: [CodexLoginKey] = []
+    private var retainedLoginOrder = IndexedRetentionOrder<CodexLoginKey>()
     private var activeLoginKeys: Set<CodexLoginKey> = []
     private var anonymousLoginRequestEpochs: Set<UInt64> = []
     private var resumeGenerationByThread: [ThreadID: UInt64] = [:]
     private var threadAttentionRevisions: [ThreadID: StateRevision] = [:]
     private var threadLiveAgentMessageRevisions: [ThreadID: StateRevision] = [:]
-    private var unleasedThreadDetailLRU: [ThreadID] = []
+    private var unleasedThreadDetailLRU = IndexedRetentionOrder<ThreadID>()
 
     public init(
         transport: any CodexFrameTransport,
@@ -710,9 +830,11 @@ public actor CodexSession:
         leaseEffectDrainTask?.cancel()
         leaseEffectDrainTask = nil
         leaseEffectQueue.removeAll(keepingCapacity: false)
+        leaseEffectQueueHead = 0
         historyEffectDrainTask?.cancel()
         historyEffectDrainTask = nil
         historyEffectQueue.removeAll(keepingCapacity: false)
+        historyEffectQueueHead = 0
         for task in historyRequestTasks.values {
             task.cancel()
         }
@@ -2413,14 +2535,26 @@ private extension CodexSession {
         cursor: CodexWireCursor
     ) {
         do {
-            let adaptation = try adapter.adaptNotification(
-                method: notification.method,
-                params: notification.params
-            )
-
             let knownMethod = CodexAppServerNotificationMethod(
                 rawValue: notification.method
             )
+            // Keep the enum classification from the routing switch and feed
+            // it directly to the adapter. Operation notifications are common
+            // on long-running processes, so looking up the same raw method a
+            // second time needlessly repeats the protocol dispatch work.
+            let adaptation: ProtocolStateAdaptation
+            if let knownMethod {
+                adaptation = try adapter.adaptNotification(
+                    method: knownMethod,
+                    params: notification.params
+                )
+            } else {
+                adaptation = try adapter.adaptNotification(
+                    method: notification.method,
+                    params: notification.params
+                )
+            }
+
             if let knownMethod {
                 switch knownMethod {
                 case .commandExecOutputDelta:
@@ -3322,7 +3456,7 @@ private extension CodexSession {
         while retainedLoginOrder.count
                 > configuration.maximumRetainedLoginCompletions
         {
-            let evicted = retainedLoginOrder.removeFirst()
+            guard let evicted = retainedLoginOrder.removeFirst() else { break }
             retainedLoginCompletions.removeValue(forKey: evicted)
         }
 
@@ -3480,7 +3614,7 @@ private extension CodexSession {
                 evictThreadDetailAfterUnsubscribe(threadID)
             }
         }
-        guard !leaseEffectQueue.isEmpty else { return }
+        guard leaseEffectQueueHead < leaseEffectQueue.count else { return }
         guard leaseEffectDrainTask == nil else { return }
         leaseEffectDrainTask = Task { [weak self] in
             await self?.drainLeaseEffects()
@@ -3488,10 +3622,13 @@ private extension CodexSession {
     }
 
     func drainLeaseEffects() async {
-        while !leaseEffectQueue.isEmpty {
-            let effect = leaseEffectQueue.removeFirst()
+        while leaseEffectQueueHead < leaseEffectQueue.count {
+            let effect = leaseEffectQueue[leaseEffectQueueHead]
+            leaseEffectQueueHead += 1
             await executeLeaseEffect(effect)
         }
+        leaseEffectQueue.removeAll(keepingCapacity: true)
+        leaseEffectQueueHead = 0
         leaseEffectDrainTask = nil
     }
 
@@ -3638,7 +3775,7 @@ private extension CodexSession {
 
         while unleasedThreadDetailLRU.count
             > configuration.maximumRetainedUnleasedThreadDetails {
-            let threadID = unleasedThreadDetailLRU.removeFirst()
+            guard let threadID = unleasedThreadDetailLRU.removeFirst() else { break }
             guard isWarmUnleasedThreadDetail(threadID) else { continue }
             try commit(.threadDetailEvicted(threadID))
         }
@@ -3676,8 +3813,9 @@ private extension CodexSession {
     }
 
     func drainHistoryEffects() async {
-        while !historyEffectQueue.isEmpty {
-            let effect = historyEffectQueue.removeFirst()
+        while historyEffectQueueHead < historyEffectQueue.count {
+            let effect = historyEffectQueue[historyEffectQueueHead]
+            historyEffectQueueHead += 1
             switch effect {
             case .requestResume(let request):
                 launchHistoryRequest(effect, id: request.requestID)
@@ -3689,6 +3827,8 @@ private extension CodexSession {
                 await executeHistoryEffect(effect)
             }
         }
+        historyEffectQueue.removeAll(keepingCapacity: true)
+        historyEffectQueueHead = 0
         historyEffectDrainTask = nil
     }
 

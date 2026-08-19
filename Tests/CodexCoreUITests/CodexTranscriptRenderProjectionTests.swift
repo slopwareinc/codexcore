@@ -101,6 +101,43 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(output.preparedText?.attributedString.attribute(.foregroundColor, at: 0, effectiveRange: nil) != nil)
     }
 
+    @Test func repeatedExpandedOutputReusesPreparedTextCache() async throws {
+        let command = CodexCommandRowV2(
+            id: "command",
+            command: "printf output",
+            label: "Ran command",
+            action: .run,
+            status: .completed,
+            output: "\u{001B}[32moutput\u{001B}[0m"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.workGroup(.init(id: "group", rows: [.command(command)]))],
+            status: .done(durationMs: 1_200)
+        )
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [turn]),
+            expandedWorkTurnIDs: [turn.id],
+            expandedRowIDs: ["group", "command"]
+        )
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        _ = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+        let second = try await projector.project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: theme
+        )
+
+        #expect(second.diagnostics.preparedTextCacheHitCount == 1)
+        #expect(second.diagnostics.preparedTextCacheMissCount == 0)
+    }
+
     @Test func interruptedTurnsRenderDistinctlyAndKeepElapsedDuration() async throws {
         let status = CodexTurnStatusV2.interrupted(durationMs: 12_000)
         #expect(status.interruption?.durationMs == 12_000)
@@ -139,6 +176,23 @@ struct CodexTranscriptRenderProjectionTests {
             "./Tests/ViewTests.swift:9",
             "Package.swift",
         ])
+    }
+
+    @Test func fileCitationLinksRoundTripAndKeepFirstQueryValues() throws {
+        let reference = CodexTranscriptFileReference(
+            path: "Sources/CodexCoreUI/View.swift",
+            line: 42,
+            column: 7
+        )
+        let url = try #require(CodexTranscriptFileCitationLink.url(for: reference))
+        #expect(CodexTranscriptFileCitationLink.reference(from: url) == reference)
+
+        let duplicate = try #require(URL(string: "codex-file://workspace?path=first.swift&path=second.swift&line=42&line=99&column=7"))
+        #expect(CodexTranscriptFileCitationLink.reference(from: duplicate) == .init(
+            path: "first.swift",
+            line: 42,
+            column: 7
+        ))
     }
 
     @Test func workspaceFileNavigationRejectsMissingAndEscapingPaths() {
@@ -333,6 +387,27 @@ struct CodexTranscriptRenderProjectionTests {
             success: nil
         )
         #expect(CodexProductToolPresentationV2.label(tool) == "Create issue")
+    }
+
+    @Test func collabDetailKeepsNamedOrderAndDuplicateNames() {
+        let row = CodexWorkRowV2.collabAgent(.init(
+            id: "collab-detail",
+            action: .waited,
+            agentNames: ["Reviewer", "Reviewer", "Planner"],
+            instructions: nil,
+            agentMessages: [
+                "Planner": "planned",
+                "Reviewer": "reviewed",
+                "Unlisted": "reported",
+            ],
+            status: .completed
+        ))
+
+        guard case .collabAgent(let value) = row else {
+            Issue.record("Expected collab-agent row")
+            return
+        }
+        #expect(value.orderedMessageAgentNames == ["Reviewer", "Reviewer", "Planner", "Unlisted"])
     }
 
     @Test func completedActivitySummaryUsesOfficialCategoryOrderAndPhrasing() {

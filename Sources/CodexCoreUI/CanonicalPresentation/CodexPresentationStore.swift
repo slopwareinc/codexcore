@@ -111,6 +111,7 @@ public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
     public fileprivate(set) var presentationCacheHitCount = 0
     public fileprivate(set) var presentationCacheMissCount = 0
     public fileprivate(set) var deferredIncompleteHistoryCount = 0
+    public fileprivate(set) var attentionRevisionCacheMissCount = 0
 
     public init() {}
 }
@@ -146,6 +147,9 @@ public final class CodexPresentationStore {
     @ObservationIgnored private var warmCacheIneligibleThreadIDs: Set<ThreadID> = []
     @ObservationIgnored private var leastToMostRecentThreadIDs: [ThreadID] = []
     @ObservationIgnored private var latestSnapshot: CanonicalStateSnapshot?
+    @ObservationIgnored private var latestAttentionRevisionByThreadID: [
+        ThreadID: StateRevision
+    ] = [:]
     @ObservationIgnored private var latestRequestBatch = CodexPendingInteractionSnapshotBatch(
         revision: .zero,
         requests: []
@@ -215,6 +219,7 @@ public final class CodexPresentationStore {
         selectedThreadID = threadID
         latestSnapshot = nil
         latestRequestBatch = .init(revision: .zero, requests: [])
+        latestAttentionRevisionByThreadID.removeAll(keepingCapacity: true)
         activeCanonicalPresentation = nil
         activeRenderUpdate = nil
         activePendingRequests = []
@@ -274,7 +279,7 @@ public final class CodexPresentationStore {
         guard let local = localStateByThreadID[threadID],
               let snapshot = latestSnapshot
         else { return false }
-        return local.lastSeenAttentionRevision < Self.latestAttentionRevision(
+        return local.lastSeenAttentionRevision < cachedLatestAttentionRevision(
             threadID: threadID,
             snapshot: snapshot,
             requests: latestRequestBatch.requests,
@@ -284,7 +289,7 @@ public final class CodexPresentationStore {
 
     public func markSeen(threadID: ThreadID) {
         guard var local = localStateByThreadID[threadID] else { return }
-        local.lastSeenAttentionRevision = Self.latestAttentionRevision(
+        local.lastSeenAttentionRevision = cachedLatestAttentionRevision(
             threadID: threadID,
             snapshot: latestSnapshot,
             requests: latestRequestBatch.requests,
@@ -353,6 +358,7 @@ public final class CodexPresentationStore {
 
     public func removeLocalState(for threadID: ThreadID) {
         localStateByThreadID.removeValue(forKey: threadID)
+        latestAttentionRevisionByThreadID.removeValue(forKey: threadID)
         presentationCacheByThreadID.removeValue(forKey: threadID)
         warmCacheIneligibleThreadIDs.remove(threadID)
         leastToMostRecentThreadIDs.removeAll { $0 == threadID }
@@ -389,6 +395,7 @@ private extension CodexPresentationStore {
         cancelProjection()
         latestSnapshot = nil
         latestRequestBatch = .init(revision: .zero, requests: [])
+        latestAttentionRevisionByThreadID.removeAll(keepingCapacity: true)
         observedRevision = .zero
         activeCanonicalPresentation = nil
         activeRenderUpdate = nil
@@ -489,6 +496,7 @@ private extension CodexPresentationStore {
         observedRevision = sessionSnapshot.stateRevision
         latestSnapshot = snapshot
         latestRequestBatch = requestBatch
+        latestAttentionRevisionByThreadID.removeAll(keepingCapacity: true)
         let containsSelectedThread = snapshot.threads[threadID] != nil
             || snapshot.turns.keys.contains(where: { $0.threadID == threadID })
         guard containsSelectedThread else {
@@ -798,6 +806,7 @@ private extension CodexPresentationStore {
                 $0 != selectedThreadID
             }) else { return }
             localStateByThreadID.removeValue(forKey: candidate)
+            latestAttentionRevisionByThreadID.removeValue(forKey: candidate)
             presentationCacheByThreadID.removeValue(forKey: candidate)
             warmCacheIneligibleThreadIDs.remove(candidate)
             leastToMostRecentThreadIDs.removeAll { $0 == candidate }
@@ -860,6 +869,29 @@ private extension CodexPresentationStore {
         if requests.contains(where: { $0.scope.threadID == threadID.rawValue }) {
             revision = max(revision, requestRevision)
         }
+        return revision
+    }
+
+    func cachedLatestAttentionRevision(
+        threadID: ThreadID,
+        snapshot: CanonicalStateSnapshot?,
+        requests: [CodexPendingInteractionSnapshot],
+        requestRevision: StateRevision,
+        fallback: StateRevision = .zero
+    ) -> StateRevision {
+        guard snapshot != nil else { return fallback }
+        if let cached = latestAttentionRevisionByThreadID[threadID] {
+            return cached
+        }
+        diagnostics.attentionRevisionCacheMissCount &+= 1
+        let revision = Self.latestAttentionRevision(
+            threadID: threadID,
+            snapshot: snapshot,
+            requests: requests,
+            requestRevision: requestRevision,
+            fallback: fallback
+        )
+        latestAttentionRevisionByThreadID[threadID] = revision
         return revision
     }
 

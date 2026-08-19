@@ -71,10 +71,9 @@ public final class CodexSummaryBranchSession {
     }
 
     public var canCreateBranch: Bool {
-        canSwitchBranches
-            && !isBusy
-            && !trimmedNewBranchName.isEmpty
-            && picker?.options.contains { $0.branchName == trimmedNewBranchName } != true
+        guard canSwitchBranches, !isBusy else { return false }
+        let name = trimmedNewBranchName
+        return !name.isEmpty && picker?.options.contains { $0.branchName == name } != true
     }
 
     /// The reason a typed branch name cannot be created, surfaced while typing.

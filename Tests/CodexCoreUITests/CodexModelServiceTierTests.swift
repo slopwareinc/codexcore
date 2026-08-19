@@ -205,7 +205,7 @@ final class CodexModelServiceTierTests: XCTestCase {
         XCTAssertNil(backgroundTurn.effort)
     }
 
-    func testCatalogCacheClearsOnEmptyAndFailureAndExactIDWinsAliases() {
+    func testCatalogCacheClearsOnEmptyPreservesLastSuccessOnFailureAndExactIDWinsAliases() {
         let alias = selection("alias")
         let exact = CodexModelSelection(
             id: "wire-shared",
@@ -242,11 +242,33 @@ final class CodexModelServiceTierTests: XCTestCase {
         session.applyModelResponse(CodexSchemaModelListResponse(data: [
             schemaModel(id: exact.id, model: "exact-wire", efforts: ["medium"]),
         ]))
+        let lastLoadedModel = session.resolveModelPreference(preference).model
         session.failModelRefresh(message: "offline")
+        XCTAssertEqual(session.modelOptions, [lastLoadedModel])
         XCTAssertEqual(
             session.resolveModelPreference(preference).model,
-            .appServerDefault
+            lastLoadedModel
         )
+    }
+
+    func testStartupCatalogMergePreservesASelectionMadeWhileLoading() {
+        let sol = selection("gpt-5.6-sol")
+        let terra = selection("gpt-5.6-terra")
+        let fetched = CodexChatConfigurationSession(
+            modelSelection: sol,
+            modelOptions: [sol, terra]
+        )
+        var live = CodexChatConfigurationSession(
+            modelSelection: terra,
+            modelOptions: [sol, terra],
+            reasoningSelection: .ultra
+        )
+
+        live.mergeStartupCatalogs(from: fetched)
+
+        XCTAssertEqual(live.modelOptions, [sol, terra])
+        XCTAssertEqual(live.modelSelection, terra)
+        XCTAssertEqual(live.reasoningSelection, .ultra)
     }
 
     func testPersistenceMigratesLegacySpeedSafelyAndRoundTripsPerThread() {

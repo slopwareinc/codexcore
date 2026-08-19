@@ -56,6 +56,21 @@ final class CodexModelGridV2Tests: XCTestCase {
         XCTAssertEqual(grid.efforts, [.medium, .high, .none, .minimal])
     }
 
+    func testCurrentGenerationKeepsDefaultFallbackSemanticsWithoutGenerationNumber() {
+        var defaultModel = model("default", "Default", [.medium])
+        defaultModel.isDefault = true
+        let other = model("other", "Other", [.medium])
+
+        XCTAssertEqual(
+            CodexModelGridV2.currentGenerationOptions(from: [defaultModel, other]).map(\.id),
+            [defaultModel.id]
+        )
+        XCTAssertEqual(
+            CodexModelGridV2.currentGenerationOptions(from: [other]).map(\.id),
+            [other.id]
+        )
+    }
+
     private func model(_ id: String, _ name: String, _ efforts: [CodexReasoningSelection]) -> CodexModelSelection {
         CodexModelSelection(id: id, displayName: name, modelIdentifier: id, supportedReasoning: efforts)
     }
