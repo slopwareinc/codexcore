@@ -63,6 +63,13 @@ public struct CodexAppServerRequest<Response: Decodable & Sendable>: Sendable {
 public enum CodexRequest {}
 
 extension CodexRequest {
+    public static func serverDiagnostics(
+        _ params: CodexSchemaServerDiagnosticsParams
+    ) -> CodexAppServerRequest<CodexSchemaServerDiagnosticsResponse> {
+        .required(method: .serverDiagnostics, params: params)
+    }
+}
+extension CodexRequest {
     static func threadStart(
         _ params: CodexSchemaThreadStartParams
     ) -> CodexAppServerRequest<CodexSchemaThreadStartResponse> {
@@ -144,6 +151,48 @@ extension CodexRequest {
         _ params: CodexSchemaThreadGoalClearParams
     ) -> CodexAppServerRequest<CodexSchemaThreadGoalClearResponse> {
         .required(method: .threadGoalClear, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueAdd(
+        _ params: CodexSchemaThreadQueueAddParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueAddResponse> {
+        .required(method: .threadQueueAdd, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueList(
+        _ params: CodexSchemaThreadQueueListParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueListResponse> {
+        .required(method: .threadQueueList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueUpdate(
+        _ params: CodexSchemaThreadQueueUpdateParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueUpdateResponse> {
+        .required(method: .threadQueueUpdate, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueDelete(
+        _ params: CodexSchemaThreadQueueDeleteParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueDeleteResponse> {
+        .required(method: .threadQueueDelete, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueReorder(
+        _ params: CodexSchemaThreadQueueReorderParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueReorderResponse> {
+        .required(method: .threadQueueReorder, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadQueueStart(
+        _ params: CodexSchemaThreadQueueStartParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadQueueStartResponse> {
+        .required(method: .threadQueueStart, params: params)
     }
 }
 extension CodexRequest {
@@ -233,6 +282,13 @@ extension CodexRequest {
         _ params: CodexSchemaThreadRollbackParams
     ) -> CodexAppServerRequest<CodexSchemaThreadRollbackResponse> {
         .required(method: .threadRollback, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadRevert(
+        _ params: CodexSchemaThreadRevertParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadRevertResponse> {
+        .required(method: .threadRevert, params: params)
     }
 }
 extension CodexRequest {
@@ -804,8 +860,12 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
-    public static func accountUsageRead() -> CodexAppServerRequest<CodexSchemaGetAccountTokenUsageResponse> {
-        .omitted(method: .accountUsageRead)
+    public static func accountUsageRead(
+        _ params: CodexNullableRequestParameters<
+            CodexSchemaGetAccountTokenUsageParams
+        > = .omitted
+    ) -> CodexAppServerRequest<CodexSchemaGetAccountTokenUsageResponse> {
+        .nullable(method: .accountUsageRead, params: params)
     }
 }
 extension CodexRequest {
@@ -971,8 +1031,9 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 132
+    static let generatedMethodCount = 140
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
+        .serverDiagnostics,
         .threadStart,
         .threadResume,
         .threadFork,
@@ -985,6 +1046,12 @@ public extension CodexRequest {
         .threadGoalSet,
         .threadGoalGet,
         .threadGoalClear,
+        .threadQueueAdd,
+        .threadQueueList,
+        .threadQueueUpdate,
+        .threadQueueDelete,
+        .threadQueueReorder,
+        .threadQueueStart,
         .threadMetadataUpdate,
         .threadSectionMove,
         .threadSettingsUpdate,
@@ -998,6 +1065,7 @@ public extension CodexRequest {
         .threadBackgroundTerminalsList,
         .threadBackgroundTerminalsTerminate,
         .threadRollback,
+        .threadRevert,
         .threadList,
         .threadSectionList,
         .threadSectionCreate,
@@ -1113,7 +1181,6 @@ public extension CodexRequest {
         .windowsSandboxReadiness,
         .accountLogout,
         .accountRateLimitsRead,
-        .accountUsageRead,
         .accountWorkspaceMessagesRead,
         .externalAgentConfigImportReadHistories,
         .configRequirementsRead,
@@ -1121,6 +1188,7 @@ public extension CodexRequest {
     static let nullableParameterMethods: Set<CodexAppServerClientMethod> = [
         .remoteControlEnable,
         .remoteControlDisable,
+        .accountUsageRead,
     ]
     static let specializedMethods: Set<CodexAppServerClientMethod> = [
         .threadStart,

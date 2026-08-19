@@ -2,7 +2,8 @@
 
 | CodexCore release | Codex CLI / app-server | Status |
 | --- | --- | --- |
-| `0.10.0` | `>= 0.147.0` | Current supported range; types generated from stable `0.147.0` |
+| `0.11.0` | `>= 0.148.0` | Current supported range; types generated from stable `0.148.0` |
+| `0.10.0` | `>= 0.147.0` | Historical release; types generated from stable `0.147.0` |
 | `0.9.0` | `>= 0.145.0` | Historical release; types generated from `0.146.0-alpha.9.2` |
 | `0.8.0` | `0.145.0` | Historical GA release |
 | `0.7.0` | `0.145.0` | Historical GA release |
@@ -12,10 +13,16 @@
 The composite release tag records both identities:
 
 ```text
-v0.147.0+codexcore.0.10.0
+v0.148.0+codexcore.0.11.0
 ```
 
 CodexCore requires the generated major/minor line and accepts newer patch releases with a warning. A stable CLI release does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
+
+## 0.148.0 migration
+
+The stable 0.148.0 schema adds server diagnostics, six durable thread-queue methods, paginated `thread/revert`, queue/revert notifications, scoped account usage, thread cost estimates, section appearance, model multi-agent versioning and retirement time, MCP ownership and OAuth registration selection, asynchronous/MCP hook metadata, and structured image-generation failure detail.
+
+`account/usage/read` now accepts omitted, null, or thread-scoped parameters. Hook metadata is now a heterogeneous command-or-MCP union and therefore remains lossless through the generated raw schema wrapper. On successful paginated revert—or a revert notification from another client—CodexCore evicts stale materialized transcript detail and retains the replacement history cursors for rehydration. Legacy `thread/rollback` behavior is unchanged.
 
 ## 0.147.0 migration
 

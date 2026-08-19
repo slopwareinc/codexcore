@@ -8,7 +8,48 @@ final class CodexSessionCommandsTests: XCTestCase {
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
         XCTAssertEqual(
             CodexRequest.nullableParameterMethods,
-            [.remoteControlEnable, .remoteControlDisable]
+            [.remoteControlEnable, .remoteControlDisable, .accountUsageRead]
+        )
+    }
+
+    func testGA148RequestFactoriesEncodeThreadRevertQueueAndScopedUsage() throws {
+        let revert = CodexRequest.threadRevert(.init(
+            beforeTurnID: "turn-2",
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(
+            try revert.encodeParameters(),
+            .dictionary([
+                "beforeTurnId": .string("turn-2"),
+                "threadId": .string("thread-1"),
+            ])
+        )
+
+        let queued = CodexRequest.threadQueueAdd(.init(
+            clientUserMessageID: "message-1",
+            input: [CodexSchemaUserInput(.dictionary([
+                "text": .string("continue"),
+                "type": .string("text"),
+            ]))],
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(queued.method, .threadQueueAdd)
+        XCTAssertEqual(
+            try queued.encodeParameters(),
+            .dictionary([
+                "clientUserMessageId": .string("message-1"),
+                "input": .array([.dictionary([
+                    "text": .string("continue"),
+                    "type": .string("text"),
+                ])]),
+                "threadId": .string("thread-1"),
+            ])
+        )
+
+        XCTAssertNil(try CodexRequest.accountUsageRead().encodeParameters())
+        XCTAssertEqual(
+            try CodexRequest.accountUsageRead(.value(.init(threadID: "thread-1"))).encodeParameters(),
+            .dictionary(["threadId": .string("thread-1")])
         )
     }
 

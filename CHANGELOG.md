@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — 2026-08-20
+
+Tag: `v0.148.0+codexcore.0.11.0`
+
+### Highlights
+
+- Upgraded the generated protocol and runtime contract to stable `codex-cli 0.148.0`, adding server diagnostics, durable thread queues, paginated history revert, scoped usage and cost estimates, section appearance, model lifecycle metadata, MCP ownership/auth selection, asynchronous and MCP hooks, and structured image-generation failures.
+- Added canonical invalidation for paginated history replacement. Successful `thread/revert` responses retain the new history cursors, while revert notifications from another client evict potentially stale transcript detail for safe rehydration.
+- Preserved existing thread, transcript, plugin, subagent, and performance behavior; the existing legacy `thread/rollback` path remains authoritative and unchanged.
+
+### Compatibility
+
+- Requires `codex-cli 0.148.0` or a newer patch on the `0.148` protocol line. Protocol bindings were generated from exact stable `0.148.0`.
+- `account/usage/read` now accepts omitted, null, or thread-scoped parameters. Hook metadata is a heterogeneous upstream union and is exposed losslessly through `CodexAppServerSchemaValue`.
+
 ## 0.10.0 — 2026-08-15
 
 Tag: `v0.147.0+codexcore.0.10.0`

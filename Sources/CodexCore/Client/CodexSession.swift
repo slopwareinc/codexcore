@@ -1503,7 +1503,7 @@ public actor CodexSession:
             resolved.excludeTurns = nil
             resolved.initialTurnsPage = nil
         case .paginated:
-            // Stable 0.147 supports an optional first turns page in the resume
+            // Stable 0.148 supports an optional first turns page in the resume
             // round trip. Preserve it while selecting metadata-only history.
             resolved.excludeTurns = true
         case .unknown(let rawValue):

@@ -3,6 +3,7 @@ import Foundation
 
 public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable {
     case initialize = "initialize"
+    case serverDiagnostics = "server/diagnostics"
     case threadStart = "thread/start"
     case threadResume = "thread/resume"
     case threadFork = "thread/fork"
@@ -15,6 +16,12 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadGoalSet = "thread/goal/set"
     case threadGoalGet = "thread/goal/get"
     case threadGoalClear = "thread/goal/clear"
+    case threadQueueAdd = "thread/queue/add"
+    case threadQueueList = "thread/queue/list"
+    case threadQueueUpdate = "thread/queue/update"
+    case threadQueueDelete = "thread/queue/delete"
+    case threadQueueReorder = "thread/queue/reorder"
+    case threadQueueStart = "thread/queue/start"
     case threadMetadataUpdate = "thread/metadata/update"
     case threadSectionMove = "thread/section/move"
     case threadSettingsUpdate = "thread/settings/update"
@@ -28,6 +35,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadBackgroundTerminalsList = "thread/backgroundTerminals/list"
     case threadBackgroundTerminalsTerminate = "thread/backgroundTerminals/terminate"
     case threadRollback = "thread/rollback"
+    case threadRevert = "thread/revert"
     case threadList = "thread/list"
     case threadSectionList = "threadSection/list"
     case threadSectionCreate = "threadSection/create"
@@ -144,10 +152,12 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadDeleted = "thread/deleted"
     case threadUnarchived = "thread/unarchived"
     case threadClosed = "thread/closed"
+    case threadReverted = "thread/reverted"
     case skillsChanged = "skills/changed"
     case threadNameUpdated = "thread/name/updated"
     case threadGoalUpdated = "thread/goal/updated"
     case threadGoalCleared = "thread/goal/cleared"
+    case threadQueueChanged = "thread/queue/changed"
     case threadEnvironmentConnected = "thread/environment/connected"
     case threadEnvironmentDisconnected = "thread/environment/disconnected"
     case threadSettingsUpdated = "thread/settings/updated"
@@ -222,7 +232,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 133
-    public static let notificationMethodCount = 70
+    public static let clientMethodCount = 141
+    public static let notificationMethodCount = 72
     public static let serverRequestMethodCount = 11
 }
