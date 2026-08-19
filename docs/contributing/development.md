@@ -8,6 +8,7 @@ Sources/CodexCoreUI/     reusable SwiftUI/AppKit presentation
 Sources/CodexCoreApp/    full reference host
 Sources/CodexRun/        trusted development demo
 Tests/                   SDK and UI tests
+rust/                    Rust App Server SDK and GPUI platform workspace
 Tools/                   protocol generators and drift checks
 docs/                    stable guides plus internal research
 ```
@@ -24,11 +25,19 @@ just run-app
 ./scripts/package-app.sh --release
 python3 -m unittest discover Tools/tests
 git diff --check
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
 ```
 
 Repository CI runs the default build and test suite, but contributors should still run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
 
 SDK/session/protocol tests belong in `Tests/CodexCoreTests`. Presentation and fixture tests belong in `Tests/CodexCoreUITests`.
+
+Rust protocol/session/state tests live with their crates under `rust/crates`.
+Run Rust checks with the pinned toolchain from `rust-toolchain.toml`. The GCP
+Linux host is the sustained build environment for portable crates; macOS GPUI
+rendering and packaging still require a native macOS runner.
 
 ## Performance work
 

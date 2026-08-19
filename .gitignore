@@ -12,6 +12,7 @@ DerivedData/
 .commandcode/
 __pycache__/
 *.py[cod]
+/target/
 
 # Stray build artifact from a scratch `t/t.swift` experiment.
 /t

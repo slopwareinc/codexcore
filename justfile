@@ -44,6 +44,16 @@ build:
 test *ARGS:
     swift test {{ARGS}}
 
+rust-build:
+    cargo build --workspace --locked
+
+rust-test:
+    cargo test --workspace --locked
+
+rust-check:
+    cargo fmt --all --check
+    cargo clippy --workspace --all-targets -- -D warnings
+
 # Render component scenes to build/gallery for visual review.
 # Every theme family, both appearances. Liquid Glass renders as its opaque
 # fallback: the window server composites real glass from behind the window, so

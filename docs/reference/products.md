@@ -1,5 +1,17 @@
 # Products and module boundaries
 
+## Rust workspace (experimental)
+
+Portable Rust foundations for the App Server SDK and GPUI platform are under
+`rust/`. The protocol, transport, canonical state, and presentation layers stay
+independent of GPUI; the future `codex-gpui` product consumes those layers as a
+controlled native component framework. See the
+[Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
+
+The Rust products are not yet a stable replacement for the supported Swift SDK
+or reference app. Capability claims must remain tied to compiling code and the
+parity audit.
+
 ## CodexCore
 
 Swift SDK with no SwiftUI or AppKit dependency, currently packaged for macOS 26+. Use it for custom clients, headless tools, alternate UI frameworks, and test harnesses on that platform.

@@ -34,6 +34,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Understand and contribute
 
 - [Architecture overview](architecture/overview.md)
+- [Rust SDK and GPUI platform](architecture/rust-gpui-platform.md)
 - [Integration control-plane seams](architecture/integration-control-plane.md)
 - [Configuration reference](reference/configuration.md)
 - [Runtime compatibility](reference/runtime-compatibility.md)

@@ -1,0 +1,17 @@
+[package]
+name = "codex-app-server-wire"
+description = "Lossless JSON-RPC wire envelopes for the Codex App Server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
