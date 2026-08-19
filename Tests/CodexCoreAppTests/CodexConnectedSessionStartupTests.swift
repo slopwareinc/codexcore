@@ -101,6 +101,7 @@ private actor StartupOrderingTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var requestMethods: [String] = []
     private var inventoryStarted = false
+    private var inventoryStartWaiters: [CheckedContinuation<Bool, Never>] = []
 
     init(homePath: String) {
         self.homePath = homePath
@@ -129,6 +130,9 @@ private actor StartupOrderingTransport: CodexFrameTransport {
         // boundary, so none of them may delay the sidebar's thread index.
         if method == "mcpServerStatus/list" {
             inventoryStarted = true
+            let waiters = inventoryStartWaiters
+            inventoryStartWaiters.removeAll(keepingCapacity: true)
+            waiters.forEach { $0.resume(returning: true) }
             return
         }
 
@@ -177,8 +181,20 @@ private actor StartupOrderingTransport: CodexFrameTransport {
     }
 
     func waitUntilInventoryStarts() async -> Bool {
-        while !inventoryStarted, !Task.isCancelled { await Task.yield() }
-        return inventoryStarted
+        if inventoryStarted { return true }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                inventoryStartWaiters.append(continuation)
+            }
+        } onCancel: {
+            Task { await self.cancelInventoryStartWaiters() }
+        }
+    }
+
+    private func cancelInventoryStartWaiters() {
+        let waiters = inventoryStartWaiters
+        inventoryStartWaiters.removeAll(keepingCapacity: true)
+        waiters.forEach { $0.resume(returning: false) }
     }
 }
 
