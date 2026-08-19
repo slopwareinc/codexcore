@@ -10,6 +10,11 @@ use codex_app_server_state::{ThreadId, TurnId};
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
+mod history;
+
+pub use codex_app_server_history::HistoryPolicy;
+pub use history::PaginatedResumeOptions;
+
 /// SDK facade or response-shape failure.
 #[derive(Debug, Error)]
 pub enum SdkError {
@@ -24,6 +29,9 @@ pub enum SdkError {
         /// Dotted field path.
         field: &'static str,
     },
+    /// Generated response validation or history reconciliation failure.
+    #[error("paginated history failed: {0}")]
+    History(String),
 }
 
 /// Supported image detail request.
@@ -236,6 +244,21 @@ impl Codex {
             .request("thread/resume", Value::Object(params.into_iter().collect()))
             .await?;
         self.adopt_thread_result("thread/resume", result).await
+    }
+
+    /// Resume a paginated thread, hydrate its durable history, and atomically
+    /// install the completed cut into canonical state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, paging, adaptation, or lease
+    /// failures. Partial durable pages are never installed.
+    pub async fn resume_thread_paginated(
+        &self,
+        thread_id: ThreadId,
+        options: PaginatedResumeOptions,
+    ) -> Result<CodexThread, SdkError> {
+        history::resume_paginated(self, thread_id, options).await
     }
 
     async fn adopt_thread_result(

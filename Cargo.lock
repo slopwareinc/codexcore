@@ -80,10 +80,13 @@ dependencies = [
 name = "codex-app-server-sdk"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "codex-app-server-adapter",
  "codex-app-server-client",
+ "codex-app-server-history",
  "codex-app-server-lease",
  "codex-app-server-state",
  "codex-app-server-transport",
+ "codex-app-server-types",
  "serde_json",
  "tempfile",
  "thiserror",

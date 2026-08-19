@@ -56,6 +56,33 @@ pub fn validate_thread_item_entry(value: &serde_json::Value) -> Result<(), serde
     serde_json::from_value::<ThreadItemEntry>(value.clone()).map(drop)
 }
 
+/// Validate a `thread/resume` result.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_thread_resume_response(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadResumeResponse>(value.clone()).map(drop)
+}
+
+/// Validate a `thread/turns/list` result.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_turns_list_response(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadTurnsListResponse>(value.clone()).map(drop)
+}
+
+/// Validate a `thread/items/list` result.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_items_list_response(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadItemsListResponse>(value.clone()).map(drop)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};

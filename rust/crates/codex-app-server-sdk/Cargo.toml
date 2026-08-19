@@ -9,9 +9,12 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+codex-app-server-adapter = { path = "../codex-app-server-adapter" }
 codex-app-server-client = { path = "../codex-app-server-client" }
+codex-app-server-history = { path = "../codex-app-server-history" }
 codex-app-server-lease = { path = "../codex-app-server-lease" }
 codex-app-server-state = { path = "../codex-app-server-state" }
+codex-app-server-types = { path = "../codex-app-server-types" }
 serde_json.workspace = true
 thiserror.workspace = true
 
