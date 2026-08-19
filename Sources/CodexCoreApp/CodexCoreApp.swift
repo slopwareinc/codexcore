@@ -633,7 +633,13 @@ private struct CodexSettingsWindowView: View {
             isBottomPanelVisible: .constant(false),
             newThreadHistoryMode: $model.newThreadHistoryMode,
             mcpServers: model.mcpServers,
-            isLoadingMCPServers: model.isLoadingMCPServers
+            isLoadingMCPServers: model.isLoadingMCPServers,
+            serverDiagnostics: model.serverDiagnostics,
+            isLoadingServerDiagnostics: model.isLoadingServerDiagnostics,
+            serverDiagnosticsError: model.serverDiagnosticsError,
+            onRefreshServerDiagnostics: {
+                Task { await model.refreshServerDiagnostics() }
+            }
         )
         .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
         .codexAgentTheme(model.theme)

@@ -357,6 +357,12 @@ struct CodexCoreAppShell: View {
                 newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
+                serverDiagnostics: model.serverDiagnostics,
+                isLoadingServerDiagnostics: model.isLoadingServerDiagnostics,
+                serverDiagnosticsError: model.serverDiagnosticsError,
+                onRefreshServerDiagnostics: {
+                    Task { await model.refreshServerDiagnostics() }
+                },
                 onBackToApp: { model.selectAppRoute(.chat) }
             )
                 .codexAgentTheme(model.theme)

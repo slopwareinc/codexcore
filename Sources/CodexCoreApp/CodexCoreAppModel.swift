@@ -67,6 +67,9 @@ final class CodexCoreAppModel {
     private(set) var configRequirements: CodexSchemaConfigRequirements?
     private(set) var notificationAuthorizationStatus: CodexNotificationAuthorizationStatus = .unavailable
     private(set) var notificationAuthorizationError: String?
+    private(set) var serverDiagnostics: CodexSchemaServerDiagnosticsResponse?
+    private(set) var isLoadingServerDiagnostics = false
+    private(set) var serverDiagnosticsError: String?
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -2200,6 +2203,24 @@ final class CodexCoreAppModel {
         publishIntegrationCatalogSession(session)
     }
 
+    func refreshServerDiagnostics() async {
+        guard !isLoadingServerDiagnostics else { return }
+        guard let codex else {
+            serverDiagnosticsError = "Connect to Codex before reading diagnostics."
+            return
+        }
+        isLoadingServerDiagnostics = true
+        serverDiagnosticsError = nil
+        defer { isLoadingServerDiagnostics = false }
+        do {
+            serverDiagnostics = try await codex.perform(
+                CodexRequest.serverDiagnostics(.init())
+            )
+        } catch {
+            serverDiagnosticsError = friendlyError(error)
+        }
+    }
+
     func refreshPlugins(forceReloadSkills: Bool = false) async {
         guard let codex else {
             var session = runtimeSession.integrationCatalogSession
@@ -3342,6 +3363,9 @@ final class CodexCoreAppModel {
         cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
         configRequirements = nil
+        serverDiagnostics = nil
+        serverDiagnosticsError = nil
+        isLoadingServerDiagnostics = false
         announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil

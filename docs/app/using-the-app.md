@@ -12,6 +12,11 @@ The reference app is a native Codex host and living integration example. The [su
 - **Automations:** create, schedule, pause, edit, run, and delete recurring Codex chats.
 - **Settings:** appearance, history, sidebar, integrations, and application information.
 
+Settings → About reads the 0.148 app-server process snapshot on demand. It
+shows PID, resident memory, macOS physical footprint, and registered diagnostic
+gauges. Opening other routes performs no diagnostics work, and About never
+polls in the background; use **Refresh** for another point-in-time sample.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

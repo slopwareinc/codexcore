@@ -82,6 +82,10 @@ public struct CodexSettingsAboutRouteView: View {
     public let accountSummary: CodexAccountMenuSummary
     public let mcpServers: [CodexMCPServerStatus]
     public let isLoadingMCPServers: Bool
+    public let serverDiagnostics: CodexSchemaServerDiagnosticsResponse?
+    public let isLoadingServerDiagnostics: Bool
+    public let serverDiagnosticsError: String?
+    public let onRefreshServerDiagnostics: (() -> Void)?
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
@@ -116,6 +120,10 @@ public struct CodexSettingsAboutRouteView: View {
         ),
         mcpServers: [CodexMCPServerStatus] = [],
         isLoadingMCPServers: Bool = false,
+        serverDiagnostics: CodexSchemaServerDiagnosticsResponse? = nil,
+        isLoadingServerDiagnostics: Bool = false,
+        serverDiagnosticsError: String? = nil,
+        onRefreshServerDiagnostics: (() -> Void)? = nil,
         onBackToApp: (() -> Void)? = nil
     ) {
         self.metadata = metadata
@@ -134,6 +142,10 @@ public struct CodexSettingsAboutRouteView: View {
         self._newThreadHistoryMode = newThreadHistoryMode
         self.mcpServers = mcpServers
         self.isLoadingMCPServers = isLoadingMCPServers
+        self.serverDiagnostics = serverDiagnostics
+        self.isLoadingServerDiagnostics = isLoadingServerDiagnostics
+        self.serverDiagnosticsError = serverDiagnosticsError
+        self.onRefreshServerDiagnostics = onRefreshServerDiagnostics
         self.onBackToApp = onBackToApp
     }
 
@@ -144,6 +156,11 @@ public struct CodexSettingsAboutRouteView: View {
             contentPane
         }
         .background(theme.colors.surface)
+        .task(id: selectedRoute) {
+            if selectedRoute == .about, serverDiagnostics == nil {
+                onRefreshServerDiagnostics?()
+            }
+        }
     }
 
     private var settingsSidebar: some View {
@@ -257,7 +274,13 @@ public struct CodexSettingsAboutRouteView: View {
         case .integrations:
             CodexSettingsIntegrationsPage(mcpServers: mcpServers, isLoadingMCPServers: isLoadingMCPServers)
         case .about:
-            CodexSettingsAboutPage(metadata: metadata)
+            CodexSettingsAboutPage(
+                metadata: metadata,
+                diagnostics: serverDiagnostics,
+                isLoadingDiagnostics: isLoadingServerDiagnostics,
+                diagnosticsError: serverDiagnosticsError,
+                onRefreshDiagnostics: onRefreshServerDiagnostics
+            )
         }
     }
 
@@ -503,6 +526,24 @@ public struct CodexSettingsAboutPage: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let metadata: CodexAboutMetadata
+    let diagnostics: CodexSchemaServerDiagnosticsResponse?
+    let isLoadingDiagnostics: Bool
+    let diagnosticsError: String?
+    let onRefreshDiagnostics: (() -> Void)?
+
+    public init(
+        metadata: CodexAboutMetadata,
+        diagnostics: CodexSchemaServerDiagnosticsResponse? = nil,
+        isLoadingDiagnostics: Bool = false,
+        diagnosticsError: String? = nil,
+        onRefreshDiagnostics: (() -> Void)? = nil
+    ) {
+        self.metadata = metadata
+        self.diagnostics = diagnostics
+        self.isLoadingDiagnostics = isLoadingDiagnostics
+        self.diagnosticsError = diagnosticsError
+        self.onRefreshDiagnostics = onRefreshDiagnostics
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -522,7 +563,73 @@ public struct CodexSettingsAboutPage: View {
                 )
             }
             .settingsPanel(theme: theme)
+
+            HStack {
+                CodexSettingsPageTitle("Runtime diagnostics")
+                Spacer()
+                Button {
+                    onRefreshDiagnostics?()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoadingDiagnostics || onRefreshDiagnostics == nil)
+            }
+            VStack(spacing: 0) {
+                if let diagnostics {
+                    CodexSettingsReadOnlyRow(
+                        title: "App-server process",
+                        detail: "Current process snapshot; values refresh only on request",
+                        value: "PID \(diagnostics.process.id)",
+                        systemImage: "cpu"
+                    )
+                    CodexSettingsReadOnlyRow(
+                        title: "Resident memory",
+                        detail: "Pages currently resident in physical memory",
+                        value: Self.memoryString(diagnostics.process.residentMemoryBytes),
+                        systemImage: "memorychip"
+                    )
+                    CodexSettingsReadOnlyRow(
+                        title: "Physical footprint",
+                        detail: "macOS process footprint reported by the runtime",
+                        value: Self.memoryString(diagnostics.process.physicalFootprintBytes),
+                        systemImage: "gauge.with.dots.needle.67percent"
+                    )
+                    ForEach(diagnostics.gauges.sorted(by: { $0.name < $1.name }), id: \.name) { gauge in
+                        CodexSettingsReadOnlyRow(
+                            title: gauge.name,
+                            detail: gauge.name == "app.requests.in_flight"
+                                ? "Includes this diagnostics request"
+                                : "Runtime diagnostic gauge",
+                            value: String(gauge.value),
+                            systemImage: "chart.bar"
+                        )
+                    }
+                } else if let diagnosticsError {
+                    CodexSettingsReadOnlyRow(
+                        title: "Diagnostics unavailable",
+                        detail: diagnosticsError,
+                        value: nil,
+                        systemImage: "exclamationmark.triangle"
+                    )
+                } else {
+                    CodexSettingsReadOnlyRow(
+                        title: isLoadingDiagnostics ? "Reading diagnostics" : "Diagnostics not loaded",
+                        detail: "Diagnostics are fetched only while About is open",
+                        value: isLoadingDiagnostics ? "Loading" : nil,
+                        systemImage: "waveform.path.ecg"
+                    )
+                }
+            }
+            .settingsPanel(theme: theme)
         }
+    }
+
+    static func memoryString(_ bytes: Int?) -> String {
+        guard let bytes else { return "Unavailable" }
+        return ByteCountFormatter.string(
+            fromByteCount: Int64(max(0, bytes)),
+            countStyle: .memory
+        )
     }
 }
 
