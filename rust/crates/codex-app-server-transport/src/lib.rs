@@ -21,6 +21,15 @@ use tokio::{
     task::JoinHandle,
 };
 
+#[cfg(unix)]
+use nix::{
+    errno::Errno,
+    sys::signal::{Signal, killpg},
+    unistd::Pid,
+};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 /// Resource limits applied at the physical transport boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TransportLimits {
@@ -246,6 +255,8 @@ impl StdioConnection {
         if let Some(current_directory) = &config.current_directory {
             command.current_dir(current_directory);
         }
+        #[cfg(unix)]
+        command.as_std_mut().process_group(0);
 
         let mut child = command
             .spawn()
@@ -365,24 +376,61 @@ impl StdioConnection {
     /// Returns [`TransportError::Io`] if the child cannot be killed or reaped.
     pub async fn close(mut self) -> Result<(), TransportError> {
         self.stdin.take();
-        if self
+        let running = self
             .child
             .try_wait()
             .map_err(|error| TransportError::Io(error.to_string()))?
-            .is_none()
-        {
-            self.child
-                .start_kill()
+            .is_none();
+        if running {
+            terminate_child_tree(&mut self.child, SignalKind::Terminate)?;
+        }
+
+        if let Ok(result) = tokio::time::timeout(Duration::from_secs(5), self.child.wait()).await {
+            result.map_err(|error| TransportError::Io(error.to_string()))?;
+        } else {
+            terminate_child_tree(&mut self.child, SignalKind::Kill)?;
+            tokio::time::timeout(Duration::from_secs(5), self.child.wait())
+                .await
+                .map_err(|_| TransportError::Io("timed out reaping App Server child".to_owned()))?
                 .map_err(|error| TransportError::Io(error.to_string()))?;
         }
-        tokio::time::timeout(Duration::from_secs(5), self.child.wait())
-            .await
-            .map_err(|_| TransportError::Io("timed out reaping App Server child".to_owned()))?
-            .map_err(|error| TransportError::Io(error.to_string()))?;
         self.reader_task.abort();
         self.stderr_task.abort();
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+enum SignalKind {
+    Terminate,
+    Kill,
+}
+
+#[cfg(unix)]
+fn terminate_child_tree(child: &mut Child, signal: SignalKind) -> Result<(), TransportError> {
+    let process_group = child
+        .id()
+        .and_then(|id| i32::try_from(id).ok())
+        .map(Pid::from_raw)
+        .ok_or_else(|| TransportError::Io("App Server child has no process id".to_owned()))?;
+    let signal = match signal {
+        SignalKind::Terminate => Signal::SIGTERM,
+        SignalKind::Kill => Signal::SIGKILL,
+    };
+    match killpg(process_group, signal) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(Errno::EPERM) => child
+            .start_kill()
+            .map_err(|error| TransportError::Io(error.to_string())),
+        Err(error) => Err(TransportError::Io(error.to_string())),
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_child_tree(child: &mut Child, _signal: SignalKind) -> Result<(), TransportError> {
+    child
+        .start_kill()
+        .map_err(|error| TransportError::Io(error.to_string()))
 }
 
 async fn send_frames(
