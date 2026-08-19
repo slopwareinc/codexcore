@@ -21,6 +21,8 @@ Initial crates:
   reconciliation with bounded item-page concurrency.
 - `codex-app-server-interaction`: typed approvals, questions, MCP elicitation,
   dynamic-tool, auth, attestation, time, and legacy request models.
+- `codex-presentation`: framework-neutral transcript, semantic activity,
+  product-policy, unknown-item, and blocking-prompt models.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded stdio, TCP/TLS WebSocket, and
   WebSocket-over-Unix-socket primitives.

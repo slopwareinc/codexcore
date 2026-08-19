@@ -13,6 +13,11 @@ ordered local session, validates initialize metadata, correlates raw requests,
 publishes revision invalidations, and retains exact pending server-request
 identity. Start with the [Rust SDK quick start](../getting-started/rust-sdk-quickstart.md).
 
+`codex-presentation` projects immutable canonical snapshots and typed pending
+requests into framework-neutral transcript entries, semantic activities, host
+policy overrides, unknown-item fallbacks, and blocking prompt models. GPUI must
+consume these models rather than decode protocol payloads in render paths.
+
 The Rust products are not yet a stable replacement for the supported Swift SDK
 or reference app. Capability claims must remain tied to compiling code and the
 parity audit.

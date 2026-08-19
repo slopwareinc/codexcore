@@ -180,6 +180,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-presentation"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "codex-app-server-interaction",
+ "codex-app-server-state",
+ "serde_json",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
