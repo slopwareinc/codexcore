@@ -75,6 +75,9 @@ final class CodexCoreAppModel {
     private(set) var isLoadingThreadUsage = false
     private(set) var threadUsageError: String?
     private var threadUsageRefreshGeneration = 0
+    private(set) var threadSections: [CodexSchemaThreadSection] = []
+    private(set) var isLoadingThreadSections = false
+    private(set) var threadSectionsError: String?
 
     var codex: Codex?
     var authSession = CodexAuthSession()
@@ -2268,6 +2271,93 @@ final class CodexCoreAppModel {
         }
     }
 
+    func refreshThreadSections() async {
+        guard !isLoadingThreadSections else { return }
+        guard let codex else {
+            threadSectionsError = "Connect to Codex before managing sections."
+            return
+        }
+        isLoadingThreadSections = true
+        threadSectionsError = nil
+        defer { isLoadingThreadSections = false }
+        do {
+            var sections: [CodexSchemaThreadSection] = []
+            var cursor: String?
+            var seenCursors: Set<String> = []
+            repeat {
+                let response = try await codex.threadSectionList(.init(
+                    cursor: cursor,
+                    limit: 100
+                ))
+                sections.append(contentsOf: response.data)
+                cursor = response.nextCursor
+                if let cursor, !seenCursors.insert(cursor).inserted {
+                    throw CodexSDKError.invalidResponse(
+                        method: CodexAppServerClientMethod.threadSectionList.rawValue,
+                        value: .string("thread section pagination repeated cursor \(cursor)")
+                    )
+                }
+            } while cursor != nil
+            threadSections = sections
+        } catch {
+            threadSectionsError = friendlyError(error)
+        }
+    }
+
+    func createThreadSection(
+        name: String,
+        appearance: CodexSchemaThreadSectionAppearance?
+    ) async {
+        guard let codex else { return }
+        do {
+            let response = try await codex.threadSectionCreate(.init(
+                appearance: appearance,
+                name: name
+            ))
+            upsertThreadSection(response.section)
+        } catch {
+            threadSectionsError = friendlyError(error)
+        }
+    }
+
+    func updateThreadSection(
+        id: String,
+        name: String,
+        appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>
+    ) async {
+        guard let codex else { return }
+        do {
+            let response = try await codex.threadSectionUpdate(.init(
+                appearance: appearance,
+                name: name,
+                sectionID: id
+            ))
+            upsertThreadSection(response.section)
+            await refreshRecentChats(using: codex)
+        } catch {
+            threadSectionsError = friendlyError(error)
+        }
+    }
+
+    func deleteThreadSection(id: String) async {
+        guard let codex else { return }
+        do {
+            _ = try await codex.threadSectionDelete(.init(sectionID: id))
+            threadSections.removeAll { $0.id == id }
+            await refreshRecentChats(using: codex)
+        } catch {
+            threadSectionsError = friendlyError(error)
+        }
+    }
+
+    private func upsertThreadSection(_ section: CodexSchemaThreadSection) {
+        if let index = threadSections.firstIndex(where: { $0.id == section.id }) {
+            threadSections[index] = section
+        } else {
+            threadSections.append(section)
+        }
+    }
+
     func refreshPlugins(forceReloadSkills: Bool = false) async {
         guard let codex else {
             var session = runtimeSession.integrationCatalogSession
@@ -3421,6 +3511,9 @@ final class CodexCoreAppModel {
         threadUsageError = nil
         isLoadingThreadUsage = false
         threadUsageRefreshGeneration += 1
+        threadSections = []
+        threadSectionsError = nil
+        isLoadingThreadSections = false
         announcedNotificationPromptIDs.removeAll(keepingCapacity: false)
         loginTask?.cancel()
         loginTask = nil

@@ -10,6 +10,7 @@ from generate_app_server_schema_types import (  # noqa: E402
     CLOSED_STRING_ENUMS,
     emit_enum,
     emit_open_enum,
+    emit_struct,
     is_open_string_enum,
     reachable_definitions,
     tagged_union_arms,
@@ -114,6 +115,36 @@ class StringEnumPolicyTests(unittest.TestCase):
                 inbound,
                 frozenset({"RequestMode"}),
             )
+
+
+class TristateFieldTests(unittest.TestCase):
+    def test_section_appearance_preserves_omitted_null_and_value(self) -> None:
+        output, _ = emit_struct(
+            "CodexSchemaThreadSectionUpdateParams",
+            {
+                "type": "object",
+                "required": ["name", "sectionId"],
+                "properties": {
+                    "appearance": {
+                        "anyOf": [
+                            {"$ref": "#/definitions/ThreadSectionAppearance"},
+                            {"type": "null"},
+                        ]
+                    },
+                    "name": {"type": "string"},
+                    "sectionId": {"type": "string"},
+                },
+            },
+            {"ThreadSectionAppearance": "CodexSchemaThreadSectionAppearance"},
+        )
+
+        self.assertIn(
+            "appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance> = .omitted",
+            output,
+        )
+        self.assertIn("if !container.contains(.appearance)", output)
+        self.assertIn("case .null: try container.encodeNil(forKey: .appearance)", output)
+        self.assertIn("case .value(let value): try container.encode(value, forKey: .appearance)", output)
 
 
 if __name__ == "__main__":

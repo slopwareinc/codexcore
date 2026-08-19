@@ -87,6 +87,37 @@ final class CodexSessionCommandsTests: XCTestCase {
                 "threadId": .string("thread-1"),
             ])
         )
+
+        let base = { (appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) in
+            CodexRequest.threadSectionUpdate(.init(
+                appearance: appearance,
+                name: "Projects",
+                sectionID: "section-1"
+            ))
+        }
+        XCTAssertEqual(
+            try base(.omitted).encodeParameters(),
+            .dictionary(["name": .string("Projects"), "sectionId": .string("section-1")])
+        )
+        XCTAssertEqual(
+            try base(.null).encodeParameters(),
+            .dictionary([
+                "appearance": .null,
+                "name": .string("Projects"),
+                "sectionId": .string("section-1"),
+            ])
+        )
+        XCTAssertEqual(
+            try base(.value(.init(color: "purple", icon: "star"))).encodeParameters(),
+            .dictionary([
+                "appearance": .dictionary([
+                    "color": .string("purple"),
+                    "icon": .string("star"),
+                ]),
+                "name": .string("Projects"),
+                "sectionId": .string("section-1"),
+            ])
+        )
     }
 
     func testGA145RequestFactoriesEncodeAppAndThreadSearchMethods() throws {

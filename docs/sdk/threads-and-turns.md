@@ -117,6 +117,19 @@ for try await _ in changes {
 Queue input is projected through `CodexInput(jsonValue:)`; unknown future arms
 remain lossless as `.raw`.
 
+## Thread section appearance
+
+Section updates preserve all three wire states for appearance:
+
+- `.omitted` preserves the current appearance;
+- `.null` clears it;
+- `.value(...)` replaces it.
+
+`CodexSchemaThreadSectionUpdateParams.appearance` uses
+`CodexAppServerOptionalField` so Swift callers cannot accidentally collapse
+omit and null. The generator owns this type; regenerate rather than patching
+the emitted schema file.
+
 ## Operation notifications
 
 Register an operation stream before starting its request so early frames cannot

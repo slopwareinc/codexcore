@@ -8,6 +8,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case configuration
     case agents
     case integrations
+    case sections
     case about
 
     public var id: String { rawValue }
@@ -24,6 +25,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .configuration: return "Configuration"
         case .agents: return "Agent instructions"
         case .integrations: return "Integrations"
+        case .sections: return "Chat sections"
         case .about: return "About"
         }
     }
@@ -36,6 +38,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .configuration: return "slider.horizontal.3"
         case .agents: return "doc.text.magnifyingglass"
         case .integrations: return "puzzlepiece.extension"
+        case .sections: return "rectangle.3.group"
         case .about: return "info.circle"
         }
     }
@@ -44,7 +47,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general, .appearance, .profile, .configuration:
             return "Personal"
-        case .agents:
+        case .agents, .sections:
             return "Coding"
         case .integrations:
             return "Integrations"
@@ -67,6 +70,8 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["AGENTS.md", "instructions", "trusted", "authorization", "precedence", "project"]
         case .integrations:
             return ["mcp", "browser", "computer use", "plugins"]
+        case .sections:
+            return ["chats", "groups", "icons", "colors", "pinned"]
         case .about:
             return ["version", "build", "metadata", "about"]
         }
@@ -86,6 +91,13 @@ public struct CodexSettingsAboutRouteView: View {
     public let isLoadingServerDiagnostics: Bool
     public let serverDiagnosticsError: String?
     public let onRefreshServerDiagnostics: (() -> Void)?
+    public let threadSections: [CodexSchemaThreadSection]
+    public let isLoadingThreadSections: Bool
+    public let threadSectionsError: String?
+    public let onRefreshThreadSections: (() -> Void)?
+    public let onCreateThreadSection: ((String, CodexSchemaThreadSectionAppearance?) -> Void)?
+    public let onUpdateThreadSection: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)?
+    public let onDeleteThreadSection: ((String) -> Void)?
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
@@ -124,6 +136,13 @@ public struct CodexSettingsAboutRouteView: View {
         isLoadingServerDiagnostics: Bool = false,
         serverDiagnosticsError: String? = nil,
         onRefreshServerDiagnostics: (() -> Void)? = nil,
+        threadSections: [CodexSchemaThreadSection] = [],
+        isLoadingThreadSections: Bool = false,
+        threadSectionsError: String? = nil,
+        onRefreshThreadSections: (() -> Void)? = nil,
+        onCreateThreadSection: ((String, CodexSchemaThreadSectionAppearance?) -> Void)? = nil,
+        onUpdateThreadSection: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)? = nil,
+        onDeleteThreadSection: ((String) -> Void)? = nil,
         onBackToApp: (() -> Void)? = nil
     ) {
         self.metadata = metadata
@@ -146,6 +165,13 @@ public struct CodexSettingsAboutRouteView: View {
         self.isLoadingServerDiagnostics = isLoadingServerDiagnostics
         self.serverDiagnosticsError = serverDiagnosticsError
         self.onRefreshServerDiagnostics = onRefreshServerDiagnostics
+        self.threadSections = threadSections
+        self.isLoadingThreadSections = isLoadingThreadSections
+        self.threadSectionsError = threadSectionsError
+        self.onRefreshThreadSections = onRefreshThreadSections
+        self.onCreateThreadSection = onCreateThreadSection
+        self.onUpdateThreadSection = onUpdateThreadSection
+        self.onDeleteThreadSection = onDeleteThreadSection
         self.onBackToApp = onBackToApp
     }
 
@@ -159,6 +185,8 @@ public struct CodexSettingsAboutRouteView: View {
         .task(id: selectedRoute) {
             if selectedRoute == .about, serverDiagnostics == nil {
                 onRefreshServerDiagnostics?()
+            } else if selectedRoute == .sections {
+                onRefreshThreadSections?()
             }
         }
     }
@@ -273,6 +301,16 @@ public struct CodexSettingsAboutRouteView: View {
             )
         case .integrations:
             CodexSettingsIntegrationsPage(mcpServers: mcpServers, isLoadingMCPServers: isLoadingMCPServers)
+        case .sections:
+            CodexSettingsThreadSectionsPage(
+                sections: threadSections,
+                isLoading: isLoadingThreadSections,
+                errorMessage: threadSectionsError,
+                onRefresh: onRefreshThreadSections,
+                onCreate: onCreateThreadSection,
+                onUpdate: onUpdateThreadSection,
+                onDelete: onDeleteThreadSection
+            )
         case .about:
             CodexSettingsAboutPage(
                 metadata: metadata,
@@ -519,6 +557,215 @@ public struct CodexSettingsIntegrationsPage: View {
             }
             .settingsPanel(theme: theme)
         }
+    }
+}
+
+public struct CodexSettingsThreadSectionsPage: View {
+    public static let pinnedSectionID = "01984de2-8f74-7c91-a3b2-5c5e937cf318"
+
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var editingSectionID: String?
+    @State private var draftName = ""
+    @State private var draftIcon = ""
+    @State private var draftColor = ""
+    @State private var pendingDelete: CodexSchemaThreadSection?
+
+    let sections: [CodexSchemaThreadSection]
+    let isLoading: Bool
+    let errorMessage: String?
+    let onRefresh: (() -> Void)?
+    let onCreate: ((String, CodexSchemaThreadSectionAppearance?) -> Void)?
+    let onUpdate: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)?
+    let onDelete: ((String) -> Void)?
+
+    public init(
+        sections: [CodexSchemaThreadSection],
+        isLoading: Bool,
+        errorMessage: String?,
+        onRefresh: (() -> Void)? = nil,
+        onCreate: ((String, CodexSchemaThreadSectionAppearance?) -> Void)? = nil,
+        onUpdate: ((String, String, CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) -> Void)? = nil,
+        onDelete: ((String) -> Void)? = nil
+    ) {
+        self.sections = sections
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+        self.onRefresh = onRefresh
+        self.onCreate = onCreate
+        self.onUpdate = onUpdate
+        self.onDelete = onDelete
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                CodexSettingsPageTitle("Chat sections")
+                Spacer()
+                Button { onRefresh?() } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading || onRefresh == nil)
+            }
+
+            VStack(spacing: 0) {
+                if sections.isEmpty {
+                    CodexSettingsReadOnlyRow(
+                        title: isLoading ? "Loading sections" : "No custom sections",
+                        detail: errorMessage ?? "Create a synchronized section below.",
+                        value: nil,
+                        systemImage: "rectangle.3.group"
+                    )
+                } else {
+                    ForEach(sections, id: \.id) { section in
+                        sectionRow(section)
+                    }
+                }
+            }
+            .settingsPanel(theme: theme)
+
+            editor
+        }
+        .confirmationDialog(
+            "Delete section?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pendingDelete {
+                Button("Delete \(pendingDelete.name)", role: .destructive) {
+                    onDelete?(pendingDelete.id)
+                    self.pendingDelete = nil
+                    clearEditor()
+                }
+            }
+        } message: {
+            Text("Chats return to the unsectioned list. No chat history is deleted.")
+        }
+    }
+
+    private func sectionRow(_ section: CodexSchemaThreadSection) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: CodexThreadSectionAppearanceStyle.systemImage(section.appearance?.icon))
+                .foregroundStyle(CodexThreadSectionAppearanceStyle.color(
+                    section.appearance?.color,
+                    fallback: theme.colors.accent
+                ))
+                .frame(width: 24)
+            CodexSettingsRowLabel(
+                title: section.name,
+                detail: appearanceDescription(section.appearance),
+                isEnabled: true
+            )
+            Spacer()
+            if section.id != Self.pinnedSectionID {
+                Button("Edit") { beginEditing(section) }
+                    .buttonStyle(.plain)
+                Button {
+                    pendingDelete = section
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityLabel("Delete \(section.name)")
+            } else {
+                Text("Built in")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+        }
+        .settingsRowFrame()
+    }
+
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(editingSectionID == nil ? "New section" : "Edit section")
+                .font(theme.fonts.panelTitle)
+            TextField("Section name", text: $draftName)
+                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 12) {
+                appearancePicker(
+                    title: "Icon",
+                    selection: $draftIcon,
+                    options: CodexThreadSectionAppearanceStyle.iconOptions
+                )
+                appearancePicker(
+                    title: "Color",
+                    selection: $draftColor,
+                    options: CodexThreadSectionAppearanceStyle.colorOptions
+                )
+                Spacer()
+                if editingSectionID != nil {
+                    Button("Cancel") { clearEditor() }
+                }
+                Button(editingSectionID == nil ? "Create" : "Save") {
+                    saveEditor()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(16)
+        .settingsPanel(theme: theme)
+    }
+
+    private func appearancePicker(
+        title: String,
+        selection: Binding<String>,
+        options: [String]
+    ) -> some View {
+        let values = options + (selection.wrappedValue.isEmpty || options.contains(selection.wrappedValue)
+            ? [] : [selection.wrappedValue])
+        return Picker(title, selection: selection) {
+            Text("None").tag("")
+            ForEach(values, id: \.self) { Text($0.capitalized).tag($0) }
+        }
+        .frame(width: 150)
+    }
+
+    private func beginEditing(_ section: CodexSchemaThreadSection) {
+        editingSectionID = section.id
+        draftName = section.name
+        draftIcon = section.appearance?.icon ?? ""
+        draftColor = section.appearance?.color ?? ""
+    }
+
+    private func saveEditor() {
+        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let appearance = appearanceValue
+        if let editingSectionID {
+            let field: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance> =
+                appearance.map { .value($0) } ?? .null
+            onUpdate?(editingSectionID, name, field)
+        } else {
+            onCreate?(name, appearance)
+        }
+        clearEditor()
+    }
+
+    private var appearanceValue: CodexSchemaThreadSectionAppearance? {
+        let icon = draftIcon.trimmingCharacters(in: .whitespacesAndNewlines)
+        let color = draftColor.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !icon.isEmpty || !color.isEmpty else { return nil }
+        return .init(
+            color: color.isEmpty ? nil : color,
+            icon: icon.isEmpty ? nil : icon
+        )
+    }
+
+    private func clearEditor() {
+        editingSectionID = nil
+        draftName = ""
+        draftIcon = ""
+        draftColor = ""
+    }
+
+    private func appearanceDescription(_ appearance: CodexSchemaThreadSectionAppearance?) -> String {
+        let values = [appearance?.icon, appearance?.color].compactMap { $0 }
+        return values.isEmpty ? "Default appearance" : values.joined(separator: " · ")
     }
 }
 

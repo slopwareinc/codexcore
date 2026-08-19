@@ -23,6 +23,12 @@ workspaces show an unavailable state. The backend request may take longer than
 ordinary local RPCs, so it runs asynchronously and is never part of chat resume,
 turn completion, sidebar loading, or transcript rendering.
 
+Settings → Chat sections manages the server-synchronized section name, icon,
+and color. Create, edit, clear appearance, and delete use the native 0.148
+section APIs; deleting a custom section returns its chats to the unsectioned
+list without deleting history. Section icons/colors render directly from each
+thread summary in the sidebar, so rows perform no additional reads.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to

@@ -18,7 +18,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | On-demand app-server diagnostics | Supported | Settings → About displays process memory and gauges from one explicit snapshot; there is no background polling. |
 | Thread credit and cost estimates | Conditional | `/status` fetches the selected thread estimate on demand; availability depends on the authenticated workspace billing route. |
 | Start/resume threads; turns, steering, interruption | Supported | Both server-declared history modes can resume. |
-| Thread sections and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; thread metadata preserves section identity and entry time. |
+| Thread sections, appearance, and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; Settings edits synchronized icons/colors and sidebar rows render them without extra requests. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |
 | Paginated fork, full `thread/read`, and durable revert | Supported | Stable 0.148.0 exposes `thread/revert`; CodexCore invalidates stale detail and retains replacement cursors. |
 | Paginated legacy rollback | Unsupported | `thread/rollback` remains the separate legacy full-history operation. |

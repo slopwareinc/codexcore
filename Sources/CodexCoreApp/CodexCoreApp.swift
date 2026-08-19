@@ -639,6 +639,21 @@ private struct CodexSettingsWindowView: View {
             serverDiagnosticsError: model.serverDiagnosticsError,
             onRefreshServerDiagnostics: {
                 Task { await model.refreshServerDiagnostics() }
+            },
+            threadSections: model.threadSections,
+            isLoadingThreadSections: model.isLoadingThreadSections,
+            threadSectionsError: model.threadSectionsError,
+            onRefreshThreadSections: {
+                Task { await model.refreshThreadSections() }
+            },
+            onCreateThreadSection: { name, appearance in
+                Task { await model.createThreadSection(name: name, appearance: appearance) }
+            },
+            onUpdateThreadSection: { id, name, appearance in
+                Task { await model.updateThreadSection(id: id, name: name, appearance: appearance) }
+            },
+            onDeleteThreadSection: { id in
+                Task { await model.deleteThreadSection(id: id) }
             }
         )
         .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)

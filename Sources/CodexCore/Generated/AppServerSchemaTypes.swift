@@ -20,6 +20,14 @@ public struct CodexAppServerSchemaValue: Codable, Sendable, Equatable {
     }
 }
 
+/// Three-state field used where app-server distinguishes an omitted property,
+/// an explicit JSON null, and a concrete replacement value.
+public enum CodexAppServerOptionalField<Value: Codable & Sendable & Equatable>: Sendable, Equatable {
+    case omitted
+    case null
+    case value(Value)
+}
+
 public struct CodexAppServerSchemaDefinition: Sendable, Equatable {
     public let name: String
     public let typeName: String
@@ -11245,7 +11253,7 @@ public struct CodexSchemaThreadSectionMoveParams: Codable, Sendable, Equatable {
 }
 public typealias CodexSchemaThreadSectionMoveResponse = CodexAppServerSchemaValue
 public struct CodexSchemaThreadSectionUpdateParams: Codable, Sendable, Equatable {
-    public var appearance: CodexSchemaThreadSectionAppearance?
+    public var appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>
     public var name: String
     public var sectionID: String
 
@@ -11255,10 +11263,34 @@ public struct CodexSchemaThreadSectionUpdateParams: Codable, Sendable, Equatable
         case sectionID = "sectionId"
     }
 
-    public init(appearance: CodexSchemaThreadSectionAppearance? = nil, name: String, sectionID: String) {
+    public init(appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance> = .omitted, name: String, sectionID: String) {
         self.appearance = appearance
         self.name = name
         self.sectionID = sectionID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if !container.contains(.appearance) {
+            self.appearance = .omitted
+        } else if try container.decodeNil(forKey: .appearance) {
+            self.appearance = .null
+        } else {
+            self.appearance = .value(try container.decode(CodexSchemaThreadSectionAppearance.self, forKey: .appearance))
+        }
+        self.name = try container.decode(String.self, forKey: .name)
+        self.sectionID = try container.decode(String.self, forKey: .sectionID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch appearance {
+        case .omitted: break
+        case .null: try container.encodeNil(forKey: .appearance)
+        case .value(let value): try container.encode(value, forKey: .appearance)
+        }
+        try container.encode(name, forKey: .name)
+        try container.encode(sectionID, forKey: .sectionID)
     }
 }
 public struct CodexSchemaThreadSectionUpdateResponse: Codable, Sendable, Equatable {
