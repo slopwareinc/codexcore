@@ -11,6 +11,24 @@ typify::import_types!(
     struct_builder = false,
 );
 
+/// Validate a raw method/params pair against the generated server-notification
+/// union without exposing generated enum internals to the public SDK.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when the method is unknown to the pinned
+/// schema or its parameters do not satisfy the selected notification type.
+pub fn validate_server_notification(
+    method: &str,
+    params: &serde_json::Value,
+) -> Result<(), serde_json::Error> {
+    let value = serde_json::json!({
+        "method": method,
+        "params": params,
+    });
+    serde_json::from_value::<ServerNotification>(value).map(drop)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};

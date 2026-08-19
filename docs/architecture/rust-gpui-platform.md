@@ -48,7 +48,8 @@ The Rust implementation preserves the production Swift runtime semantics:
 | --- | --- |
 | Wire | Generated protocol types, lossless JSON-RPC framing, runtime compatibility. |
 | Transport | Bounded stdio, WebSocket, and Unix-socket physical connections. |
-| State | Pure canonical models, reducer, adapter, scopes, revisions, diagnostics. |
+| Adapter | Generated-validation-first mapping from protocol methods to canonical mutations. |
+| State | Pure canonical models, reducer, scopes, revisions, and diagnostics. |
 | Engine | Ordered actor, handshake, correlation, reconnect, leases, history, inboxes. |
 | SDK | Typed configuration, threads, turns, inputs, approvals, tools, operations. |
 | Presentation | Transcript, activity, diff, prompt, composer, and panel projections. |

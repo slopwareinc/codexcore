@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "rust/crates/codex-app-server-adapter",
     "rust/crates/codex-app-server-client",
     "rust/crates/codex-app-server-state",
     "rust/crates/codex-app-server-transport",

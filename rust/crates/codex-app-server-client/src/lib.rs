@@ -6,7 +6,8 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use codex_app_server_state::StateRevision;
+use codex_app_server_adapter::{NotificationDisposition, adapt_notification};
+use codex_app_server_state::{CanonicalState, CanonicalStateReducer, StateRevision};
 use codex_app_server_transport::{StdioConfig, StdioConnection, TransportError, TransportLimits};
 use codex_app_server_wire::{
     Envelope, JsonRpcErrorObject, JsonRpcId, NotificationEnvelope, ResponseOutcome,
@@ -157,6 +158,10 @@ pub struct SessionSnapshot {
     pub server: ConnectedServer,
     /// Count of committed notifications, useful until typed reduction lands.
     pub committed_notification_count: u64,
+    /// Notifications preserved but not yet projected canonically.
+    pub unhandled_notification_count: u64,
+    /// Current canonical replica revision.
+    pub canonical_revision: StateRevision,
     /// Pending server requests in stable identity order.
     pub pending_server_requests: Vec<PendingServerRequest>,
 }
@@ -191,6 +196,12 @@ pub enum SessionError {
     /// Inbound frame failed envelope validation.
     #[error("protocol failure: {0}")]
     Protocol(String),
+    /// Known protocol notification failed typed canonical adaptation.
+    #[error("canonical protocol adaptation failed: {0}")]
+    Adapter(String),
+    /// Canonical reducer rejected an otherwise typed transaction.
+    #[error("canonical reduction failed: {0}")]
+    Canonical(String),
     /// App Server returned a structured error.
     #[error(transparent)]
     Rpc(JsonRpcErrorObject),
@@ -351,6 +362,18 @@ impl AppServerClient {
         response.await.map_err(|_| SessionError::Closed)
     }
 
+    /// Read the framework-neutral canonical replica through its sole owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Closed`] when the actor is gone.
+    pub async fn canonical_snapshot(&self) -> Result<CanonicalState, SessionError> {
+        let (reply, response) = oneshot::channel();
+        self.send_command(Command::CanonicalSnapshot { reply })
+            .await?;
+        response.await.map_err(|_| SessionError::Closed)
+    }
+
     /// Register an atomic snapshot seed plus coalesced revision invalidations.
     ///
     /// # Errors
@@ -417,6 +440,9 @@ enum Command {
     Snapshot {
         reply: oneshot::Sender<SessionSnapshot>,
     },
+    CanonicalSnapshot {
+        reply: oneshot::Sender<CanonicalState>,
+    },
     ResolveServerRequest {
         key: ServerRequestKey,
         resolution: ServerRequestResolution,
@@ -441,6 +467,7 @@ struct BufferedEnvelope {
 
 struct ActorState {
     snapshot: SessionSnapshot,
+    canonical: CanonicalStateReducer,
     pending_client_requests: HashMap<JsonRpcId, PendingClientRequest>,
     pending_server_requests: BTreeMap<ServerRequestKey, PendingServerRequest>,
     next_request_id: i64,
@@ -543,6 +570,8 @@ async fn bootstrap(
             phase: ConnectionPhase::Connected,
             server,
             committed_notification_count: 0,
+            unhandled_notification_count: 0,
+            canonical_revision: StateRevision::ZERO,
             pending_server_requests: Vec::new(),
         },
         buffered,
@@ -558,6 +587,7 @@ async fn run_actor(
 ) {
     let mut state = ActorState {
         snapshot,
+        canonical: CanonicalStateReducer::default(),
         pending_client_requests: HashMap::new(),
         pending_server_requests: BTreeMap::new(),
         next_request_id: 1,
@@ -660,37 +690,7 @@ async fn handle_command(
             method,
             params,
             reply,
-        } => {
-            let id = JsonRpcId::Integer(state.next_request_id);
-            state.next_request_id = if let Some(value) = state.next_request_id.checked_add(1) {
-                value
-            } else {
-                let _ = reply.send(Err(SessionError::RevisionExhausted));
-                return CommandOutcome::Continue;
-            };
-            let frame = match encode_request(id.clone(), &method, Some(params)) {
-                Ok(frame) => frame,
-                Err(error) => {
-                    let _ = reply.send(Err(SessionError::Protocol(error.to_string())));
-                    return CommandOutcome::Continue;
-                }
-            };
-            state.pending_client_requests.insert(
-                id.clone(),
-                PendingClientRequest {
-                    method: method.clone(),
-                    id: id.clone(),
-                    write_attempted: true,
-                    reply,
-                },
-            );
-            if connection.write(&frame).await.is_err() {
-                let error = SessionError::IndeterminateRequest { method, id };
-                seal_pending(state, &error);
-                return CommandOutcome::Fatal(error);
-            }
-            CommandOutcome::Continue
-        }
+        } => handle_request_command(state, connection, method, params, reply).await,
         Command::Notify {
             method,
             params,
@@ -710,46 +710,92 @@ async fn handle_command(
             let _ = reply.send(state.snapshot.clone());
             CommandOutcome::Continue
         }
+        Command::CanonicalSnapshot { reply } => {
+            let _ = reply.send(state.canonical.snapshot().clone());
+            CommandOutcome::Continue
+        }
         Command::ResolveServerRequest {
             key,
             resolution,
             reply,
-        } => {
-            if !state.pending_server_requests.contains_key(&key) {
-                let _ = reply.send(Err(SessionError::PendingServerRequestNotFound));
-                return CommandOutcome::Continue;
-            }
-            let frame = match resolution {
-                ServerRequestResolution::Result(result) => {
-                    encode_result(key.request_id.clone(), result)
-                }
-                ServerRequestResolution::Error(error) => {
-                    encode_error(key.request_id.clone(), error)
-                }
-            };
-            let frame = match frame {
-                Ok(frame) => frame,
-                Err(error) => {
-                    let _ = reply.send(Err(SessionError::Protocol(error.to_string())));
-                    return CommandOutcome::Continue;
-                }
-            };
-            if let Err(error) = connection.write(&frame).await {
-                let error = SessionError::Transport(error.to_string());
-                let _ = reply.send(Err(error.clone()));
-                return CommandOutcome::Fatal(error);
-            }
-            state.pending_server_requests.remove(&key);
-            state.rebuild_pending_projection();
-            if let Err(error) = state.commit(None) {
-                let _ = reply.send(Err(error.clone()));
-                return CommandOutcome::Fatal(error);
-            }
-            let _ = reply.send(Ok(()));
-            CommandOutcome::Committed
-        }
+        } => handle_server_resolution(state, connection, key, resolution, reply).await,
         Command::Close { reply } => CommandOutcome::Close(reply),
     }
+}
+
+async fn handle_request_command(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+    method: String,
+    params: Value,
+    reply: oneshot::Sender<Result<RequestResult, SessionError>>,
+) -> CommandOutcome {
+    let id = JsonRpcId::Integer(state.next_request_id);
+    state.next_request_id = if let Some(value) = state.next_request_id.checked_add(1) {
+        value
+    } else {
+        let _ = reply.send(Err(SessionError::RevisionExhausted));
+        return CommandOutcome::Continue;
+    };
+    let frame = match encode_request(id.clone(), &method, Some(params)) {
+        Ok(frame) => frame,
+        Err(error) => {
+            let _ = reply.send(Err(SessionError::Protocol(error.to_string())));
+            return CommandOutcome::Continue;
+        }
+    };
+    state.pending_client_requests.insert(
+        id.clone(),
+        PendingClientRequest {
+            method: method.clone(),
+            id: id.clone(),
+            write_attempted: true,
+            reply,
+        },
+    );
+    if connection.write(&frame).await.is_err() {
+        let error = SessionError::IndeterminateRequest { method, id };
+        seal_pending(state, &error);
+        return CommandOutcome::Fatal(error);
+    }
+    CommandOutcome::Continue
+}
+
+async fn handle_server_resolution(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+    key: ServerRequestKey,
+    resolution: ServerRequestResolution,
+    reply: oneshot::Sender<Result<(), SessionError>>,
+) -> CommandOutcome {
+    if !state.pending_server_requests.contains_key(&key) {
+        let _ = reply.send(Err(SessionError::PendingServerRequestNotFound));
+        return CommandOutcome::Continue;
+    }
+    let frame = match resolution {
+        ServerRequestResolution::Result(result) => encode_result(key.request_id.clone(), result),
+        ServerRequestResolution::Error(error) => encode_error(key.request_id.clone(), error),
+    };
+    let frame = match frame {
+        Ok(frame) => frame,
+        Err(error) => {
+            let _ = reply.send(Err(SessionError::Protocol(error.to_string())));
+            return CommandOutcome::Continue;
+        }
+    };
+    if let Err(error) = connection.write(&frame).await {
+        let error = SessionError::Transport(error.to_string());
+        let _ = reply.send(Err(error.clone()));
+        return CommandOutcome::Fatal(error);
+    }
+    state.pending_server_requests.remove(&key);
+    state.rebuild_pending_projection();
+    if let Err(error) = state.commit(None) {
+        let _ = reply.send(Err(error.clone()));
+        return CommandOutcome::Fatal(error);
+    }
+    let _ = reply.send(Ok(()));
+    CommandOutcome::Committed
 }
 
 fn apply_envelope(
@@ -772,7 +818,27 @@ fn apply_envelope(
                 let _ = pending.reply.send(result);
             }
         }
-        Envelope::Notification(NotificationEnvelope { .. }) => {
+        Envelope::Notification(NotificationEnvelope { method, params }) => {
+            match adapt_notification(&method, &params)
+                .map_err(|error| SessionError::Adapter(error.to_string()))?
+            {
+                NotificationDisposition::Mutations(mutations) => {
+                    if let Some(batch) = state
+                        .canonical
+                        .apply(&mutations)
+                        .map_err(|error| SessionError::Canonical(error.to_string()))?
+                    {
+                        state.snapshot.canonical_revision = batch.revision;
+                    }
+                }
+                NotificationDisposition::Unhandled { .. } => {
+                    state.snapshot.unhandled_notification_count = state
+                        .snapshot
+                        .unhandled_notification_count
+                        .checked_add(1)
+                        .ok_or(SessionError::RevisionExhausted)?;
+                }
+            }
             state.snapshot.committed_notification_count = state
                 .snapshot
                 .committed_notification_count
@@ -862,13 +928,14 @@ mod tests {
     #[tokio::test]
     async fn handshake_buffers_and_drains_prior_notification() {
         let script = format!(
-            "read init; printf '%s\\n' '{{\"method\":\"thread/started\",\"params\":{{}}}}'; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; sleep 1"
+            "read init; printf '%s\\n' '{{\"method\":\"test/notification\",\"params\":{{}}}}'; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; sleep 1"
         );
         let client = AppServerClient::connect_local(shell_config(&script))
             .await
             .expect("connect session");
         let snapshot = client.snapshot().await.expect("read snapshot");
         assert_eq!(snapshot.committed_notification_count, 1);
+        assert_eq!(snapshot.unhandled_notification_count, 1);
         assert_eq!(snapshot.revision, StateRevision::new(2));
         assert_eq!(
             snapshot.last_wire_cursor.map(|cursor| cursor.ordinal),
@@ -910,6 +977,30 @@ mod tests {
                 .await,
             Err(SessionError::PendingServerRequestNotFound)
         );
+        client.close().await.expect("close session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn known_notification_reduces_before_revision_signal() {
+        let script = format!(
+            "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; printf '%s\\n' '{{\"method\":\"item/agentMessage/delta\",\"params\":{{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"item\",\"delta\":\"hello\"}}}}'; sleep 1"
+        );
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("connect session");
+        let mut observation = client.observe().await.expect("observe session");
+        let mut snapshot = observation.seed().clone();
+        while snapshot.canonical_revision == StateRevision::ZERO {
+            observation.changed().await.expect("canonical invalidation");
+            snapshot = client.snapshot().await.expect("reread session");
+        }
+        let canonical = client
+            .canonical_snapshot()
+            .await
+            .expect("read canonical state");
+        assert_eq!(snapshot.canonical_revision, canonical.revision);
+        assert_eq!(canonical.revision, StateRevision::new(1));
         client.close().await.expect("close session");
     }
 }
