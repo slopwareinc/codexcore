@@ -117,6 +117,13 @@ public actor CodexGitRepository {
 
     private let requestedWorkspaceURL: URL
     private var rootURL: URL?
+    private var inFlightSnapshots: [SnapshotRequestKey: Task<CodexGitReviewSnapshot, Error>] = [:]
+
+    private struct SnapshotRequestKey: Hashable {
+        let source: CodexGitReviewSource
+        let baseRef: String?
+        let commitRef: String?
+    }
 
     public init(workspaceURL: URL) {
         requestedWorkspaceURL = workspaceURL.standardizedFileURL
@@ -126,6 +133,35 @@ public actor CodexGitRepository {
         source: CodexGitReviewSource,
         baseRef: String? = nil,
         commitRef: String? = nil
+    ) async throws -> CodexGitReviewSnapshot {
+        let key = SnapshotRequestKey(source: source, baseRef: baseRef, commitRef: commitRef)
+        if let inFlight = inFlightSnapshots[key] {
+            return try await inFlight.value
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.loadSnapshot(
+                source: source,
+                baseRef: baseRef,
+                commitRef: commitRef
+            )
+        }
+        inFlightSnapshots[key] = task
+        do {
+            let snapshot = try await task.value
+            inFlightSnapshots.removeValue(forKey: key)
+            return snapshot
+        } catch {
+            inFlightSnapshots.removeValue(forKey: key)
+            throw error
+        }
+    }
+
+    private func loadSnapshot(
+        source: CodexGitReviewSource,
+        baseRef: String?,
+        commitRef: String?
     ) async throws -> CodexGitReviewSnapshot {
         precondition(source != .lastTurn, "Last Turn comes from canonical transcript state")
         _ = try await repositoryRoot()
