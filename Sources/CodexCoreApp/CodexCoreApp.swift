@@ -631,7 +631,6 @@ private struct CodexSettingsWindowView: View {
             modelOptions: model.modelOptions,
             reasoningSelection: $model.reasoningSelection,
             isBottomPanelVisible: .constant(false),
-            gitSettings: $model.gitSettings,
             newThreadHistoryMode: $model.newThreadHistoryMode,
             mcpServers: model.mcpServers,
             isLoadingMCPServers: model.isLoadingMCPServers

@@ -905,23 +905,6 @@ public struct ComposerModelMenu: View {
         }
     }
 
-    private var menuState: CodexComposerModelMenuState {
-        CodexComposerModelMenuModel.state(
-            modelOptions: modelOptions,
-            selectedModel: model,
-            selectedReasoning: reasoning
-        )
-    }
-
-    private func selectModel(_ selection: CodexModelSelection) {
-        model = selection
-        reasoning = CodexComposerModelMenuModel.reconciledReasoning(reasoning, for: selection)
-        let reconciledTier = serviceTier.reconciled(for: selection)
-        if reconciledTier != serviceTier {
-            serviceTier = reconciledTier
-        }
-    }
-
     private func reconcileReasoning(for model: CodexModelSelection) {
         reasoning = CodexComposerModelMenuModel.reconciledReasoning(reasoning, for: model)
     }

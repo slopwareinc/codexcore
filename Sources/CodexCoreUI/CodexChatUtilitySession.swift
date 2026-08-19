@@ -56,10 +56,6 @@ public enum CodexChatUtilitySession {
         }.joined(separator: "\n\n")
     }
 
-    public static func copiedTranscriptActivityDetail(messageCount: Int) -> String {
-        messageCount == 0 ? "No transcript text yet" : "\(messageCount) messages copied"
-    }
-
     public static func tokenUsageSummary(_ usage: ThreadTokenUsage) -> String {
         CodexNotificationPresentation.tokenUsageSummary(usage)
     }

@@ -27,8 +27,6 @@ that only need a generic Review route.
 ```swift
 CodexChatWorkspaceView(
     presentationStore: presentationStore,
-    activities: activities,
-    connectionState: connectionState,
     workspacePath: workspacePath,
     draft: $draft,
     isSending: isSending,

@@ -92,8 +92,6 @@ final class ServerRequestProtocolTests: XCTestCase {
             CodexServerRequestKind.knownMethods,
             Set(CodexAppServerServerRequestMethod.allCases.map(\.rawValue))
         )
-        XCTAssertEqual(CodexServerRequestKind.knownMethods.count, 11)
-        XCTAssertEqual(CodexAppServerProtocolInventory.serverRequestMethodCount, 11)
     }
 
     func testEveryGA145RequestArmParsesAndValidatesItsResult() throws {

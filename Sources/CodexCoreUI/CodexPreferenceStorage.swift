@@ -310,45 +310,6 @@ public enum CodexAppearanceSettingsStorage {
     }
 }
 
-public enum CodexGitSettingsStorage {
-    public static let key = "CodexCoreApp.gitSettings.v1"
-    public static let legacyKey = "CodexCoreApp.gitSettings"
-    private static let legacyKeys = [legacyKey, "CodexCoreApp.gitSettings.v0"]
-
-    public static func loadGitSettings(
-        from store: any CodexStringListPreferenceStore,
-        onFailure: CodexPreferenceFailureHandler? = nil
-    ) -> CodexGitSettings {
-        guard let stored = CodexPreferenceStorageCodec.decode(
-            CodexGitSettingsPayload.self,
-            currentKey: key,
-            legacyKeys: legacyKeys,
-            from: store,
-            onFailure: onFailure
-        ) else {
-            return .defaults
-        }
-        if stored.sourceKey != key {
-            _ = saveGitSettings(stored.value.settings, to: store, onFailure: onFailure)
-        }
-        return stored.value.settings
-    }
-
-    @discardableResult
-    public static func saveGitSettings(
-        _ settings: CodexGitSettings,
-        to store: any CodexStringListPreferenceStore,
-        onFailure: CodexPreferenceFailureHandler? = nil
-    ) -> Bool {
-        CodexPreferenceStorageCodec.encodeAndSave(
-            settings,
-            forKey: key,
-            to: store,
-            onFailure: onFailure
-        )
-    }
-}
-
 private struct CodexAppearanceSettingsPayload: Decodable {
     let settings: CodexAppearanceSettings
 
@@ -424,74 +385,6 @@ private struct CodexAppearanceSettingsPayload: Decodable {
         case dockIconVariant
         case textFontFamily
         case monoFontFamily
-    }
-}
-
-private struct CodexGitSettingsPayload: Decodable {
-    let settings: CodexGitSettings
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let defaults = CodexGitSettings.defaults
-        let branchPrefix = codexDecodeIfPresent(
-            String.self,
-            from: container,
-            forKey: .branchPrefix,
-            default: defaults.branchPrefix
-        )
-        let mergeMethod = codexDecodeIfPresent(
-            CodexSettingsMergeMethod.self,
-            from: container,
-            forKey: .mergeMethod,
-            default: defaults.mergeMethod
-        )
-        let createsDraftPullRequests = codexDecodeIfPresent(
-            Bool.self,
-            from: container,
-            forKey: .createsDraftPullRequests,
-            default: codexDecodeIfPresent(
-                Bool.self,
-                from: container,
-                forKey: .createDraftPullRequests,
-                default: defaults.createsDraftPullRequests
-            )
-        )
-        let alwaysForcePush = codexDecodeIfPresent(
-            Bool.self,
-            from: container,
-            forKey: .alwaysForcePush,
-            default: defaults.alwaysForcePush
-        )
-        let commitInstructions = codexDecodeIfPresent(
-            String.self,
-            from: container,
-            forKey: .commitInstructions,
-            default: defaults.commitInstructions
-        )
-        let pullRequestInstructions = codexDecodeIfPresent(
-            String.self,
-            from: container,
-            forKey: .pullRequestInstructions,
-            default: defaults.pullRequestInstructions
-        )
-        settings = CodexGitSettings(
-            branchPrefix: branchPrefix,
-            mergeMethod: mergeMethod,
-            createsDraftPullRequests: createsDraftPullRequests,
-            alwaysForcePush: alwaysForcePush,
-            commitInstructions: commitInstructions,
-            pullRequestInstructions: pullRequestInstructions
-        )
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case branchPrefix
-        case mergeMethod
-        case createsDraftPullRequests
-        case createDraftPullRequests
-        case alwaysForcePush
-        case commitInstructions
-        case pullRequestInstructions
     }
 }
 
