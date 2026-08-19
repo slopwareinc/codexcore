@@ -363,6 +363,15 @@ impl ThreadLeaseRegistry {
             .map_or(0, |entry| entry.reasons.len())
     }
 
+    /// Number of threads with at least one semantic retention reason.
+    #[must_use]
+    pub fn retained_thread_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| !entry.reasons.is_empty())
+            .count()
+    }
+
     fn allocate_lease(&mut self) -> Result<LeaseId, LeaseRegistryError> {
         let id = LeaseId(self.next_lease);
         self.next_lease = self

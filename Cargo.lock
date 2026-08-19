@@ -47,6 +47,7 @@ name = "codex-app-server-client"
 version = "0.1.0-alpha.1"
 dependencies = [
  "codex-app-server-adapter",
+ "codex-app-server-lease",
  "codex-app-server-state",
  "codex-app-server-transport",
  "codex-app-server-types",

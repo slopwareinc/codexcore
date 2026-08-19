@@ -43,6 +43,30 @@ Resolve that exact key once with `resolve_server_request`. Production hosts must
 eventually provide explicit policy or UI for every request family documented in
 [approvals and user input](../sdk/approvals-and-input.md).
 
+Keep a semantic `ThreadLease` alive while a thread is selected, running,
+hydrating history, awaiting interaction, or retained for a host operation:
+
+```rust
+use codex_app_server_lease::LeaseReason;
+use codex_app_server_state::ThreadId;
+
+# async fn retain(client: &codex_app_server_client::AppServerClient) -> Result<(), Box<dyn std::error::Error>> {
+let lease = client
+    .acquire_thread(ThreadId::from("thread-id"), LeaseReason::Selected)
+    .await?;
+
+// Observe or operate on the thread.
+
+lease.close().await?;
+# Ok(())
+# }
+```
+
+The actor owns `thread/resume` and `thread/unsubscribe` control requests,
+suppresses stale operation completions, and restores retained threads in
+semantic priority order on a new connection epoch. Dropping a lease only
+enqueues best-effort release; explicit `close()` is the deterministic path.
+
 Run the live authenticated smoke test on the GCP host with:
 
 ```bash

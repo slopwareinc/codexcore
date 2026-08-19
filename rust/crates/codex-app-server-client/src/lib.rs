@@ -10,6 +10,10 @@ use std::{
 };
 
 use codex_app_server_adapter::{NotificationDisposition, adapt_notification};
+use codex_app_server_lease::{
+    LeaseAction, LeaseId, LeaseOperationId, LeaseReason, ThreadLeaseRegistry,
+};
+use codex_app_server_state::ThreadId;
 use codex_app_server_state::{CanonicalState, CanonicalStateReducer, StateRevision};
 use codex_app_server_transport::{StdioConfig, StdioConnection, TransportError, TransportLimits};
 use codex_app_server_wire::{
@@ -200,6 +204,8 @@ pub struct SessionSnapshot {
     pub canonical_revision: StateRevision,
     /// Pending server requests in stable identity order.
     pub pending_server_requests: Vec<PendingServerRequest>,
+    /// Threads retained by at least one semantic lease reason.
+    pub retained_thread_count: usize,
 }
 
 /// Successful raw request result after the actor committed its response frame.
@@ -241,6 +247,9 @@ pub enum SessionError {
     /// Canonical reducer rejected an otherwise typed transaction.
     #[error("canonical reduction failed: {0}")]
     Canonical(String),
+    /// Lease registry or reconciliation failure.
+    #[error("thread lease reconciliation failed: {0}")]
+    Lease(String),
     /// App Server returned a structured error.
     #[error(transparent)]
     Rpc(JsonRpcErrorObject),
@@ -353,6 +362,7 @@ impl AppServerClient {
             unhandled_notification_count: 0,
             canonical_revision: StateRevision::ZERO,
             pending_server_requests: Vec::new(),
+            retained_thread_count: 0,
         };
 
         let (commands, receiver) = mpsc::channel(session_limits.maximum_buffered_commands);
@@ -468,6 +478,32 @@ impl AppServerClient {
         response.await.map_err(|_| SessionError::Closed)?
     }
 
+    /// Acquire a semantic thread subscription/retention lease.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when registry allocation or the required
+    /// subscribe write fails.
+    pub async fn acquire_thread(
+        &self,
+        thread_id: ThreadId,
+        reason: LeaseReason,
+    ) -> Result<ThreadLease, SessionError> {
+        let (reply, response) = oneshot::channel();
+        self.send_command(Command::AcquireLease {
+            thread_id: thread_id.clone(),
+            reason,
+            reply,
+        })
+        .await?;
+        let lease_id = response.await.map_err(|_| SessionError::Closed)??;
+        Ok(ThreadLease {
+            client: self.clone(),
+            thread_id,
+            lease_id: Some(lease_id),
+        })
+    }
+
     /// Close and reap the physical session.
     ///
     /// # Errors
@@ -484,6 +520,55 @@ impl AppServerClient {
             .send(command)
             .await
             .map_err(|_| SessionError::Closed)
+    }
+}
+
+/// Unique semantic retention capability for one thread.
+///
+/// Call [`Self::close`] for deterministic unsubscribe. `Drop` only enqueues a
+/// best-effort release and cannot await the resulting control request.
+pub struct ThreadLease {
+    client: AppServerClient,
+    thread_id: ThreadId,
+    lease_id: Option<LeaseId>,
+}
+
+impl ThreadLease {
+    /// Retained thread identity.
+    #[must_use]
+    pub fn thread_id(&self) -> &ThreadId {
+        &self.thread_id
+    }
+
+    /// Release this reason and await any required unsubscribe write.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when the actor or control write fails.
+    pub async fn close(mut self) -> Result<(), SessionError> {
+        let Some(lease_id) = self.lease_id.take() else {
+            return Ok(());
+        };
+        let (reply, response) = oneshot::channel();
+        self.client
+            .send_command(Command::ReleaseLease {
+                lease_id,
+                reply: Some(reply),
+            })
+            .await?;
+        response.await.map_err(|_| SessionError::Closed)?
+    }
+}
+
+impl Drop for ThreadLease {
+    fn drop(&mut self) {
+        let Some(lease_id) = self.lease_id.take() else {
+            return;
+        };
+        let _ = self.client.commands.try_send(Command::ReleaseLease {
+            lease_id,
+            reply: None,
+        });
     }
 }
 
@@ -509,6 +594,15 @@ enum Command {
         resolution: ServerRequestResolution,
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
+    AcquireLease {
+        thread_id: ThreadId,
+        reason: LeaseReason,
+        reply: oneshot::Sender<Result<LeaseId, SessionError>>,
+    },
+    ReleaseLease {
+        lease_id: LeaseId,
+        reply: Option<oneshot::Sender<Result<(), SessionError>>>,
+    },
     Close {
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
@@ -518,7 +612,16 @@ struct PendingClientRequest {
     method: String,
     id: JsonRpcId,
     write_attempted: bool,
-    reply: oneshot::Sender<Result<RequestResult, SessionError>>,
+    completion: PendingCompletion,
+}
+
+enum PendingCompletion {
+    Public(oneshot::Sender<Result<RequestResult, SessionError>>),
+    Lease {
+        thread_id: ThreadId,
+        operation_id: LeaseOperationId,
+        subscribing: bool,
+    },
 }
 
 struct BufferedEnvelope {
@@ -535,6 +638,8 @@ struct BootstrapResult {
 struct ActorState {
     snapshot: SessionSnapshot,
     canonical: CanonicalStateReducer,
+    leases: ThreadLeaseRegistry,
+    queued_lease_actions: VecDeque<LeaseAction>,
     pending_client_requests: HashMap<JsonRpcId, PendingClientRequest>,
     pending_server_requests: BTreeMap<ServerRequestKey, PendingServerRequest>,
     next_request_id: i64,
@@ -561,6 +666,11 @@ impl ActorState {
     fn rebuild_pending_projection(&mut self) {
         self.snapshot.pending_server_requests =
             self.pending_server_requests.values().cloned().collect();
+    }
+
+    fn enqueue_lease_actions(&mut self, actions: Vec<LeaseAction>) {
+        self.queued_lease_actions.extend(actions);
+        self.snapshot.retained_thread_count = self.leases.retained_thread_count();
     }
 }
 
@@ -647,6 +757,8 @@ async fn run_actor(
     let mut state = ActorState {
         snapshot,
         canonical: CanonicalStateReducer::default(),
+        leases: ThreadLeaseRegistry::new(true),
+        queued_lease_actions: VecDeque::new(),
         pending_client_requests: HashMap::new(),
         pending_server_requests: BTreeMap::new(),
         next_request_id: 1,
@@ -750,7 +862,12 @@ async fn drive_connection(
                     None => Err(SessionError::Transport("transport ingress ended".to_owned())),
                 };
                 match result {
-                    Ok(()) => { let _ = revisions.send(state.snapshot.revision); }
+                    Ok(()) => {
+                        if let Err(error) = flush_lease_actions(state, connection).await {
+                            return ConnectionExit::Disconnected(error);
+                        }
+                        let _ = revisions.send(state.snapshot.revision);
+                    }
                     Err(error) => return ConnectionExit::Disconnected(error),
                 }
             }
@@ -765,6 +882,9 @@ fn transition_phase(
     revisions: &watch::Sender<StateRevision>,
 ) {
     state.snapshot.phase = phase;
+    state.leases.connection_lost();
+    state.queued_lease_actions.clear();
+    state.snapshot.retained_thread_count = state.leases.retained_thread_count();
     state.pending_server_requests.clear();
     state.rebuild_pending_projection();
     if state.commit(None).is_ok() {
@@ -806,6 +926,12 @@ async fn reconnect(
                 state.snapshot.phase = ConnectionPhase::Connected;
                 state.commit(None)?;
                 drain_buffered(state, &mut bootstrap.buffered)?;
+                let actions = state
+                    .leases
+                    .connection_restored()
+                    .map_err(|error| SessionError::Lease(error.to_string()))?;
+                state.enqueue_lease_actions(actions);
+                flush_lease_actions(state, &mut connection).await?;
                 let _ = revisions.send(state.snapshot.revision);
                 return Ok(connection);
             }
@@ -879,8 +1005,78 @@ async fn handle_command(
             resolution,
             reply,
         } => handle_server_resolution(state, connection, key, resolution, reply).await,
+        Command::AcquireLease {
+            thread_id,
+            reason,
+            reply,
+        } => handle_acquire_lease(state, connection, thread_id, reason, reply).await,
+        Command::ReleaseLease { lease_id, reply } => {
+            handle_release_lease(state, connection, lease_id, reply).await
+        }
         Command::Close { reply } => CommandOutcome::Close(reply),
     }
+}
+
+async fn handle_acquire_lease(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+    thread_id: ThreadId,
+    reason: LeaseReason,
+    reply: oneshot::Sender<Result<LeaseId, SessionError>>,
+) -> CommandOutcome {
+    let (lease_id, actions) = match state.leases.acquire(thread_id, reason) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = reply.send(Err(SessionError::Lease(error.to_string())));
+            return CommandOutcome::Continue;
+        }
+    };
+    state.enqueue_lease_actions(actions);
+    if let Err(error) = flush_lease_actions(state, connection).await {
+        let _ = reply.send(Err(error.clone()));
+        return CommandOutcome::Fatal(error);
+    }
+    if let Err(error) = state.commit(None) {
+        let _ = reply.send(Err(error.clone()));
+        return CommandOutcome::Fatal(error);
+    }
+    let _ = reply.send(Ok(lease_id));
+    CommandOutcome::Committed
+}
+
+async fn handle_release_lease(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+    lease_id: LeaseId,
+    reply: Option<oneshot::Sender<Result<(), SessionError>>>,
+) -> CommandOutcome {
+    let actions = match state.leases.release(lease_id) {
+        Ok(actions) => actions,
+        Err(error) => {
+            let error = SessionError::Lease(error.to_string());
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(error));
+            }
+            return CommandOutcome::Continue;
+        }
+    };
+    state.enqueue_lease_actions(actions);
+    if let Err(error) = flush_lease_actions(state, connection).await {
+        if let Some(reply) = reply {
+            let _ = reply.send(Err(error.clone()));
+        }
+        return CommandOutcome::Fatal(error);
+    }
+    if let Err(error) = state.commit(None) {
+        if let Some(reply) = reply {
+            let _ = reply.send(Err(error.clone()));
+        }
+        return CommandOutcome::Fatal(error);
+    }
+    if let Some(reply) = reply {
+        let _ = reply.send(Ok(()));
+    }
+    CommandOutcome::Committed
 }
 
 async fn handle_request_command(
@@ -890,12 +1086,12 @@ async fn handle_request_command(
     params: Value,
     reply: oneshot::Sender<Result<RequestResult, SessionError>>,
 ) -> CommandOutcome {
-    let id = JsonRpcId::Integer(state.next_request_id);
-    state.next_request_id = if let Some(value) = state.next_request_id.checked_add(1) {
-        value
-    } else {
-        let _ = reply.send(Err(SessionError::RevisionExhausted));
-        return CommandOutcome::Continue;
+    let id = match allocate_request_id(state) {
+        Ok(id) => id,
+        Err(error) => {
+            let _ = reply.send(Err(error));
+            return CommandOutcome::Continue;
+        }
     };
     let frame = match encode_request(id.clone(), &method, Some(params)) {
         Ok(frame) => frame,
@@ -910,7 +1106,7 @@ async fn handle_request_command(
             method: method.clone(),
             id: id.clone(),
             write_attempted: true,
-            reply,
+            completion: PendingCompletion::Public(reply),
         },
     );
     if connection.write(&frame).await.is_err() {
@@ -957,6 +1153,55 @@ async fn handle_server_resolution(
     CommandOutcome::Committed
 }
 
+async fn flush_lease_actions(
+    state: &mut ActorState,
+    connection: &mut StdioConnection,
+) -> Result<(), SessionError> {
+    while let Some(action) = state.queued_lease_actions.pop_front() {
+        let (thread_id, operation_id, subscribing, method) = match action {
+            LeaseAction::Subscribe {
+                thread_id,
+                operation_id,
+            } => (thread_id, operation_id, true, "thread/resume"),
+            LeaseAction::Unsubscribe {
+                thread_id,
+                operation_id,
+            } => (thread_id, operation_id, false, "thread/unsubscribe"),
+        };
+        let id = allocate_request_id(state)?;
+        let frame = encode_request(
+            id.clone(),
+            method,
+            Some(json!({"threadId": thread_id.as_str()})),
+        )
+        .map_err(|error| SessionError::Protocol(error.to_string()))?;
+        state.pending_client_requests.insert(
+            id.clone(),
+            PendingClientRequest {
+                method: method.to_owned(),
+                id,
+                write_attempted: true,
+                completion: PendingCompletion::Lease {
+                    thread_id,
+                    operation_id,
+                    subscribing,
+                },
+            },
+        );
+        connection.write(&frame).await?;
+    }
+    Ok(())
+}
+
+fn allocate_request_id(state: &mut ActorState) -> Result<JsonRpcId, SessionError> {
+    let id = JsonRpcId::Integer(state.next_request_id);
+    state.next_request_id = state
+        .next_request_id
+        .checked_add(1)
+        .ok_or(SessionError::RevisionExhausted)?;
+    Ok(id)
+}
+
 fn apply_envelope(
     state: &mut ActorState,
     cursor: WireCursor,
@@ -967,14 +1212,36 @@ fn apply_envelope(
             let pending = state.pending_client_requests.remove(&response.id);
             let revision = state.commit(Some(cursor))?;
             if let Some(pending) = pending {
-                let result = match response.outcome {
-                    ResponseOutcome::Result(value) => Ok(RequestResult {
-                        value,
-                        committed_revision: revision,
-                    }),
-                    ResponseOutcome::Error(error) => Err(SessionError::Rpc(error)),
-                };
-                let _ = pending.reply.send(result);
+                match pending.completion {
+                    PendingCompletion::Public(reply) => {
+                        let result = match response.outcome {
+                            ResponseOutcome::Result(value) => Ok(RequestResult {
+                                value,
+                                committed_revision: revision,
+                            }),
+                            ResponseOutcome::Error(error) => Err(SessionError::Rpc(error)),
+                        };
+                        let _ = reply.send(result);
+                    }
+                    PendingCompletion::Lease {
+                        thread_id,
+                        operation_id,
+                        subscribing,
+                    } => {
+                        let succeeded = matches!(response.outcome, ResponseOutcome::Result(_));
+                        let actions = if subscribing {
+                            state
+                                .leases
+                                .complete_subscribe(&thread_id, operation_id, succeeded)
+                        } else {
+                            state
+                                .leases
+                                .complete_unsubscribe(&thread_id, operation_id, succeeded)
+                        }
+                        .map_err(|error| SessionError::Lease(error.to_string()))?;
+                        state.enqueue_lease_actions(actions);
+                    }
+                }
             }
         }
         Envelope::Notification(NotificationEnvelope { method, params }) => {
@@ -1031,15 +1298,17 @@ fn apply_envelope(
 
 fn seal_pending(state: &mut ActorState, cause: &SessionError) {
     for (_, pending) in state.pending_client_requests.drain() {
-        let error = if pending.write_attempted {
-            SessionError::IndeterminateRequest {
-                method: pending.method,
-                id: pending.id,
-            }
-        } else {
-            cause.clone()
-        };
-        let _ = pending.reply.send(Err(error));
+        if let PendingCompletion::Public(reply) = pending.completion {
+            let error = if pending.write_attempted {
+                SessionError::IndeterminateRequest {
+                    method: pending.method,
+                    id: pending.id,
+                }
+            } else {
+                cause.clone()
+            };
+            let _ = reply.send(Err(error));
+        }
     }
     state.pending_server_requests.clear();
     state.rebuild_pending_projection();
@@ -1047,7 +1316,7 @@ fn seal_pending(state: &mut ActorState, cause: &SessionError) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::*;
 
@@ -1063,6 +1332,16 @@ mod tests {
     }
 
     const INITIALIZE_RESPONSE: &str = r#"{"id":0,"result":{"userAgent":"test-server","codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"test"}}"#;
+
+    async fn wait_for_file(path: &Path) -> String {
+        for _ in 0..100 {
+            if let Ok(value) = std::fs::read_to_string(path) {
+                return value;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("timed out waiting for {}", path.display());
+    }
 
     #[cfg(unix)]
     #[tokio::test]
@@ -1246,5 +1525,121 @@ sleep 1
             "launch\n"
         );
         assert_eq!(client.snapshot().await, Err(SessionError::Closed));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn thread_lease_executes_internal_resume_and_unsubscribe() {
+        let directory = tempfile::tempdir().expect("temporary marker directory");
+        let marker = directory.path().join("unsubscribed");
+        let script = format!(
+            r#"
+read init
+printf '%s\n' '{INITIALIZE_RESPONSE}'
+read initialized
+read resume
+case "$resume" in *'thread/resume'*) ;; *) exit 11 ;; esac
+printf '%s\n' '{{"id":1,"result":{{}}}}'
+read unsubscribe
+case "$unsubscribe" in *'thread/unsubscribe'*) ;; *) exit 12 ;; esac
+printf 'done\n' > '{marker}'
+printf '%s\n' '{{"id":2,"result":{{}}}}'
+sleep 1
+"#,
+            marker = marker.display(),
+        );
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("connect session");
+        let lease = client
+            .acquire_thread(ThreadId::from("thread"), LeaseReason::Selected)
+            .await
+            .expect("acquire lease");
+        assert_eq!(lease.thread_id(), &ThreadId::from("thread"));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            client
+                .snapshot()
+                .await
+                .expect("retained snapshot")
+                .retained_thread_count,
+            1
+        );
+        lease.close().await.expect("release lease");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("unsubscribe observed"),
+            "done\n"
+        );
+        assert_eq!(
+            client
+                .snapshot()
+                .await
+                .expect("released snapshot")
+                .retained_thread_count,
+            0
+        );
+        client.close().await.expect("close session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn retained_thread_resubscribes_on_new_connection_epoch() {
+        let directory = tempfile::tempdir().expect("temporary marker directory");
+        let first = directory.path().join("first");
+        let resumed = directory.path().join("resumed");
+        let unsubscribed = directory.path().join("unsubscribed");
+        let script = format!(
+            r#"
+if [ ! -e '{first}' ]; then touch '{first}'; generation=first; else generation=second; fi
+read init
+printf '%s\n' '{INITIALIZE_RESPONSE}'
+read initialized
+read resume
+case "$resume" in *'thread/resume'*) ;; *) exit 21 ;; esac
+if [ "$generation" = first ]; then
+  printf '%s\n' '{{"id":1,"result":{{}}}}'
+  exit 9
+fi
+case "$resume" in *'"id":2'*) ;; *) exit 22 ;; esac
+printf 'resumed\n' > '{resumed}'
+printf '%s\n' '{{"id":2,"result":{{}}}}'
+read unsubscribe
+case "$unsubscribe" in *'thread/unsubscribe'*) ;; *) exit 23 ;; esac
+case "$unsubscribe" in *'"id":3'*) ;; *) exit 24 ;; esac
+printf 'unsubscribed\n' > '{unsubscribed}'
+printf '%s\n' '{{"id":3,"result":{{}}}}'
+sleep 1
+"#,
+            first = first.display(),
+            resumed = resumed.display(),
+            unsubscribed = unsubscribed.display(),
+        );
+        let mut config = shell_config(&script);
+        config.reconnect_policy = ReconnectPolicy {
+            maximum_attempts: 2,
+            initial_delay: Duration::from_millis(10),
+            maximum_delay: Duration::from_millis(20),
+        };
+        let client = AppServerClient::connect_local(config)
+            .await
+            .expect("connect session");
+        let lease = client
+            .acquire_thread(ThreadId::from("thread"), LeaseReason::ActiveTurn)
+            .await
+            .expect("acquire retained thread");
+
+        let mut observation = client.observe().await.expect("observe reconnect");
+        let mut reconnected = observation.seed().clone();
+        while reconnected.connection_epoch < 2 {
+            observation.changed().await.expect("reconnect invalidation");
+            reconnected = client.snapshot().await.expect("reconnected snapshot");
+        }
+        assert_eq!(reconnected.connection_epoch, 2);
+        assert_eq!(wait_for_file(&resumed).await, "resumed\n");
+
+        lease.close().await.expect("release retained thread");
+        assert_eq!(wait_for_file(&unsubscribed).await, "unsubscribed\n");
+        client.close().await.expect("close session");
     }
 }
