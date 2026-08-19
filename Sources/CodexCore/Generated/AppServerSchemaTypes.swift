@@ -20,6 +20,14 @@ public struct CodexAppServerSchemaValue: Codable, Sendable, Equatable {
     }
 }
 
+/// Three-state field used where app-server distinguishes an omitted property,
+/// an explicit JSON null, and a concrete replacement value.
+public enum CodexAppServerOptionalField<Value: Codable & Sendable & Equatable>: Sendable, Equatable {
+    case omitted
+    case null
+    case value(Value)
+}
+
 public struct CodexAppServerSchemaDefinition: Sendable, Equatable {
     public let name: String
     public let typeName: String
@@ -3857,7 +3865,92 @@ public enum CodexSchemaImageDetail: Codable, Sendable, Equatable, Hashable, Case
         try container.encode(rawValue)
     }
 }
-public typealias CodexSchemaImageGenerationFailure = CodexAppServerSchemaValue
+public struct CodexSchemaUsageLimitExceededImageGenerationFailure: Codable, Sendable, Equatable {
+    public static let discriminator = "usageLimitExceeded"
+    public let limitID: String
+    public let resetsAt: Int?
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "limitId",
+        "resetsAt",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case limitID = "limitId"
+        case resetsAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.limitID = try container.decode(String.self, forKey: .limitID)
+        self.resetsAt = try container.decodeIfPresent(Int.self, forKey: .resetsAt)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public enum CodexSchemaImageGenerationFailure: Codable, Sendable, Equatable {
+    case usageLimitExceeded(CodexSchemaUsageLimitExceededImageGenerationFailure)
+    case unrecognized(type: String, rawValue: CodexJSONValue)
+
+    enum CodingKeys: String, CodingKey { case type }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        switch discriminator {
+        case "usageLimitExceeded":
+            self = .usageLimitExceeded(try CodexSchemaUsageLimitExceededImageGenerationFailure(from: decoder))
+        default:
+            let rawContainer = try decoder.singleValueContainer()
+            let rawValue = try rawContainer.decode(CodexJSONValue.self)
+            self = .unrecognized(type: discriminator, rawValue: rawValue)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .usageLimitExceeded(let payload):
+            try payload.encode(to: encoder)
+        case .unrecognized(_, let rawValue):
+            try rawValue.encode(to: encoder)
+        }
+    }
+
+    public var type: String {
+        switch self {
+        case .usageLimitExceeded: "usageLimitExceeded"
+        case .unrecognized(let type, _): type
+        }
+    }
+
+    public var rawValue: CodexJSONValue {
+        switch self {
+        case .usageLimitExceeded(let payload): payload.rawValue
+        case .unrecognized(_, let rawValue): rawValue
+        }
+    }
+}
 public struct CodexSchemaInitializeCapabilities: Codable, Sendable, Equatable {
     public var experimentalAPI: Bool?
     public var extensions: CodexJSONValue?
@@ -11245,7 +11338,7 @@ public struct CodexSchemaThreadSectionMoveParams: Codable, Sendable, Equatable {
 }
 public typealias CodexSchemaThreadSectionMoveResponse = CodexAppServerSchemaValue
 public struct CodexSchemaThreadSectionUpdateParams: Codable, Sendable, Equatable {
-    public var appearance: CodexSchemaThreadSectionAppearance?
+    public var appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>
     public var name: String
     public var sectionID: String
 
@@ -11255,10 +11348,34 @@ public struct CodexSchemaThreadSectionUpdateParams: Codable, Sendable, Equatable
         case sectionID = "sectionId"
     }
 
-    public init(appearance: CodexSchemaThreadSectionAppearance? = nil, name: String, sectionID: String) {
+    public init(appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance> = .omitted, name: String, sectionID: String) {
         self.appearance = appearance
         self.name = name
         self.sectionID = sectionID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if !container.contains(.appearance) {
+            self.appearance = .omitted
+        } else if try container.decodeNil(forKey: .appearance) {
+            self.appearance = .null
+        } else {
+            self.appearance = .value(try container.decode(CodexSchemaThreadSectionAppearance.self, forKey: .appearance))
+        }
+        self.name = try container.decode(String.self, forKey: .name)
+        self.sectionID = try container.decode(String.self, forKey: .sectionID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch appearance {
+        case .omitted: break
+        case .null: try container.encodeNil(forKey: .appearance)
+        case .value(let value): try container.encode(value, forKey: .appearance)
+        }
+        try container.encode(name, forKey: .name)
+        try container.encode(sectionID, forKey: .sectionID)
     }
 }
 public struct CodexSchemaThreadSectionUpdateResponse: Codable, Sendable, Equatable {
@@ -12782,8 +12899,8 @@ public enum CodexAppServerSchemaInventory {
     public static let generatedEnumCount = 112
     public static let generatedOpenEnumCount = 95
     public static let generatedStructCount = 451
-    public static let generatedTaggedUnionCount = 3
-    public static let rawAliasCount = 100
+    public static let generatedTaggedUnionCount = 4
+    public static let rawAliasCount = 99
     public static let v2SchemaFileCount = 333
     public static let v1HandshakeSchemaFileCount = 2
     public static let definitions: [CodexAppServerSchemaDefinition] = [

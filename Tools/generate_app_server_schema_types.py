@@ -39,6 +39,14 @@ public struct CodexAppServerSchemaValue: Codable, Sendable, Equatable {
     }
 }
 
+/// Three-state field used where app-server distinguishes an omitted property,
+/// an explicit JSON null, and a concrete replacement value.
+public enum CodexAppServerOptionalField<Value: Codable & Sendable & Equatable>: Sendable, Equatable {
+    case omitted
+    case null
+    case value(Value)
+}
+
 public struct CodexAppServerSchemaDefinition: Sendable, Equatable {
     public let name: String
     public let typeName: String
@@ -64,6 +72,7 @@ public struct CodexAppServerStandaloneSchemaDefinition: Sendable, Equatable {
 # of them to raw JSON would make the generated protocol surface appear complete
 # while moving exhaustiveness and validation back into every caller.
 REQUIRED_TAGGED_UNIONS = frozenset({
+    "ImageGenerationFailure",
     "LoginAccountParams",
     "ThreadItem",
     "ThreadStatus",
@@ -91,6 +100,14 @@ CLOSED_STRING_ENUMS = frozenset({
     "ThreadSortKey",
     "ThreadSourceKind",
     "ThreadStartSource",
+})
+
+# Optional nullable properties normally map to Swift Optional because missing
+# and null have identical protocol meaning. Keep the small set whose upstream
+# contract explicitly assigns different semantics here; their containing
+# structs receive custom Codable implementations.
+TRISTATE_FIELDS = frozenset({
+    ("CodexSchemaThreadSectionUpdateParams", "appearance"),
 })
 
 HANDSHAKE_SCHEMA_FILES = (
@@ -459,7 +476,7 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
     required = set(schema.get("required", []) or [])
     resolver = FieldTypeResolver(type_names)
 
-    fields: list[tuple[str, str, str, bool]] = []  # (property, json key, type, optional)
+    fields: list[tuple[str, str, str, bool, bool]] = []  # property, json key, type, optional, tristate
     used: dict[str, int] = {}
     for key in sorted(properties):
         prop_name = swift_member_name(key)
@@ -468,18 +485,24 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
         if count:
             prop_name = f"{prop_name}{count + 1}"
         optional = key not in required
-        swift_type = resolver.resolve(properties[key], optional)
-        fields.append((prop_name, key, swift_type, optional))
+        tristate = (type_name, key) in TRISTATE_FIELDS
+        if tristate:
+            wrapped = resolver.resolve(properties[key], optional=False).removesuffix("?")
+            swift_type = f"CodexAppServerOptionalField<{wrapped}>"
+        else:
+            swift_type = resolver.resolve(properties[key], optional)
+        fields.append((prop_name, key, swift_type, optional, tristate))
 
     lines = [f"public struct {type_name}: Codable, Sendable, Equatable {{"]
-    for prop_name, _, swift_type, _ in fields:
+    for prop_name, _, swift_type, _, _ in fields:
         lines.append(f"    public var {prop_name}: {swift_type}")
 
-    needs_keys = any(prop.strip("`") != key for prop, key, _, _ in fields)
+    has_tristate = any(tristate for _, _, _, _, tristate in fields)
+    needs_keys = has_tristate or any(prop.strip("`") != key for prop, key, _, _, _ in fields)
     if needs_keys:
         lines.append("")
         lines.append("    enum CodingKeys: String, CodingKey {")
-        for prop_name, key, _, _ in fields:
+        for prop_name, key, _, _, _ in fields:
             bare = prop_name.strip("`")
             if bare != key:
                 lines.append(f"        case {prop_name} = {json.dumps(key)}")
@@ -490,16 +513,53 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
     lines.append("")
     if fields:
         params = ", ".join(
-            f"{prop}: {swift_type}{' = nil' if swift_type.endswith('?') else ''}"
-            for prop, _, swift_type, _ in fields
+            f"{prop}: {swift_type}{' = .omitted' if tristate else ' = nil' if swift_type.endswith('?') else ''}"
+            for prop, _, swift_type, _, tristate in fields
         )
         lines.append(f"    public init({params}) {{")
-        for prop_name, _, _, _ in fields:
+        for prop_name, _, _, _, _ in fields:
             bare = prop_name.strip("`")
             lines.append(f"        self.{bare} = {prop_name}")
         lines.append("    }")
     else:
         lines.append("    public init() {}")
+    if has_tristate:
+        lines.append("")
+        lines.append("    public init(from decoder: Decoder) throws {")
+        lines.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")
+        for prop_name, _, swift_type, optional, tristate in fields:
+            bare = prop_name.strip("`")
+            if tristate:
+                wrapped = swift_type.removeprefix("CodexAppServerOptionalField<").removesuffix(">")
+                lines.append(f"        if !container.contains(.{bare}) {{")
+                lines.append(f"            self.{bare} = .omitted")
+                lines.append(f"        }} else if try container.decodeNil(forKey: .{bare}) {{")
+                lines.append(f"            self.{bare} = .null")
+                lines.append("        } else {")
+                lines.append(f"            self.{bare} = .value(try container.decode({wrapped}.self, forKey: .{bare}))")
+                lines.append("        }")
+            elif optional:
+                wrapped = swift_type.removesuffix("?")
+                lines.append(f"        self.{bare} = try container.decodeIfPresent({wrapped}.self, forKey: .{bare})")
+            else:
+                lines.append(f"        self.{bare} = try container.decode({swift_type}.self, forKey: .{bare})")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    public func encode(to encoder: Encoder) throws {")
+        lines.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
+        for prop_name, _, _, optional, tristate in fields:
+            bare = prop_name.strip("`")
+            if tristate:
+                lines.append(f"        switch {bare} {{")
+                lines.append("        case .omitted: break")
+                lines.append(f"        case .null: try container.encodeNil(forKey: .{bare})")
+                lines.append(f"        case .value(let value): try container.encode(value, forKey: .{bare})")
+                lines.append("        }")
+            elif optional:
+                lines.append(f"        try container.encodeIfPresent({bare}, forKey: .{bare})")
+            else:
+                lines.append(f"        try container.encode({bare}, forKey: .{bare})")
+        lines.append("    }")
     lines.append("}")
     lines.append("")
     return "\n".join(lines), resolver.refs

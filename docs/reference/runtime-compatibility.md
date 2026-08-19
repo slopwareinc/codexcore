@@ -22,7 +22,7 @@ CodexCore requires the generated major/minor line and accepts newer patch releas
 
 The stable 0.148.0 schema adds server diagnostics, six durable thread-queue methods, paginated `thread/revert`, queue/revert notifications, scoped account usage, thread cost estimates, section appearance, model multi-agent versioning and retirement time, MCP ownership and OAuth registration selection, asynchronous/MCP hook metadata, and structured image-generation failure detail.
 
-`account/usage/read` now accepts omitted, null, or thread-scoped parameters. Hook metadata is now a heterogeneous command-or-MCP union and therefore remains lossless through the generated raw schema wrapper. On successful paginated revert—or a revert notification from another client—CodexCore evicts stale materialized transcript detail and retains the replacement history cursors for rehydration. Legacy `thread/rollback` behavior is unchanged.
+`account/usage/read` now accepts omitted, null, or thread-scoped parameters. Hook metadata is a heterogeneous command-or-MCP union and remains lossless through the generated raw schema wrapper; image-generation failures are generated as a typed, future-compatible union. On successful paginated revert—or a revert notification from another client—CodexCore evicts stale materialized transcript detail and retains the replacement history cursors for rehydration. Legacy `thread/rollback` behavior is unchanged.
 
 ## 0.147.0 migration
 

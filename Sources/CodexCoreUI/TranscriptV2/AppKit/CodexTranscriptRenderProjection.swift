@@ -1037,6 +1037,23 @@ actor CodexTranscriptRenderProjector {
                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                 ))
             }
+            for failure in turn.imageGenerationFailures {
+                append(ItemDraft(
+                    id: "\(sectionID):generated-image-failure:\(failure.id)",
+                    fingerprint: "generated-image-failure:\(failure.type):\(failure.message)",
+                    textRole: .notice,
+                    preparedText: Self.preparePlain(
+                        failure.message,
+                        font: theme.captionFont,
+                        color: theme.danger,
+                        theme: theme
+                    ),
+                    copyText: failure.message,
+                    accessibilityLabel: failure.message,
+                    maxWidthKind: .card,
+                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                ))
+            }
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 if turn.presentationStyle != .realtimeVoice {
                     append(timestampDraft(

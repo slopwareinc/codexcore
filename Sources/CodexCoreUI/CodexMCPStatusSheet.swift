@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 
 public struct CodexMCPStatusSheet: View {
     @Environment(\.codexAgentTheme) private var theme
@@ -94,7 +95,7 @@ public struct CodexMCPStatusSheet: View {
                             canManage: provider != nil,
                             onToggleExpanded: { toggleExpanded(server.name) },
                             onSetEnabled: { setEnabled(server, enabled: $0) },
-                            onLogin: { login(server) },
+                            onLogin: { login(server, clientRegistration: $0) },
                             onEdit: { editor = configurations[server.name] ?? configurationStub(for: server) },
                             onRemove: { serverPendingRemoval = server }
                         )
@@ -193,13 +194,20 @@ public struct CodexMCPStatusSheet: View {
         }
     }
 
-    private func login(_ server: CodexMCPServerStatus) {
+    private func login(
+        _ server: CodexMCPServerStatus,
+        clientRegistration: CodexSchemaMCPServerOAuthClientRegistration
+    ) {
         guard let provider else { return }
         isMutating = true
         Task {
             do {
                 let completions = try await provider.observeMCPServerOAuthLogin(name: server.name, threadID: threadID)
-                let response = try await provider.perform(.mcpOAuthLogin(.init(name: server.name, threadID: threadID)))
+                let response = try await provider.perform(.mcpOAuthLogin(.init(
+                    clientRegistration: clientRegistration,
+                    name: server.name,
+                    threadID: threadID
+                )))
                 if case .dictionary(let object) = response,
                    case .string(let authorizationURL)? = object["authorizationUrl"],
                    let url = URL(string: authorizationURL) {
@@ -240,7 +248,7 @@ private struct MCPServerStatusRow: View {
     let canManage: Bool
     let onToggleExpanded: () -> Void
     let onSetEnabled: (Bool) -> Void
-    let onLogin: () -> Void
+    let onLogin: (CodexSchemaMCPServerOAuthClientRegistration) -> Void
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -258,7 +266,14 @@ private struct MCPServerStatusRow: View {
                 }
                 Spacer()
                 if server.authStatus == "notLoggedIn" {
-                    Button("Log in", action: onLogin).buttonStyle(.bordered).controlSize(.small)
+                    Menu("Log in") {
+                        Button("Automatic (recommended)") { onLogin(.auto) }
+                        Button("Client ID metadata document") { onLogin(.cimd) }
+                        Button("Dynamic client registration") { onLogin(.dcr) }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isMutating || !canManage)
                 } else {
                     Text(server.authStatusLabel).foregroundStyle(theme.colors.textSecondary)
                 }
@@ -266,14 +281,20 @@ private struct MCPServerStatusRow: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .help((server.enabled ?? true) ? "Disable server" : "Enable server")
-                Menu {
-                    Button("Edit", action: onEdit)
-                    Button("Remove", role: .destructive, action: onRemove)
-                } label: { Image(systemName: "ellipsis").frame(width: 26, height: 26) }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .disabled(isMutating || !canConfigure)
+                if canConfigure {
+                    Menu {
+                        Button("Edit", action: onEdit)
+                        Button("Remove", role: .destructive, action: onRemove)
+                    } label: { Image(systemName: "ellipsis").frame(width: 26, height: 26) }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                } else if server.pluginID != nil {
+                    Image(systemName: "shippingbox")
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .help(server.ownershipLabel)
+                }
             }
-            .disabled(isMutating || !canManage)
 
             HStack(spacing: 8) {
                 Text((server.enabled ?? true) ? (server.startupState?.rawValue ?? "Status unavailable") : "Disabled")
@@ -289,6 +310,8 @@ private struct MCPServerStatusRow: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
+                    Text(server.ownershipLabel)
+                        .foregroundStyle(theme.colors.textSecondary)
                     if let defaultMode = server.defaultToolsApprovalMode {
                         Text("Default tool approval: \(defaultMode.rawValue)")
                     }
@@ -314,6 +337,10 @@ private struct MCPServerStatusRow: View {
         .padding(11)
         .background(theme.colors.surfaceElevated.opacity(0.78), in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous).stroke(theme.colors.border))
+    }
+
+    private var canConfigure: Bool {
+        canManage && server.pluginID == nil
     }
 
     private var statusImage: String {

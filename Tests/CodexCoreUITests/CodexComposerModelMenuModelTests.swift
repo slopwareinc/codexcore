@@ -1,4 +1,5 @@
 import XCTest
+import CodexCore
 @testable import CodexCoreUI
 
 final class CodexComposerModelMenuModelTests: XCTestCase {
@@ -99,5 +100,28 @@ final class CodexComposerModelMenuModelTests: XCTestCase {
         XCTAssertEqual(CodexComposerModelMenuModel.reconciledReasoning(.extraHigh, for: strict), .extraHigh)
         XCTAssertEqual(CodexComposerModelMenuModel.reconciledReasoning(.medium, for: strict), .high)
         XCTAssertEqual(CodexComposerModelMenuModel.reconciledReasoning(.medium, for: noDefault), .minimal)
+    }
+
+    func testModelMenuPreservesMultiAgentAndRetirementMetadata() {
+        let model = CodexModelSelection(
+            id: "retiring",
+            displayName: "Retiring model",
+            multiAgentVersion: .v2,
+            retirementAt: 1_893_456_000,
+            upgradeModelIdentifier: "replacement-model",
+            detail: "Catalog description"
+        )
+        let state = CodexComposerModelMenuModel.state(
+            modelOptions: [model],
+            selectedModel: model,
+            selectedReasoning: .medium
+        )
+
+        XCTAssertEqual(model.multiAgentVersion, .v2)
+        XCTAssertEqual(model.retirementAt, 1_893_456_000)
+        XCTAssertTrue(model.lifecycleDetail?.contains("Multi-agent v2") == true)
+        XCTAssertTrue(model.lifecycleDetail?.contains("replacement-model") == true)
+        XCTAssertTrue(state.gptFamilyItems.first?.detail?.contains("Catalog description") == true)
+        XCTAssertTrue(state.gptFamilyItems.first?.detail?.contains("Multi-agent v2") == true)
     }
 }

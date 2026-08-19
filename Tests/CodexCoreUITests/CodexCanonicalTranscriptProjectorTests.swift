@@ -560,6 +560,39 @@ struct CodexCanonicalTranscriptProjectorTests {
         #expect(projected.generatedImages.first?.source == "data:image/png;base64,aW1hZ2U=")
     }
 
+    @Test func imageGenerationUsageLimitProjectsPersistentFailureMetadata() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let generation = item(threadID, turnID, "generation", .imageGeneration, [
+            "status": .string("failed"),
+            "result": .string(""),
+            "failure": .dictionary([
+                "type": .string("usageLimitExceeded"),
+                "limitId": .string("image_gen"),
+                "resetsAt": .int(1_786_150_800),
+            ]),
+        ])
+        let snapshot = state(
+            revision: 1,
+            threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["generation"], revision: 1)],
+            items: [generation]
+        )
+
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector()
+                .rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+
+        let failure = try #require(projected.imageGenerationFailures.first)
+        #expect(failure.type == "usageLimitExceeded")
+        #expect(failure.limitID == "image_gen")
+        #expect(failure.resetsAt == Date(timeIntervalSince1970: 1_786_150_800))
+        #expect(failure.message.contains("Image generation limit reached"))
+        #expect(projected.generatedImages.isEmpty)
+    }
+
     @Test func hostPolicyCoalescesSuccessiveItemsIntoOneSemanticActivity() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

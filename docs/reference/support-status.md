@@ -15,8 +15,14 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | Capability | Status | Boundary |
 | --- | --- | --- |
 | Exact app-server launch and version validation | Supported | Default facade uses the pinned CLI over stdio; custom transports are possible. |
+| On-demand app-server diagnostics | Supported | Settings → About displays process memory and gauges from one explicit snapshot; there is no background polling. |
+| Thread credit and cost estimates | Conditional | `/status` fetches the selected thread estimate on demand; availability depends on the authenticated workspace billing route. |
+| Model multi-agent and retirement metadata | Supported | Model catalog projection preserves runtime generation and preformats retirement/replacement detail for the picker. |
+| MCP plugin ownership and OAuth registration selection | Supported | Plugin-owned servers are configuration read-only; login supports automatic, CIMD, and DCR registration strategies. |
+| Async command and MCP-tool hooks | Supported | Settings shows the heterogeneous handler metadata and configures resolved enable/trust state without rewriting hook definitions. |
+| Structured image-generation failures | Supported | Usage-limit metadata is typed and rendered persistently in both transcript implementations, including after resume. |
 | Start/resume threads; turns, steering, interruption | Supported | Both server-declared history modes can resume. |
-| Thread sections and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; thread metadata preserves section identity and entry time. |
+| Thread sections, appearance, and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; Settings edits synchronized icons/colors and sidebar rows render them without extra requests. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |
 | Paginated fork, full `thread/read`, and durable revert | Supported | Stable 0.148.0 exposes `thread/revert`; CodexCore invalidates stale detail and retains replacement cursors. |
 | Paginated legacy rollback | Unsupported | `thread/rollback` remains the separate legacy full-history operation. |
@@ -36,7 +42,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | Chat pin, archive, rename, fork, copy | Supported | Chat reorder/hide/reveal is not supported. |
 | Project group, pin, reorder, alias, remove, reveal | Supported | Projects can also archive their chats. |
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
-| Attachments, mentions, slash commands, queued follow-ups, steer, interrupt | Supported | Active-turn follow-ups form a multi-message FIFO queue with explicit steer, edit, and remove actions; one queued message starts after each completed turn. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
+| Attachments, mentions, slash commands, durable queued follow-ups, steer, interrupt | Supported | App-server persists FIFO follow-ups and auto-dispatches them while CodexCore provides steer, edit, and remove actions. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |

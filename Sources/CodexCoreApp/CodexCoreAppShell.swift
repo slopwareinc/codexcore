@@ -192,7 +192,10 @@ struct CodexCoreAppShell: View {
         .sheet(isPresented: $isStatusSheetPresented) {
             CodexStatusSheet(
                 model: model.statusPanelModel,
-                onClose: { isStatusSheetPresented = false }
+                onClose: { isStatusSheetPresented = false },
+                onRefreshThreadUsage: {
+                    Task { await model.refreshThreadUsage() }
+                }
             )
             .codexAgentTheme(model.theme)
         }
@@ -357,6 +360,34 @@ struct CodexCoreAppShell: View {
                 newThreadHistoryMode: $model.newThreadHistoryMode,
                 mcpServers: model.mcpServers,
                 isLoadingMCPServers: model.isLoadingMCPServers,
+                serverDiagnostics: model.serverDiagnostics,
+                isLoadingServerDiagnostics: model.isLoadingServerDiagnostics,
+                serverDiagnosticsError: model.serverDiagnosticsError,
+                onRefreshServerDiagnostics: {
+                    Task { await model.refreshServerDiagnostics() }
+                },
+                threadSections: model.threadSections,
+                isLoadingThreadSections: model.isLoadingThreadSections,
+                threadSectionsError: model.threadSectionsError,
+                onRefreshThreadSections: {
+                    Task { await model.refreshThreadSections() }
+                },
+                onCreateThreadSection: { name, appearance in
+                    Task { await model.createThreadSection(name: name, appearance: appearance) }
+                },
+                onUpdateThreadSection: { id, name, appearance in
+                    Task { await model.updateThreadSection(id: id, name: name, appearance: appearance) }
+                },
+                onDeleteThreadSection: { id in
+                    Task { await model.deleteThreadSection(id: id) }
+                },
+                hooksCatalog: model.hooksCatalog,
+                isLoadingHooks: model.isLoadingHooks,
+                hooksError: model.hooksError,
+                hooksProvider: model.integrationControlPlaneProvider,
+                onRefreshHooks: {
+                    Task { await model.refreshHooks() }
+                },
                 onBackToApp: { model.selectAppRoute(.chat) }
             )
                 .codexAgentTheme(model.theme)
@@ -458,8 +489,12 @@ struct CodexCoreAppShell: View {
                 onSteerQueuedFollowUp: { clientID in
                     Task { await model.steerQueuedFollowUp(clientID: clientID) }
                 },
-                onRemoveQueuedFollowUp: { model.removeQueuedFollowUp(clientID: $0) },
-                onEditQueuedFollowUp: { model.editQueuedFollowUp(clientID: $0) },
+                onRemoveQueuedFollowUp: { clientID in
+                    Task { await model.removeQueuedFollowUp(clientID: clientID) }
+                },
+                onEditQueuedFollowUp: { clientID in
+                    Task { await model.editQueuedFollowUp(clientID: clientID) }
+                },
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },

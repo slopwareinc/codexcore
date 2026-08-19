@@ -9,6 +9,8 @@ public struct CodexComposerSubmission: Equatable, Sendable {
     public var mentions: [CodexInput]
     public var clientID: String
     public var threadID: String?
+    public var queueID: String?
+    public var queuedInput: [CodexInput]?
 
     public init(
         prompt: String,
@@ -17,7 +19,9 @@ public struct CodexComposerSubmission: Equatable, Sendable {
         skills: [CodexSlashCommand] = [],
         mentions: [CodexInput] = [],
         clientID: String = UUID().uuidString,
-        threadID: String? = nil
+        threadID: String? = nil,
+        queueID: String? = nil,
+        queuedInput: [CodexInput]? = nil
     ) {
         self.prompt = prompt
         self.referencedFiles = referencedFiles
@@ -26,6 +30,8 @@ public struct CodexComposerSubmission: Equatable, Sendable {
         self.mentions = mentions
         self.clientID = clientID
         self.threadID = threadID
+        self.queueID = queueID
+        self.queuedInput = queuedInput
     }
 
     public var skillDetail: String? {
@@ -37,7 +43,8 @@ public struct CodexComposerSubmission: Equatable, Sendable {
     }
 
     public var turnInput: [CodexInput] {
-        skills.compactMap { command -> CodexInput? in
+        if let queuedInput { return queuedInput }
+        return skills.compactMap { command -> CodexInput? in
             guard let name = command.skillName, let path = command.skillPath else { return nil }
             return .skill(name: name, path: path)
         } + mentions + [.text(CodexComposerPromptCodec.encode(
@@ -54,6 +61,44 @@ public struct CodexComposerSubmission: Equatable, Sendable {
             && lhs.skills == rhs.skills
             && lhs.mentions == rhs.mentions
             && lhs.threadID == rhs.threadID
+            && lhs.queueID == rhs.queueID
+            && lhs.queuedInput == rhs.queuedInput
+    }
+
+    public init(
+        queuedSubmission: CodexSchemaQueuedSubmission,
+        threadID: String
+    ) {
+        let input = queuedSubmission.input.map { CodexInput(jsonValue: $0.rawValue) }
+        let rawText = input.compactMap { value -> String? in
+            guard case .text(let text, _) = value else { return nil }
+            return text
+        }.last ?? ""
+        let decoded = CodexComposerPromptCodec.decode(rawText)
+        let skills = input.compactMap { value -> CodexSlashCommand? in
+            guard case .skill(let name, let path) = value else { return nil }
+            return CodexSlashCommand(
+                id: "queued-skill:\(path)",
+                title: name,
+                detail: path,
+                systemImage: "shippingbox",
+                section: "Skills",
+                skillName: name,
+                skillPath: path
+            )
+        }
+        self.init(
+            prompt: decoded?.request ?? rawText,
+            referencedFiles: decoded?.files ?? [],
+            skills: skills,
+            mentions: input.filter {
+                if case .mention = $0 { true } else { false }
+            },
+            clientID: queuedSubmission.clientUserMessageID,
+            threadID: threadID,
+            queueID: queuedSubmission.id,
+            queuedInput: input
+        )
     }
 }
 
@@ -463,6 +508,20 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         var ownedSubmission = submission
         ownedSubmission.threadID = threadID
         queue.prepend(ownedSubmission)
+        queuedFollowUpSubmissionsByThreadID[key] = queue
+    }
+
+    public mutating func replaceQueuedFollowUps(
+        _ submissions: [CodexComposerSubmission],
+        for threadID: String
+    ) {
+        let key = Self.draftKey(for: threadID)
+        guard !submissions.isEmpty else {
+            queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
+            return
+        }
+        var queue = CodexComposerSubmissionQueue()
+        for submission in submissions { queue.append(submission) }
         queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 

@@ -244,6 +244,55 @@ public enum CodexInput: Sendable, Equatable {
     case mention(name: String, path: String)
     case raw(CodexJSONValue)
 
+    /// Lossless projection from the app-server `UserInput` union. Known arms
+    /// become ergonomic values while future arms remain available as `.raw`.
+    public init(jsonValue: CodexJSONValue) {
+        guard case .dictionary(let object) = jsonValue,
+              case .string(let type)? = object["type"] else {
+            self = .raw(jsonValue)
+            return
+        }
+        func string(_ key: String) -> String? {
+            guard case .string(let value)? = object[key] else { return nil }
+            return value
+        }
+        let detail = string("detail").flatMap(CodexSchemaImageDetail.init(rawValue:))
+        switch type {
+        case "text":
+            guard let text = string("text") else { self = .raw(jsonValue); return }
+            let elements = object["text_elements"].flatMap {
+                try? $0.decode([CodexSchemaTextElement].self)
+            }
+            self = .text(text, textElements: elements)
+        case "image":
+            guard let url = string("url") else { self = .raw(jsonValue); return }
+            self = .image(url: url, detail: detail)
+        case "localImage":
+            guard let path = string("path") else { self = .raw(jsonValue); return }
+            self = .localImage(path: path, detail: detail)
+        case "audio":
+            guard let url = string("url") else { self = .raw(jsonValue); return }
+            self = .audio(url: url)
+        case "localAudio":
+            guard let path = string("path") else { self = .raw(jsonValue); return }
+            self = .localAudio(path: path)
+        case "skill":
+            guard let name = string("name"), let path = string("path") else {
+                self = .raw(jsonValue)
+                return
+            }
+            self = .skill(name: name, path: path)
+        case "mention":
+            guard let name = string("name"), let path = string("path") else {
+                self = .raw(jsonValue)
+                return
+            }
+            self = .mention(name: name, path: path)
+        default:
+            self = .raw(jsonValue)
+        }
+    }
+
     public var jsonValue: CodexJSONValue {
         switch self {
         case .text(let text, let textElements):

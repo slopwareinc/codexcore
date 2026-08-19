@@ -699,6 +699,7 @@ public actor CodexSession:
     private var diagnostics = CodexProtocolDiagnosticRing()
     private var commandOutputs = CodexCommandOutputRouter()
     private var skillsChanges = CodexSkillsChangeObserverHub()
+    private var threadQueueChanges = CodexThreadQueueObserverHub()
     private var realtimeEvents = CodexRealtimeObserverHub()
     private var fsChanges = CodexFSChangeObserverHub()
     private var processEvents = CodexProcessObserverHub()
@@ -1024,6 +1025,29 @@ public actor CodexSession:
 
     func cancelSkillsChangeObservation(_ id: CodexSkillsChangeObservationID) {
         _ = skillsChanges.cancel(id)
+    }
+
+    /// Observes coalesced durable queue invalidations. Registering a thread ID
+    /// avoids waking unrelated chat surfaces; omit it for a global queue index.
+    public func observeThreadQueueChanges(
+        threadID: String? = nil
+    ) throws -> AsyncThrowingStream<CodexSchemaThreadQueueChangedNotification, Error> {
+        guard case .ready(let epoch) = lifecycle,
+              activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let observation = threadQueueChanges.observe(
+            connectionEpoch: epoch,
+            threadID: threadID,
+            onTermination: { [weak self] id in
+                Task { await self?.cancelThreadQueueObservation(id) }
+            }
+        )
+        return observation.changes
+    }
+
+    func cancelThreadQueueObservation(_ id: CodexThreadQueueObservationID) {
+        _ = threadQueueChanges.cancel(id)
     }
 
     /// Observes the ephemeral realtime media and transcript events for one
@@ -2047,6 +2071,7 @@ private extension CodexSession {
         scheduleHistoryEffects(history.connectionLost(epoch))
         _ = commandOutputs.disconnect(connectionEpoch: epoch)
         _ = skillsChanges.disconnect(connectionEpoch: epoch)
+        _ = threadQueueChanges.disconnect(connectionEpoch: epoch)
         _ = realtimeEvents.disconnect(connectionEpoch: epoch)
         _ = fsChanges.disconnect(connectionEpoch: epoch)
         _ = processEvents.disconnect(connectionEpoch: epoch)
@@ -2618,6 +2643,15 @@ private extension CodexSession {
                         CodexSchemaSkillsChangedNotification.self
                     )
                     _ = skillsChanges.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        notification: change
+                    )
+
+                case .threadQueueChanged:
+                    let change = try notification.params.decode(
+                        CodexSchemaThreadQueueChangedNotification.self
+                    )
+                    _ = threadQueueChanges.publish(
                         connectionEpoch: cursor.connectionEpoch,
                         notification: change
                     )

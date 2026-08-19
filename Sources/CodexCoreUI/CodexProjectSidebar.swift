@@ -899,6 +899,15 @@ private struct SidebarChatRowContent: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if let sectionIcon = row.summary.sectionIcon {
+                Image(systemName: CodexThreadSectionAppearanceStyle.systemImage(sectionIcon))
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(CodexThreadSectionAppearanceStyle.color(
+                        row.summary.sectionColor,
+                        fallback: theme.colors.accent
+                    ))
+                    .frame(width: 12)
+            }
             Text(row.summary.title)
                 .font(theme.fonts.sidebar.chatTitle.font)
                 .foregroundStyle(row.isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
@@ -929,7 +938,7 @@ private struct SidebarChatRowContent: View {
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            [row.summary.title, environmentLabel]
+            [row.summary.title, row.summary.sectionName, environmentLabel]
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )
@@ -1007,6 +1016,7 @@ private struct SidebarChatRowContent: View {
         default: return "\(Int(elapsed / 604_800))w"
         }
     }
+
 
     private var environmentLabel: String? {
         CodexProjectSidebarEnvironmentLabel.title(workspacePath: row.summary.workspacePath)

@@ -101,5 +101,7 @@ final class CodexManagedPolicyRequirementsTests: XCTestCase {
 
     func testAgentInstructionsSettingsRouteIsAvailable() {
         XCTAssertTrue(CodexSettingsRoute.availableRoutes.contains(.agents))
+        XCTAssertTrue(CodexSettingsRoute.availableRoutes.contains(.sections))
+        XCTAssertTrue(CodexSettingsRoute.availableRoutes.contains(.hooks))
     }
 }
