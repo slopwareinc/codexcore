@@ -72,6 +72,13 @@ pub struct WebSocketConnection<S> {
     maximum_frame_bytes: usize,
 }
 
+/// TCP/TLS WebSocket connection type.
+pub type TcpWebSocketConnection = WebSocketConnection<MaybeTlsStream<TcpStream>>;
+
+/// Unix-socket WebSocket connection type.
+#[cfg(unix)]
+pub type UnixWebSocketConnection = WebSocketConnection<UnixStream>;
+
 /// Connect to a `ws://` or `wss://` App Server endpoint.
 ///
 /// # Errors

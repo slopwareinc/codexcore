@@ -119,3 +119,33 @@ CODEX_BINARY=/usr/local/bin/codex \
 
 The exact runtime remains `Tools/UPSTREAM_VERSION`; Rust schema drift is checked
 by the same protocol workflow as Swift.
+
+## Remote and Unix-socket sessions
+
+Use the same SDK over an authenticated WebSocket by selecting the transport in
+`SessionConfig`; the bearer value is used only for the HTTP upgrade and is
+redacted from `Debug` output:
+
+```rust
+use codex_app_server_client::SessionConfig;
+use codex_app_server_transport::{
+    FrameConnectionConfig, TransportLimits, WebSocketConnectConfig,
+};
+
+# async fn remote() -> Result<(), Box<dyn std::error::Error>> {
+let config = SessionConfig::for_transport(FrameConnectionConfig::WebSocket(
+    WebSocketConnectConfig {
+        url: "wss://codex-host.example/app-server".to_owned(),
+        bearer_token: Some("secret-from-keychain".to_owned()),
+        limits: TransportLimits::default(),
+    },
+));
+let codex = codex_app_server_sdk::Codex::connect(config).await?;
+codex.close().await?;
+# Ok(())
+# }
+```
+
+On Unix, `FrameConnectionConfig::UnixWebSocket` uses the same WebSocket message
+contract over a domain socket. App Server remote transport remains experimental;
+use TLS and authentication for every non-loopback endpoint.

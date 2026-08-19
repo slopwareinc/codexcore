@@ -23,9 +23,11 @@ use tokio::{
 
 mod websocket;
 
+pub use websocket::{
+    TcpWebSocketConnection, WebSocketConnectConfig, WebSocketConnection, connect_websocket,
+};
 #[cfg(unix)]
-pub use websocket::{UnixWebSocketConnectConfig, connect_unix_websocket};
-pub use websocket::{WebSocketConnectConfig, WebSocketConnection, connect_websocket};
+pub use websocket::{UnixWebSocketConnectConfig, UnixWebSocketConnection, connect_unix_websocket};
 
 #[cfg(unix)]
 use nix::{
@@ -35,6 +37,100 @@ use nix::{
 };
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+
+/// Selectable physical connection configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FrameConnectionConfig {
+    /// Spawn a local App Server over JSONL stdio.
+    Stdio {
+        config: StdioConfig,
+        limits: TransportLimits,
+    },
+    /// Connect to `ws://` or `wss://`.
+    WebSocket(WebSocketConnectConfig),
+    /// Connect using WebSocket framing over a Unix domain socket.
+    #[cfg(unix)]
+    UnixWebSocket(UnixWebSocketConnectConfig),
+}
+
+impl FrameConnectionConfig {
+    /// Standard local App Server configuration.
+    #[must_use]
+    pub fn local(executable: impl Into<std::path::PathBuf>) -> Self {
+        Self::Stdio {
+            config: StdioConfig::app_server(executable),
+            limits: TransportLimits::default(),
+        }
+    }
+
+    /// Open one physical connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] when launch/connect/upgrade fails.
+    pub async fn connect(&self) -> Result<FrameConnection, TransportError> {
+        match self {
+            Self::Stdio { config, limits } => {
+                StdioConnection::spawn(config, *limits).map(FrameConnection::Stdio)
+            }
+            Self::WebSocket(config) => connect_websocket(config)
+                .await
+                .map(|connection| FrameConnection::WebSocket(Box::new(connection))),
+            #[cfg(unix)]
+            Self::UnixWebSocket(config) => connect_unix_websocket(config)
+                .await
+                .map(|connection| FrameConnection::UnixWebSocket(Box::new(connection))),
+        }
+    }
+}
+
+/// Opaque physical connection used by the ordered session actor.
+pub enum FrameConnection {
+    Stdio(StdioConnection),
+    WebSocket(Box<TcpWebSocketConnection>),
+    #[cfg(unix)]
+    UnixWebSocket(Box<UnixWebSocketConnection>),
+}
+
+impl FrameConnection {
+    /// Perform one write attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] for physical I/O failure.
+    pub async fn write(&mut self, frame: &[u8]) -> Result<(), TransportError> {
+        match self {
+            Self::Stdio(connection) => connection.write(frame).await,
+            Self::WebSocket(connection) => connection.write(frame).await,
+            #[cfg(unix)]
+            Self::UnixWebSocket(connection) => connection.write(frame).await,
+        }
+    }
+
+    /// Receive the next complete ordered frame or terminal error.
+    pub async fn next_frame(&mut self) -> Option<Result<Bytes, TransportError>> {
+        match self {
+            Self::Stdio(connection) => connection.next_frame().await,
+            Self::WebSocket(connection) => connection.next_frame().await,
+            #[cfg(unix)]
+            Self::UnixWebSocket(connection) => connection.next_frame().await,
+        }
+    }
+
+    /// Close and reap/finish the physical connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] if deterministic shutdown fails.
+    pub async fn close(self) -> Result<(), TransportError> {
+        match self {
+            Self::Stdio(connection) => connection.close().await,
+            Self::WebSocket(connection) => (*connection).close().await,
+            #[cfg(unix)]
+            Self::UnixWebSocket(connection) => (*connection).close().await,
+        }
+    }
+}
 
 /// Resource limits applied at the physical transport boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use codex_app_server_client::{
-    AppServerClient, LocalSessionConfig, RequestResult, SessionError, ThreadLease,
+    AppServerClient, LocalSessionConfig, RequestResult, SessionConfig, SessionError, ThreadLease,
 };
 use codex_app_server_lease::LeaseReason;
 use codex_app_server_state::{ThreadId, TurnId};
@@ -189,15 +189,24 @@ pub struct Codex {
 }
 
 impl Codex {
+    /// Connect over the transport selected by `SessionConfig`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] when session initialization fails.
+    pub async fn connect(config: SessionConfig) -> Result<Self, SdkError> {
+        Ok(Self {
+            client: AppServerClient::connect(config).await?,
+        })
+    }
+
     /// Launch and initialize a local App Server.
     ///
     /// # Errors
     ///
     /// Returns [`SdkError`] when session initialization fails.
     pub async fn connect_local(config: LocalSessionConfig) -> Result<Self, SdkError> {
-        Ok(Self {
-            client: AppServerClient::connect_local(config).await?,
-        })
+        Self::connect(config).await
     }
 
     /// Wrap an already initialized ordered client.
@@ -469,7 +478,7 @@ fn insert_option<T: Into<Value>>(map: &mut BTreeMap<String, Value>, key: &str, v
 mod tests {
     use std::collections::BTreeMap;
 
-    use codex_app_server_transport::{StdioConfig, TransportLimits};
+    use codex_app_server_transport::{FrameConnectionConfig, StdioConfig, TransportLimits};
 
     use super::*;
 
@@ -498,13 +507,15 @@ mod tests {
             "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; read start; case \"$start\" in *'thread/start'*) ;; *) exit 31 ;; esac; printf '%s\\n' '{{\"id\":1,\"result\":{{\"thread\":{{\"id\":\"thread\"}}}}}}'; read unsubscribe; case \"$unsubscribe\" in *'thread/unsubscribe'*) ;; *) exit 32 ;; esac; printf '%s\\n' '{{\"id\":2,\"result\":{{}}}}'; sleep 1"
         );
         let mut config = LocalSessionConfig::app_server("/bin/sh");
-        config.stdio = StdioConfig {
-            executable: PathBuf::from("/bin/sh"),
-            arguments: vec!["-c".to_owned(), script],
-            environment: BTreeMap::new(),
-            current_directory: None,
+        config.transport = FrameConnectionConfig::Stdio {
+            config: StdioConfig {
+                executable: PathBuf::from("/bin/sh"),
+                arguments: vec!["-c".to_owned(), script],
+                environment: BTreeMap::new(),
+                current_directory: None,
+            },
+            limits: TransportLimits::default(),
         };
-        config.transport_limits = TransportLimits::default();
         let codex = Codex::connect_local(config).await.expect("connect");
         let thread = codex
             .start_thread(StartThreadOptions::default())

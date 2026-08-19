@@ -82,11 +82,13 @@ dependencies = [
  "codex-app-server-transport",
  "codex-app-server-types",
  "codex-app-server-wire",
+ "futures-util",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

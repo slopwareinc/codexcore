@@ -17,7 +17,7 @@ use codex_app_server_state::ThreadId;
 use codex_app_server_state::{
     CanonicalChangeBatch, CanonicalMutation, CanonicalState, CanonicalStateReducer, StateRevision,
 };
-use codex_app_server_transport::{StdioConfig, StdioConnection, TransportError, TransportLimits};
+use codex_app_server_transport::{FrameConnection, FrameConnectionConfig, TransportError};
 use codex_app_server_wire::{
     Envelope, JsonRpcErrorObject, JsonRpcId, NotificationEnvelope, ResponseOutcome,
     ServerRequestEnvelope, WireCursor, decode_frame, encode_error, encode_notification,
@@ -101,13 +101,11 @@ pub struct ClientInfo {
     pub version: String,
 }
 
-/// Local session launch configuration.
+/// Session configuration independent of physical transport.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LocalSessionConfig {
-    /// Physical subprocess configuration.
-    pub stdio: StdioConfig,
-    /// Transport resource bounds.
-    pub transport_limits: TransportLimits,
+pub struct SessionConfig {
+    /// Local, TCP/TLS WebSocket, or Unix-socket transport.
+    pub transport: FrameConnectionConfig,
     /// Session actor resource bounds.
     pub session_limits: SessionLimits,
     /// Bounded reconnect behavior after transport loss.
@@ -120,13 +118,15 @@ pub struct LocalSessionConfig {
     pub request_attestation: bool,
 }
 
-impl LocalSessionConfig {
-    /// Standard local configuration for an exact Codex executable.
+/// Compatibility name for local callers; remote constructors use the same type.
+pub type LocalSessionConfig = SessionConfig;
+
+impl SessionConfig {
+    /// Standard configuration for any physical transport.
     #[must_use]
-    pub fn app_server(executable: impl Into<std::path::PathBuf>) -> Self {
+    pub fn for_transport(transport: FrameConnectionConfig) -> Self {
         Self {
-            stdio: StdioConfig::app_server(executable),
-            transport_limits: TransportLimits::default(),
+            transport,
             session_limits: SessionLimits::default(),
             reconnect_policy: ReconnectPolicy::default(),
             client_info: ClientInfo {
@@ -137,6 +137,12 @@ impl LocalSessionConfig {
             experimental_api: true,
             request_attestation: false,
         }
+    }
+
+    /// Standard local configuration for an exact Codex executable.
+    #[must_use]
+    pub fn app_server(executable: impl Into<std::path::PathBuf>) -> Self {
+        Self::for_transport(FrameConnectionConfig::local(executable))
     }
 }
 
@@ -336,6 +342,16 @@ pub struct AppServerClient {
 }
 
 impl AppServerClient {
+    /// Connect and initialize over the selected physical transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when connect, handshake, validation, or bounded
+    /// buffering fails.
+    pub async fn connect(config: SessionConfig) -> Result<Self, SessionError> {
+        Self::connect_inner(config).await
+    }
+
     /// Launch, initialize, and start an ordered local App Server session.
     ///
     /// # Errors
@@ -343,9 +359,13 @@ impl AppServerClient {
     /// Returns [`SessionError`] when process launch, handshake, typed initialize
     /// validation, or bounded handshake buffering fails.
     pub async fn connect_local(config: LocalSessionConfig) -> Result<Self, SessionError> {
+        Self::connect_inner(config).await
+    }
+
+    async fn connect_inner(config: SessionConfig) -> Result<Self, SessionError> {
         let session_limits = config.session_limits.validate()?;
         config.reconnect_policy.validate()?;
-        let mut connection = StdioConnection::spawn(&config.stdio, config.transport_limits)?;
+        let mut connection = config.transport.connect().await?;
         let bootstrap = bootstrap(&mut connection, &config, session_limits, 1).await;
         let bootstrap = match bootstrap {
             Ok(value) => value,
@@ -727,7 +747,7 @@ impl ActorState {
 }
 
 async fn bootstrap(
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     config: &LocalSessionConfig,
     limits: SessionLimits,
     connection_epoch: u64,
@@ -800,7 +820,7 @@ async fn bootstrap(
 
 async fn run_actor(
     config: LocalSessionConfig,
-    mut connection: StdioConnection,
+    mut connection: FrameConnection,
     mut commands: mpsc::Receiver<Command>,
     revisions: watch::Sender<StateRevision>,
     snapshot: SessionSnapshot,
@@ -875,7 +895,7 @@ enum ConnectionExit {
 
 async fn drive_connection(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     commands: &mut mpsc::Receiver<Command>,
     revisions: &watch::Sender<StateRevision>,
 ) -> ConnectionExit {
@@ -949,7 +969,7 @@ async fn reconnect(
     config: &LocalSessionConfig,
     state: &mut ActorState,
     revisions: &watch::Sender<StateRevision>,
-) -> Result<StdioConnection, SessionError> {
+) -> Result<FrameConnection, SessionError> {
     let policy = config.reconnect_policy;
     let mut delay = policy.initial_delay;
     let mut next_epoch = state.snapshot.connection_epoch;
@@ -962,7 +982,7 @@ async fn reconnect(
         next_epoch = next_epoch
             .checked_add(1)
             .ok_or(SessionError::RevisionExhausted)?;
-        let mut connection = match StdioConnection::spawn(&config.stdio, config.transport_limits) {
+        let mut connection = match config.transport.connect().await {
             Ok(connection) => connection,
             Err(error) => {
                 last_error = SessionError::from(error);
@@ -1020,7 +1040,7 @@ enum CommandOutcome {
 
 async fn handle_command(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     command: Command,
 ) -> CommandOutcome {
     match command {
@@ -1116,7 +1136,7 @@ async fn handle_command(
 
 async fn handle_acquire_lease(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     thread_id: ThreadId,
     reason: LeaseReason,
     reply: oneshot::Sender<Result<LeaseId, SessionError>>,
@@ -1143,7 +1163,7 @@ async fn handle_acquire_lease(
 
 async fn handle_release_lease(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     lease_id: LeaseId,
     reply: Option<oneshot::Sender<Result<(), SessionError>>>,
 ) -> CommandOutcome {
@@ -1178,7 +1198,7 @@ async fn handle_release_lease(
 
 async fn handle_request_command(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     method: String,
     params: Value,
     reply: oneshot::Sender<Result<RequestResult, SessionError>>,
@@ -1215,7 +1235,7 @@ async fn handle_request_command(
 
 async fn handle_server_resolution(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
     key: ServerRequestKey,
     resolution: ServerRequestResolution,
     reply: oneshot::Sender<Result<(), SessionError>>,
@@ -1259,7 +1279,7 @@ async fn handle_server_resolution(
 
 async fn flush_lease_actions(
     state: &mut ActorState,
-    connection: &mut StdioConnection,
+    connection: &mut FrameConnection,
 ) -> Result<(), SessionError> {
     while let Some(action) = state.queued_lease_actions.pop_front() {
         let (thread_id, operation_id, subscribing, method) = match action {
@@ -1431,14 +1451,19 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
+    use codex_app_server_transport::{StdioConfig, TransportLimits};
+    use futures_util::{SinkExt, StreamExt};
 
     fn shell_config(script: &str) -> LocalSessionConfig {
         let mut config = LocalSessionConfig::app_server("/bin/sh");
-        config.stdio = StdioConfig {
-            executable: PathBuf::from("/bin/sh"),
-            arguments: vec!["-c".to_owned(), script.to_owned()],
-            environment: BTreeMap::new(),
-            current_directory: None,
+        config.transport = FrameConnectionConfig::Stdio {
+            config: StdioConfig {
+                executable: PathBuf::from("/bin/sh"),
+                arguments: vec!["-c".to_owned(), script.to_owned()],
+                environment: BTreeMap::new(),
+                current_directory: None,
+            },
+            limits: TransportLimits::default(),
         };
         config
     }
@@ -1805,5 +1830,54 @@ sleep 1
         lease.close().await.expect("release retained thread");
         assert_eq!(wait_for_file(&unsubscribed).await, "unsubscribed\n");
         client.close().await.expect("close session");
+    }
+
+    #[tokio::test]
+    async fn websocket_transport_uses_same_ordered_session_actor() {
+        use codex_app_server_transport::WebSocketConnectConfig;
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            let mut socket = accept_async(stream).await.expect("upgrade");
+            let initialize = socket.next().await.expect("initialize").expect("valid");
+            assert!(initialize.to_text().expect("text").contains("initialize"));
+            socket
+                .send(Message::Text(INITIALIZE_RESPONSE.to_owned().into()))
+                .await
+                .expect("initialize response");
+            let initialized = socket.next().await.expect("initialized").expect("valid");
+            assert!(initialized.to_text().expect("text").contains("initialized"));
+            let request = socket.next().await.expect("request").expect("valid");
+            assert!(request.to_text().expect("text").contains("model/list"));
+            socket
+                .send(Message::Text(
+                    r#"{"id":1,"result":{"data":[{"id":"model"}]}}"#.to_owned().into(),
+                ))
+                .await
+                .expect("request response");
+            let _ = socket.next().await;
+        });
+
+        let config = SessionConfig::for_transport(FrameConnectionConfig::WebSocket(
+            WebSocketConnectConfig {
+                url: format!("ws://{address}"),
+                bearer_token: None,
+                limits: TransportLimits::default(),
+            },
+        ));
+        let client = AppServerClient::connect(config)
+            .await
+            .expect("connect actor");
+        let result = client
+            .request("model/list", json!({}))
+            .await
+            .expect("correlated response");
+        assert_eq!(result.value["data"][0]["id"], "model");
+        client.close().await.expect("close actor");
+        server.await.expect("server");
     }
 }
