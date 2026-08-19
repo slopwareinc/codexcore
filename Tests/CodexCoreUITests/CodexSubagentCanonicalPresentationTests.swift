@@ -106,6 +106,86 @@ struct CodexSubagentCanonicalPresentationTests {
         #expect(duration == 2_000)
     }
 
+    @Test func staleIndexCannotRegressAnAuthoritativeCompletedChild() throws {
+        var store = CodexSubagentStoreV2()
+        _ = store.applyParentSnapshot(parentSnapshot(), parentThreadID: "parent")
+        _ = store.applyChildSnapshot(childSnapshot(), threadID: "child")
+
+        let root = CodexThreadGraphKey(hostID: "local", threadID: "parent")
+        let child = CodexThreadGraphKey(hostID: "local", threadID: "child")
+        _ = store.applyGraphSnapshot(
+            .init(
+                revision: StateRevision(5),
+                nodes: [
+                    root: .init(key: root, children: [child]),
+                    child: .init(key: child, parent: root, lifecycle: .running),
+                ],
+                edges: [],
+                actions: [],
+                roots: [root]
+            ),
+            root: root
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("A graph refresh without newer lifecycle evidence must not regress completion")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(2),
+                threads: [indexChild(revision: StateRevision(2))]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("A stale active index must not regress an authoritative completion")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(4),
+                threads: [indexChild(revision: StateRevision(4))]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("An equal-revision index must not outrank the exact child snapshot")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(5),
+                threads: [indexChild(
+                    revision: StateRevision(5),
+                    latestTurnStatus: .completed
+                )]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .completed = store.agent(threadID: "child")?.status else {
+            Issue.record("An active thread must not override its terminal latest turn")
+            return
+        }
+
+        _ = store.applyThreadIndex(
+            .init(
+                revision: StateRevision(6),
+                threads: [indexChild(
+                    revision: StateRevision(6),
+                    latestTurnID: "new-turn"
+                )]
+            ),
+            parentThreadID: "parent"
+        )
+        guard case .working = store.agent(threadID: "child")?.status else {
+            Issue.record("A newer in-progress turn must reactivate the child")
+            return
+        }
+    }
+
     @Test func childMetadataSummaryUsesExactOrderedLatestTurn() throws {
         let threadID: ThreadID = "child"
         let olderTurnID: TurnID = "older"
@@ -527,13 +607,17 @@ private extension CodexSubagentCanonicalPresentationTests {
         )
     }
 
-    func indexChild() -> CanonicalThreadIndexSummary {
+    func indexChild(
+        revision: StateRevision = StateRevision(2),
+        latestTurnID: TurnID = "child-turn",
+        latestTurnStatus: CanonicalTurnStatus = .inProgress
+    ) -> CanonicalThreadIndexSummary {
         CanonicalThreadIndexSummary(
             id: "child",
             order: 1,
             status: .active(flags: []),
-            latestTurnID: "child-turn",
-            latestTurnStatus: .inProgress,
+            latestTurnID: latestTurnID,
+            latestTurnStatus: latestTurnStatus,
             isArchived: false,
             isLoaded: true,
             name: nil,
@@ -544,8 +628,8 @@ private extension CodexSubagentCanonicalPresentationTests {
             agentRole: "explorer",
             path: "/root/scout",
             updatedAt: ProtocolSeconds(1_700_000_000),
-            lastChangedRevision: StateRevision(2),
-            attentionRevision: StateRevision(2),
+            lastChangedRevision: revision,
+            attentionRevision: revision,
             hasPendingServerRequest: false
         )
     }
