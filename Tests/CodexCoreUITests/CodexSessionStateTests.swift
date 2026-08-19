@@ -358,6 +358,45 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertNil(composer.dequeueQueuedFollowUp(isSending: false))
     }
 
+    func testDurableQueuedSubmissionProjectsLosslesslyAndReplacesLocalQueue() throws {
+        let encoded = CodexFileReferencePromptCodec.encode(
+            files: [CodexReferencedFile(path: "/tmp/report.md", kind: .file)],
+            request: "Summarize it"
+        )
+        let future = CodexJSONValue.dictionary([
+            "type": .string("futureInput"),
+            "opaque": .bool(true),
+        ])
+        let queued = CodexSchemaQueuedSubmission(
+            clientUserMessageID: "client-1",
+            id: "queue-1",
+            input: [
+                CodexSchemaUserInput(.dictionary([
+                    "type": .string("text"),
+                    "text": .string(encoded),
+                ])),
+                CodexSchemaUserInput(future),
+            ]
+        )
+        let submission = CodexComposerSubmission(
+            queuedSubmission: queued,
+            threadID: "thread-a"
+        )
+
+        XCTAssertEqual(submission.queueID, "queue-1")
+        XCTAssertEqual(submission.clientID, "client-1")
+        XCTAssertEqual(submission.prompt, "Summarize it")
+        XCTAssertEqual(submission.referencedFiles.map(\.path), ["/tmp/report.md"])
+        XCTAssertEqual(submission.turnInput.last, .raw(future))
+
+        var composer = CodexComposerStateSession(activeThreadID: "thread-a")
+        composer.enqueueFollowUp("stale")
+        composer.replaceQueuedFollowUps([submission], for: "thread-a")
+        XCTAssertEqual(composer.queuedFollowUpSubmissions(for: "thread-a"), [submission])
+        composer.replaceQueuedFollowUps([], for: "thread-a")
+        XCTAssertTrue(composer.queuedFollowUpSubmissions(for: "thread-a").isEmpty)
+    }
+
     func testQueuedAndFailedAttachmentSubmissionsStayWithOriginThread() throws {
         let file = CodexReferencedFile(path: "/tmp/thread-a.txt", kind: .file)
         var composer = CodexComposerStateSession(activeThreadID: "thread-a")

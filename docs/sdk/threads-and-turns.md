@@ -85,9 +85,37 @@ or its consumer is cancelled. Enable the app-server
 also initialize with `requestAttestation` and answer
 `attestation/generate` with their cached DeviceCheck client attestation.
 
-Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures. Keep local queue draining blocked until that sequence resolves.
+Interactive clients should serialize steer submissions. Send one `turn/steer` with the cached active turn ID and no read or polling call. If `classifyCodexTurnSteerRace(_:)` returns `.expectedTurnMismatch`, retry `steerTurn(...)` once with the server-reported ID. If it returns `.noActiveTurn`, immediately send the same input with `turn/start`. Other failures remain ordinary failures.
 
 CodexCore registers the submission intent before writing either request. The echoed user item can therefore reconcile by `clientUserMessageId` even if its notification arrives before the RPC response. A successful steer stays inside the existing turn and does not produce another `turn/started` event.
+
+## Durable queued turns
+
+Stable 0.148 owns queued follow-ups through `thread/queue/*`. Add a submission
+with its stable `clientUserMessageId`; app-server persists FIFO order and starts
+queued turns automatically whenever the loaded thread becomes idle. Do not run
+a competing client-side drain loop.
+
+`thread/queue/changed` is a lightweight invalidation. Register the coalescing
+thread-scoped stream, then reread one authoritative page (the queue is capped at
+100 entries):
+
+```swift
+let changes = try await codex.session.observeThreadQueueChanges(
+    threadID: thread.id.rawValue
+)
+for try await _ in changes {
+    let queue = try await codex.perform(CodexRequest.threadQueueList(.init(
+        cursor: nil,
+        limit: 100,
+        threadID: thread.id.rawValue
+    )))
+    render(queue.data)
+}
+```
+
+Queue input is projected through `CodexInput(jsonValue:)`; unknown future arms
+remain lossless as `.raw`.
 
 ## Operation notifications
 
@@ -111,11 +139,11 @@ for try await event in events {
 }
 ```
 
-The same session exposes filesystem watch changes, fuzzy-search updates,
+The same session exposes durable queue invalidations, filesystem watch changes, fuzzy-search updates,
 external-agent import progress, MCP OAuth completion, app-list invalidation,
 remote-control status changes, and Windows sandbox setup completion through
 their corresponding `observe…` methods.
 
 ## History modes
 
-The server owns each thread's declared `legacy` or `paginated` history mode; a new thread with no requested mode uses the server declaration. Resume supports both modes and paginated resume backfills history. Paginated fork is explicitly unsupported. A missing or unknown declared mode is a protocol violation—never infer it from cursors or migrate an existing thread from a new-chat preference.
+The server owns each thread's declared `legacy` or `paginated` history mode; a new thread with no requested mode uses the server declaration. Resume supports both modes and paginated resume backfills history. Paginated threads support fork and durable `thread/revert`; legacy `thread/rollback` remains separate. A missing or unknown declared mode is a protocol violation—never infer it from cursors or migrate an existing thread from a new-chat preference.

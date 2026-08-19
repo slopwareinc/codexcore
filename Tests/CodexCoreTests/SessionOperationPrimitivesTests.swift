@@ -143,6 +143,28 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertTrue(hub.cancel(second.id))
     }
 
+    func testThreadQueueHubCoalescesAndFiltersByThread() async throws {
+        var hub = CodexThreadQueueObserverHub()
+        let matching = hub.observe(connectionEpoch: 4, threadID: "thread-a")
+        let global = hub.observe(connectionEpoch: 4)
+        _ = hub.observe(connectionEpoch: 4, threadID: "thread-b")
+
+        let first = CodexSchemaThreadQueueChangedNotification(threadID: "thread-a")
+        let latest = CodexSchemaThreadQueueChangedNotification(threadID: "thread-a")
+        XCTAssertEqual(hub.publish(connectionEpoch: 3, notification: first), 0)
+        XCTAssertEqual(hub.publish(connectionEpoch: 4, notification: first), 2)
+        XCTAssertEqual(hub.publish(connectionEpoch: 4, notification: latest), 2)
+
+        var matchingIterator = matching.changes.makeAsyncIterator()
+        var globalIterator = global.changes.makeAsyncIterator()
+        let matchingChange = try await matchingIterator.next()
+        let globalChange = try await globalIterator.next()
+        XCTAssertEqual(matchingChange, latest)
+        XCTAssertEqual(globalChange, latest)
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 4), 3)
+        XCTAssertEqual(hub.observerCount, 0)
+    }
+
     func testRealtimeHubRoutesOnlyTheMatchingEpochAndThread() async throws {
         var hub = CodexRealtimeObserverHub()
         let observation = hub.observe(connectionEpoch: 4, threadID: "voice")

@@ -458,8 +458,12 @@ struct CodexCoreAppShell: View {
                 onSteerQueuedFollowUp: { clientID in
                     Task { await model.steerQueuedFollowUp(clientID: clientID) }
                 },
-                onRemoveQueuedFollowUp: { model.removeQueuedFollowUp(clientID: $0) },
-                onEditQueuedFollowUp: { model.editQueuedFollowUp(clientID: $0) },
+                onRemoveQueuedFollowUp: { clientID in
+                    Task { await model.removeQueuedFollowUp(clientID: clientID) }
+                },
+                onEditQueuedFollowUp: { clientID in
+                    Task { await model.editQueuedFollowUp(clientID: clientID) }
+                },
                 onSendSideChatMessage: { Task { await model.sendSideChatDraft() } },
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },

@@ -36,7 +36,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | Chat pin, archive, rename, fork, copy | Supported | Chat reorder/hide/reveal is not supported. |
 | Project group, pin, reorder, alias, remove, reveal | Supported | Projects can also archive their chats. |
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
-| Attachments, mentions, slash commands, queued follow-ups, steer, interrupt | Supported | Active-turn follow-ups form a multi-message FIFO queue with explicit steer, edit, and remove actions; one queued message starts after each completed turn. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
+| Attachments, mentions, slash commands, durable queued follow-ups, steer, interrupt | Supported | App-server persists FIFO follow-ups and auto-dispatches them while CodexCore provides steer, edit, and remove actions. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |

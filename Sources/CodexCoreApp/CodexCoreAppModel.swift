@@ -90,6 +90,11 @@ final class CodexCoreAppModel {
     private var accountPreferredDisplayName: String?
     private var skillsChangedObservationTask: Task<Void, Never>?
     private var skillsChangedObservationGeneration: UInt64 = 0
+    private var threadQueueObservationTask: Task<Void, Never>?
+    private var threadQueueObservationGeneration: UInt64 = 0
+    private var pendingDurableQueueSubmissions: [String: CodexComposerSubmission] = [:]
+    private var turnAttachmentTask: Task<CodexTurnLease?, Never>?
+    private var turnAttachmentKey: TurnKey?
     private var connectedSessionBackgroundTasks: [Task<Void, Never>] = []
     private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
@@ -330,6 +335,7 @@ final class CodexCoreAppModel {
         cancelThreadIndexObservation()
         cancelAccountObservation()
         cancelSkillsChangedObservation()
+        cancelThreadQueueObservation()
         cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
         loginTask?.cancel()
@@ -486,7 +492,7 @@ final class CodexCoreAppModel {
             return
         }
 
-        composerSession.enqueueFollowUp(submission)
+        await addDurableQueuedFollowUp(submission)
     }
 
     func steerQueuedFollowUp(clientID: String) async {
@@ -495,8 +501,79 @@ final class CodexCoreAppModel {
                   clientID: clientID,
                   threadID: currentThreadID
               ) else { return }
+        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+            composerSession.requeueFollowUp(submission)
+            return
+        }
+        do {
+            _ = try await codex.perform(CodexRequest.threadQueueDelete(.init(
+                queuedSubmissionID: queueID,
+                threadID: threadID
+            )))
+            await enqueueSteerSubmission(submission)
+        } catch {
+            composerSession.requeueFollowUp(submission)
+        }
+    }
 
-        await enqueueSteerSubmission(submission)
+    private func addDurableQueuedFollowUp(_ incoming: CodexComposerSubmission) async {
+        guard let codex, let threadID = currentThreadID else {
+            composerSession.restore(incoming)
+            return
+        }
+        var submission = incoming
+        submission.threadID = threadID
+        pendingDurableQueueSubmissions[submission.clientID] = submission
+        do {
+            let response = try await codex.perform(CodexRequest.threadQueueAdd(.init(
+                clientUserMessageID: submission.clientID,
+                input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
+                threadID: threadID
+            )))
+            submission.queueID = response.queuedSubmission.id
+            submission.queuedInput = response.queuedSubmission.input.map {
+                CodexInput(jsonValue: $0.rawValue)
+            }
+            pendingDurableQueueSubmissions[submission.clientID] = submission
+            await refreshDurableQueue(threadID: threadID)
+            pendingDurableQueueSubmissions.removeValue(forKey: submission.clientID)
+        } catch {
+            pendingDurableQueueSubmissions.removeValue(forKey: submission.clientID)
+            _ = composerSession.takeQueuedFollowUpSubmission(
+                clientID: submission.clientID,
+                threadID: threadID
+            )
+            composerSession.restore(submission)
+        }
+    }
+
+    private func refreshDurableQueue(threadID: String) async {
+        guard let codex else { return }
+        do {
+            let response = try await codex.perform(CodexRequest.threadQueueList(.init(
+                cursor: nil,
+                limit: 100,
+                threadID: threadID
+            )))
+            guard !Task.isCancelled, currentThreadID == threadID else { return }
+            let existing = composerSession
+                .queuedFollowUpSubmissions(for: threadID)
+                .reduce(into: [String: CodexComposerSubmission]()) {
+                    $0[$1.clientID] = $1
+                }
+            let submissions = response.data.map { queued -> CodexComposerSubmission in
+                var submission = pendingDurableQueueSubmissions[queued.clientUserMessageID]
+                    ?? existing[queued.clientUserMessageID]
+                    ?? CodexComposerSubmission(queuedSubmission: queued, threadID: threadID)
+                submission.threadID = threadID
+                submission.queueID = queued.id
+                submission.queuedInput = queued.input.map { CodexInput(jsonValue: $0.rawValue) }
+                return submission
+            }
+            composerSession.replaceQueuedFollowUps(submissions, for: threadID)
+        } catch {
+            guard !Task.isCancelled, currentThreadID == threadID else { return }
+        }
     }
 
     /// Serializes steer requests in the same order as the upstream TUI's app
@@ -509,7 +586,6 @@ final class CodexCoreAppModel {
         isProcessingSteerSubmissions = true
         defer {
             isProcessingSteerSubmissions = false
-            flushQueuedFollowUps()
         }
 
         while pendingSteerSubmissionHead < pendingSteerSubmissions.count {
@@ -638,74 +714,49 @@ final class CodexCoreAppModel {
     }
 
     private func requeueFailedSteer(_ submission: CodexComposerSubmission, message: String) {
-        composerSession.requeueFollowUp(submission)
+        Task { [weak self] in await self?.addDurableQueuedFollowUp(submission) }
     }
 
-    func removeQueuedFollowUp(clientID: String) {
-        syncComposerThreadID()
-        _ = composerSession.takeQueuedFollowUpSubmission(
-            clientID: clientID,
-            threadID: currentThreadID
-        )
-    }
-
-    func editQueuedFollowUp(clientID: String) {
+    func removeQueuedFollowUp(clientID: String) async {
         syncComposerThreadID()
         guard let submission = composerSession.takeQueuedFollowUpSubmission(
             clientID: clientID,
             threadID: currentThreadID
         ) else { return }
-        composerSession.restore(submission)
-    }
-
-    /// Sends exactly one queued follow-up as a fresh turn. This mirrors the
-    /// upstream TUI queue reducer: dequeue FIFO and synchronously mark the next
-    /// turn pending before its asynchronous request starts.
-    private func flushQueuedFollowUps(afterTurnEnded: Bool = false) {
-        syncComposerThreadID()
-        let blocksQueueDrain = runtimeSession.isMainTurnPendingOrRunning
-            || activeTurnLease != nil
-            || isProcessingSteerSubmissions
-            || (!afterTurnEnded && runtimeSession.isSending)
-        guard let queued = runtimeSession.dequeueQueuedFollowUp(
-            composerSession: &composerSession,
-            isSending: blocksQueueDrain
-        ) else { return }
-
-
-        Task { [weak self] in
-            guard let self else { return }
-            await startQueuedFollowUp(queued)
+        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+            composerSession.requeueFollowUp(submission)
+            return
+        }
+        do {
+            _ = try await codex.perform(CodexRequest.threadQueueDelete(.init(
+                queuedSubmissionID: queueID,
+                threadID: threadID
+            )))
+            await refreshDurableQueue(threadID: threadID)
+        } catch {
+            composerSession.requeueFollowUp(submission)
         }
     }
 
-    private func startQueuedFollowUp(_ queued: CodexQueuedFollowUpSubmission) async {
-        var submission = queued.submission
+    func editQueuedFollowUp(clientID: String) async {
+        syncComposerThreadID()
+        guard let submission = composerSession.takeQueuedFollowUpSubmission(
+            clientID: clientID,
+            threadID: currentThreadID
+        ) else { return }
+        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+            composerSession.requeueFollowUp(submission)
+            return
+        }
         do {
-            let thread = try await ensureThread()
-            if submission.threadID == nil {
-                submission.threadID = thread.id.rawValue
-            }
-            let permissionConfiguration =
-                approvalSelection.permissionProfileWireConfiguration
-            let lease = try await thread.startTurn(turnStartParameters(
-                threadID: thread.id,
-                input: submission.turnInput,
-                clientUserMessageID: submission.clientID,
-                permissionConfiguration: permissionConfiguration
-            ))
-            configurationSession.markPermissionProfileActive(
-                permissionConfiguration
-            )
-            activeTurnLease = lease
-            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
-            monitorMainTurn(lease)
+            _ = try await codex.perform(CodexRequest.threadQueueDelete(.init(
+                queuedSubmissionID: queueID,
+                threadID: threadID
+            )))
+            composerSession.restore(submission)
+            await refreshDurableQueue(threadID: threadID)
         } catch {
-            _ = runtimeSession.failQueuedFollowUp(
-                queued,
-                message: friendlyError(error),
-                composerSession: &composerSession
-            )
+            composerSession.requeueFollowUp(submission)
         }
     }
 
@@ -769,7 +820,6 @@ final class CodexCoreAppModel {
                 )
                 notifyDockStateChanged()
                 Task { await refreshRecentChats() }
-                flushQueuedFollowUps(afterTurnEnded: true)
             } catch is CancellationError {
                 return
             } catch {
@@ -983,6 +1033,10 @@ final class CodexCoreAppModel {
         syncComposerThreadID()
         if let codex {
             startCurrentThreadObservation(session: codex.session, threadID: lease.id)
+            await startThreadQueueObservation(
+                session: codex.session,
+                threadID: lease.id.rawValue
+            )
         }
         if let previous, previous !== lease {
             await previous.close()
@@ -1024,6 +1078,7 @@ final class CodexCoreAppModel {
         currentThreadObservationGeneration &+= 1
         currentThreadObservationTask?.cancel()
         currentThreadObservationTask = nil
+        cancelTurnAttachment()
     }
 
     private func startThreadIndexObservation(session: CodexSession) {
@@ -1109,6 +1164,45 @@ final class CodexCoreAppModel {
         skillsChangedObservationTask = nil
     }
 
+    private func startThreadQueueObservation(
+        session: CodexSession,
+        threadID: String
+    ) async {
+        cancelThreadQueueObservation()
+        threadQueueObservationGeneration &+= 1
+        let generation = threadQueueObservationGeneration
+        do {
+            let changes = try await session.observeThreadQueueChanges(threadID: threadID)
+            threadQueueObservationTask = Task { [weak self] in
+                do {
+                    for try await _ in changes {
+                        guard !Task.isCancelled,
+                              let self,
+                              threadQueueObservationGeneration == generation,
+                              currentThreadID == threadID
+                        else { return }
+                        await refreshDurableQueue(threadID: threadID)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard let self,
+                          threadQueueObservationGeneration == generation
+                    else { return }
+                }
+            }
+            await refreshDurableQueue(threadID: threadID)
+        } catch {
+        }
+    }
+
+    private func cancelThreadQueueObservation() {
+        threadQueueObservationGeneration &+= 1
+        threadQueueObservationTask?.cancel()
+        threadQueueObservationTask = nil
+        pendingDurableQueueSubmissions.removeAll(keepingCapacity: true)
+    }
+
     private func applyCanonicalAccountState(_ account: CanonicalAccountState) {
         guard account.lastChangedRevision != .zero
                 || account.authMode != nil
@@ -1183,6 +1277,16 @@ final class CodexCoreAppModel {
             goalPursuitEnabled = false
         }
         let turns = snapshot.canonical.turns(in: id)
+        if activeTurnLease == nil,
+           let runningTurn = turns.last(where: { $0.status == .inProgress }),
+           let currentThreadLease {
+            Task { [weak self] in
+                await self?.attachTurnIfNeeded(
+                    runningTurn.key.turnID,
+                    to: currentThreadLease
+                )
+            }
+        }
         let liveStatus: CodexThreadLiveStatus
         if thread?.status.isActive == true || turns.last?.status == .inProgress {
             liveStatus = .running
@@ -2061,7 +2165,6 @@ final class CodexCoreAppModel {
                     workspacePath: workspacePath
                 )
             }
-            flushQueuedFollowUps()
         } catch {
         }
     }
@@ -2727,18 +2830,47 @@ final class CodexCoreAppModel {
                   })
             else { return }
 
-            let lease = try await thread.attachTurn(turn.key.turnID)
-            guard chatSelectionGeneration == selectionGeneration,
-                  currentThreadLease === thread
-            else { return }
-            activeTurnLease = lease
-            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
-            monitorMainTurn(lease)
+            await attachTurnIfNeeded(turn.key.turnID, to: thread)
         } catch {
             guard chatSelectionGeneration == selectionGeneration,
                   currentThreadLease === thread
             else { return }
         }
+    }
+
+    private func attachTurnIfNeeded(
+        _ turnID: TurnID,
+        to thread: CodexThreadLease
+    ) async {
+        let key = TurnKey(threadID: thread.id, turnID: turnID)
+        if activeTurnLease?.key == key { return }
+        if turnAttachmentKey == key, let turnAttachmentTask {
+            _ = await turnAttachmentTask.value
+            return
+        }
+
+        cancelTurnAttachment()
+        turnAttachmentKey = key
+        let task = Task<CodexTurnLease?, Never> {
+            try? await thread.attachTurn(turnID)
+        }
+        turnAttachmentTask = task
+        let lease = await task.value
+        guard turnAttachmentKey == key else { return }
+        turnAttachmentTask = nil
+        turnAttachmentKey = nil
+        guard currentThreadLease === thread,
+              selectedThreadID == thread.id.rawValue,
+              let lease else { return }
+        activeTurnLease = lease
+        runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
+        monitorMainTurn(lease)
+    }
+
+    private func cancelTurnAttachment() {
+        turnAttachmentTask?.cancel()
+        turnAttachmentTask = nil
+        turnAttachmentKey = nil
     }
 
     func threadStartParameters() -> CodexSchemaThreadStartParams {
@@ -3169,6 +3301,7 @@ final class CodexCoreAppModel {
         dictationSession.abort()
         if !keepCurrentThread {
             cancelCurrentThreadObservation()
+            cancelThreadQueueObservation()
             activeTurnCompletionTask?.cancel()
             sideChatTurnCompletionTask?.cancel()
             endAllProcessActivities()
@@ -3205,6 +3338,7 @@ final class CodexCoreAppModel {
         cancelThreadIndexObservation()
         cancelAccountObservation()
         cancelSkillsChangedObservation()
+        cancelThreadQueueObservation()
         cancelConnectedSessionBackgroundRefreshes()
         mentionSearchSession.reset()
         configRequirements = nil
