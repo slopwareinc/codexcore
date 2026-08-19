@@ -18,6 +18,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | On-demand app-server diagnostics | Supported | Settings → About displays process memory and gauges from one explicit snapshot; there is no background polling. |
 | Thread credit and cost estimates | Conditional | `/status` fetches the selected thread estimate on demand; availability depends on the authenticated workspace billing route. |
 | Model multi-agent and retirement metadata | Supported | Model catalog projection preserves runtime generation and preformats retirement/replacement detail for the picker. |
+| MCP plugin ownership and OAuth registration selection | Supported | Plugin-owned servers are configuration read-only; login supports automatic, CIMD, and DCR registration strategies. |
 | Start/resume threads; turns, steering, interruption | Supported | Both server-declared history modes can resume. |
 | Thread sections, appearance, and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; Settings edits synchronized icons/colors and sidebar rows render them without extra requests. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |

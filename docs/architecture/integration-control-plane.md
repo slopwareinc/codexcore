@@ -79,6 +79,12 @@ OAuth UI registers `observeMCPServerOAuthLogin` before issuing
 `mcpServer/oauth/login`, opens the returned authorization URL, and waits for the
 bounded completion observer rather than polling.
 
+`McpServerStatus.pluginId` is authoritative ownership. A plugin-owned server may
+authenticate and expose runtime inventory, but generic MCP configuration UI must
+not write, toggle, or remove its `mcp_servers.<name>` entry. OAuth login exposes
+the 0.148 per-attempt registration strategy: automatic discovery by default,
+or explicit CIMD/DCR when troubleshooting a server's discovery behavior.
+
 The generated `CodexSchemaConfig` currently omits `mcp_servers`, even though the
 runtime accepts these keys. Therefore the host must retain the
 `CodexMCPServerConfiguration` values it supplies to the sheet (including values

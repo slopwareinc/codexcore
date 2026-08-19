@@ -45,6 +45,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var name: String
     public var displayName: String
     public var version: String?
+    public var pluginID: String?
     public var detail: String?
     public var authStatus: String
     public var enabled: Bool?
@@ -64,6 +65,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         name: String,
         displayName: String? = nil,
         version: String? = nil,
+        pluginID: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
         enabled: Bool? = true,
@@ -80,6 +82,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         self.name = name
         self.displayName = displayName?.nilIfBlank ?? name
         self.version = version
+        self.pluginID = pluginID
         self.detail = detail
         self.authStatus = authStatus
         self.enabled = enabled
@@ -115,6 +118,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             name: name,
             displayName: displayName,
             version: version,
+            pluginID: Self.string(in: object, keys: ["pluginId"]),
             detail: detail,
             authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
             enabled: CodexJSONCoercion.bool(in: object, key: "enabled"),
@@ -171,6 +175,10 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         let resourceCount = resources.count + resourceTemplates.count
         let resourceLabel = resourceCount == 1 ? "1 resource" : "\(resourceCount) resources"
         return "\(toolLabel) · \(resourceLabel)"
+    }
+
+    public var ownershipLabel: String {
+        pluginID.map { "Provided by plugin \($0)" } ?? "Configured directly"
     }
 
     public func applyingStartupStatus(

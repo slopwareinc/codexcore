@@ -51,6 +51,20 @@ final class CodexSessionCommandsTests: XCTestCase {
             try CodexRequest.accountUsageRead(.value(.init(threadID: "thread-1"))).encodeParameters(),
             .dictionary(["threadId": .string("thread-1")])
         )
+
+        let oauth = CodexRequest.mcpServerOAuthLogin(.init(
+            clientRegistration: .cimd,
+            name: "github",
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(
+            try oauth.encodeParameters(),
+            .dictionary([
+                "clientRegistration": .string("cimd"),
+                "name": .string("github"),
+                "threadId": .string("thread-1"),
+            ])
+        )
     }
 
     func testGA147RequestFactoriesEncodePluginSearchAndThreadSections() throws {

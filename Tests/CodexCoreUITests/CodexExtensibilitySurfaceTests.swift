@@ -82,6 +82,7 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
     func testMCPToolSchemaAndUnknownStartupStateRemainHonest() throws {
         let raw: CodexJSONValue = .dictionary([
             "name": .string("schema-server"),
+            "pluginId": .string("marketplace:plugin"),
             "enabled": .bool(true),
             "status": .string("degraded"),
             "resources": .array([]),
@@ -104,6 +105,8 @@ final class CodexExtensibilitySurfaceTests: XCTestCase {
         ])
         let status = try XCTUnwrap(CodexMCPServerStatus(raw: raw))
         XCTAssertEqual(status.startupState, .unrecognized("degraded"))
+        XCTAssertEqual(status.pluginID, "marketplace:plugin")
+        XCTAssertEqual(status.ownershipLabel, "Provided by plugin marketplace:plugin")
         XCTAssertEqual(status.tools.first?.parameters, ["query *"])
         XCTAssertEqual(status.tools.first?.readOnlyHint, true)
         XCTAssertEqual(status.tools.first?.destructiveHint, false)

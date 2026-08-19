@@ -35,6 +35,12 @@ runtime and shows scheduled retirement plus the replacement model when the
 catalog provides them. These strings are projected once when `model/list`
 loads; opening or rendering the picker performs no additional RPC or date parse.
 
+MCP status keeps the server's authoritative `pluginId` ownership. Plugin-owned
+servers show their provider and disable direct config edit, removal, and enable
+toggles so the app cannot shadow package-managed configuration. OAuth remains
+available and offers automatic discovery (recommended), Client ID Metadata
+Document, or Dynamic Client Registration for the current login attempt.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to
