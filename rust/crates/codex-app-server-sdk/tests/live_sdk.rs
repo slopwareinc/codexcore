@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 
 use codex_app_server_client::LocalSessionConfig;
-use codex_app_server_sdk::{Codex, PaginatedResumeOptions, StartThreadOptions};
+use codex_app_server_sdk::{
+    Codex, CodexInput, PaginatedResumeOptions, StartThreadOptions, TurnOptions,
+};
+use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
 
 #[tokio::test]
@@ -53,6 +56,40 @@ async fn resume_empty_paginated_thread_into_canonical_state() {
         .await
         .expect("start persisted paginated thread");
     let thread_id = thread.id().clone();
+    let turn = thread
+        .start_turn(
+            vec![CodexInput::text("Reply with OK.")],
+            TurnOptions::default(),
+        )
+        .await
+        .expect("start materializing turn");
+    let turn_id = turn.id().clone();
+    let turn_key = TurnKey {
+        thread_id: thread_id.clone(),
+        turn_id: TurnId::new(turn_id.as_str()),
+    };
+    let mut reached_terminal = false;
+    for _ in 0..120 {
+        let canonical = codex
+            .client()
+            .canonical_snapshot()
+            .await
+            .expect("turn snapshot");
+        if canonical
+            .turns
+            .get(&turn_key)
+            .is_some_and(|turn| turn.status.is_terminal())
+        {
+            reached_terminal = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(
+        reached_terminal,
+        "materializing turn did not reach terminal state"
+    );
+    turn.close().await.expect("release active turn lease");
     thread.close().await.expect("release initial lease");
 
     let resumed = codex
