@@ -33,6 +33,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "codex-app-server-client"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "codex-app-server-state",
+ "codex-app-server-transport",
+ "codex-app-server-types",
+ "codex-app-server-wire",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "codex-app-server-state"
 version = "0.1.0-alpha.1"
 dependencies = [

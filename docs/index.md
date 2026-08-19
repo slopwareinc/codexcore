@@ -7,6 +7,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Requirements](getting-started/requirements.md)
 - [Run the reference app](getting-started/run-the-app.md)
 - [SDK quick start](getting-started/sdk-quickstart.md)
+- [Rust SDK quick start](getting-started/rust-sdk-quickstart.md)
 - [Authentication and isolated state](getting-started/authentication.md)
 - [Troubleshooting](getting-started/troubleshooting.md)
 

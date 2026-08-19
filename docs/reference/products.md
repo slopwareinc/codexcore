@@ -8,6 +8,11 @@ independent of GPUI; the future `codex-gpui` product consumes those layers as a
 controlled native component framework. See the
 [Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
 
+`codex-app-server-client` is the current public runtime slice. It owns one
+ordered local session, validates initialize metadata, correlates raw requests,
+publishes revision invalidations, and retains exact pending server-request
+identity. Start with the [Rust SDK quick start](../getting-started/rust-sdk-quickstart.md).
+
 The Rust products are not yet a stable replacement for the supported Swift SDK
 or reference app. Capability claims must remain tied to compiling code and the
 parity audit.

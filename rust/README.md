@@ -9,6 +9,8 @@ UI projections are disposable readers. GPUI does not own protocol truth.
 
 Initial crates:
 
+- `codex-app-server-client`: single-owner handshake, correlation, observations,
+  and server-request inbox.
 - `codex-app-server-wire`: lossless JSON-RPC envelopes and runtime pin.
 - `codex-app-server-transport`: bounded frame transport primitives.
 - `codex-app-server-types`: generated v2 request, response, notification, and
