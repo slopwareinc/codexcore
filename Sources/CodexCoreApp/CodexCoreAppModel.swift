@@ -172,7 +172,9 @@ final class CodexCoreAppModel {
             directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
         )
         self.automationNotifications = CodexAutomationNotificationService()
-        self.automationLifecycle = CodexAutomationLifecycle(automations: automationStore.load())
+        // Automation files are loaded by the scheduler task after launch. Do
+        // not enumerate and parse the user's Codex home during @MainActor init.
+        self.automationLifecycle = CodexAutomationLifecycle()
         self.dictationSession = CodexComposerDictationSession()
         self.clipboardService = clipboardService
         self.pluginCatalogActionProviderOverride = pluginCatalogActionProvider
@@ -1515,6 +1517,10 @@ final class CodexCoreAppModel {
     }
 
     private func runAutomationScheduler() async {
+        let loaded: CodexAutomationLoadResult = await automationStore.load()
+        guard !Task.isCancelled else { return }
+        automationLifecycle = CodexAutomationLifecycle(automations: loaded.automations)
+
         while !Task.isCancelled {
             await withProcessActivity(
                 reason: "Checking scheduled Codex automations"
