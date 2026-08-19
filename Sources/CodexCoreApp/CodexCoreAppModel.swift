@@ -1364,20 +1364,28 @@ final class CodexCoreAppModel {
             errorMessage: CodexErrorFormat.localizedDescription
         )
         guard !Task.isCancelled, self.codex === codex else { return }
-        configurationSession = session
+        configurationSession.mergeStartupCatalogs(from: session)
         applyPreferredModel(for: currentThreadID)
         appendConfigurationActivities(activities)
     }
 
-    private func refreshSlashCommands(using codex: Codex, forceReload: Bool = false) async {
-        var session = configurationSession
-        let activity = await session.refreshSlashCommands(
-            using: codex,
-            cwds: workspaceRoots,
-            forceReload: forceReload,
-            errorMessage: CodexErrorFormat.localizedDescription
-        )
-        configurationSession = session
+    func refreshSlashCommands(using codex: Codex, forceReload: Bool = false) async {
+        let activity: CodexChatConfigurationActivity
+        do {
+            let response = try await codex.perform(CodexRequest.skillsList(.init(
+                cwds: workspaceRoots.isEmpty ? nil : workspaceRoots,
+                forceReload: forceReload ? true : nil
+            )))
+            guard !Task.isCancelled, self.codex === codex else { return }
+            activity = configurationSession.applySlashCommandResponse(
+                try CodexJSONValue(encoding: response)
+            )
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            activity = configurationSession.failSlashCommandRefresh(
+                message: CodexErrorFormat.localizedDescription(error)
+            )
+        }
         appendConfigurationActivity(activity)
     }
 

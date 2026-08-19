@@ -393,6 +393,39 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
         return [permissionActivity, collaborationActivity, modelActivity, slashActivity]
     }
 
+    /// Installs catalogs fetched from a snapshot without replacing live
+    /// selections that may have changed while those requests were in flight.
+    package mutating func mergeStartupCatalogs(
+        from refreshed: CodexChatConfigurationSession
+    ) {
+        permissionProfiles = refreshed.permissionProfiles
+        let options = CodexApprovalSelection.options(
+            from: permissionProfiles,
+            requirements: managedPolicyRequirements
+        )
+        catalogApprovalOptions = options
+        reconcileApprovalOptions()
+        if !options.contains(ambientApprovalSelection) {
+            ambientApprovalSelection = Self.safeFallbackApprovalSelection(in: options)
+        }
+        if !hasActiveThreadPermissionConfiguration,
+           !approvalOptions.contains(approvalSelection) {
+            selectedApprovalSelection = ambientApprovalSelection
+        }
+
+        collaborationModes = refreshed.collaborationModes
+        syncPlanModeReasoning()
+
+        let usesServerDefaults = modelSelection.id == CodexModelSelection.appServerDefault.id
+        installModelOptions(refreshed.modelOptions)
+        let selection = usesServerDefaults
+            ? CodexModelSelection.preferredDefault(from: modelOptions)
+            : selectedModel(from: modelOptions)
+        selectModel(selection, useServerDefaults: usesServerDefaults)
+
+        slashCommands = refreshed.slashCommands
+    }
+
     @discardableResult
     public mutating func failPermissionProfileRefresh(message: String) -> CodexChatConfigurationActivity {
         reconcileApprovalOptions()
@@ -514,8 +547,10 @@ public struct CodexChatConfigurationSession: Equatable, Sendable {
 
     @discardableResult
     public mutating func failModelRefresh(message: String) -> CodexChatConfigurationActivity {
-        installModelOptions(CodexModelSelection.defaultOptions)
-        selectModel(.appServerDefault)
+        if modelOptions.isEmpty || modelOptions == CodexModelSelection.defaultOptions {
+            installModelOptions(CodexModelSelection.defaultOptions)
+            selectModel(.appServerDefault)
+        }
         return CodexChatConfigurationActivity(title: "Model list unavailable", detail: message)
     }
 
