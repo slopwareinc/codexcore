@@ -58,8 +58,16 @@ async fn durable_queue_add_list_update_reorder_delete() {
         )
         .await
         .expect("add queued submission");
-    let page = thread.queue_list(None, Some(20)).await.expect("list queue");
-    assert!(page.data.iter().any(|item| item.id == queued.id));
+    let mut listed = false;
+    for _ in 0..20 {
+        let page = thread.queue_list(None, Some(20)).await.expect("list queue");
+        if page.data.iter().any(|item| item.id == queued.id) {
+            listed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(listed, "queued submission did not become list-visible");
     let updated = thread
         .queue_update(&queued.id, vec![CodexInput::text("updated")])
         .await
