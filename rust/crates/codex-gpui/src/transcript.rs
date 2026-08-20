@@ -63,6 +63,11 @@ pub enum TranscriptEvent {
     OpenLink { destination: String, label: String },
 }
 
+/// Keys that activate a focused disclosure or inline transcript action.
+pub(crate) fn is_activation_key(key: &str) -> bool {
+    matches!(key, "enter" | "return" | "space" | " ")
+}
+
 /// Semantic colors for the native transcript surface.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CodexTheme {

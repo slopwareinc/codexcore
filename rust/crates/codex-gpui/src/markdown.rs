@@ -8,7 +8,7 @@ use gpui::{
     StyledText, TextAlign, UnderlineStyle, WeakEntity, div, prelude::*, px,
 };
 
-use crate::transcript::{CodexTheme, TranscriptEvent, TranscriptLayoutMetrics};
+use crate::transcript::{CodexTheme, TranscriptEvent, TranscriptLayoutMetrics, is_activation_key};
 
 pub(crate) fn render_markdown<E>(
     document: &MarkdownDocument,
@@ -540,6 +540,8 @@ where
                     label: link.label.clone(),
                 };
                 let emitter = emitter.clone();
+                let click_emitter = emitter.clone();
+                let click_event = event.clone();
                 fragment = fragment
                     .role(Role::Link)
                     .aria_label(format!("Open link {}", link.label))
@@ -548,7 +550,15 @@ where
                     .text_color(theme.accent)
                     .cursor_pointer()
                     .on_click(move |_, _, cx| {
-                        emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
+                        click_emitter
+                            .update(cx, |_, cx| cx.emit(click_event.clone()))
+                            .ok();
+                    })
+                    .on_key_down(move |key_event, window, cx| {
+                        if is_activation_key(&key_event.keystroke.key) {
+                            window.prevent_default();
+                            emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
+                        }
                     });
             }
             Some(fragment)
@@ -727,5 +737,12 @@ mod tests {
         assert_eq!(projection.superscript_ranges.len(), 1);
         assert_eq!(projection.subscript_ranges.len(), 1);
         assert_eq!(projection.text, "docs H2O x2");
+    }
+
+    #[test]
+    fn inline_link_activation_uses_disclosure_keyboard_keys() {
+        assert!(is_activation_key("enter"));
+        assert!(is_activation_key("space"));
+        assert!(!is_activation_key("tab"));
     }
 }

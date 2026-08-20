@@ -24,7 +24,7 @@ use gpui::{
 
 use crate::{
     markdown::render_markdown,
-    transcript::{CodexTheme, TranscriptEvent, TranscriptLayoutMetrics},
+    transcript::{CodexTheme, TranscriptEvent, TranscriptLayoutMetrics, is_activation_key},
 };
 
 /// One independently virtualized V2 row in exact Swift display order.
@@ -1478,9 +1478,7 @@ fn local_image_path(source: &str) -> Option<PathBuf> {
     let path = source
         .strip_prefix("file://")
         .map_or_else(|| PathBuf::from(source), PathBuf::from);
-    path.is_absolute()
-        .then_some(path)
-        .filter(|path| path.is_file())
+    path.is_absolute().then_some(path)
 }
 
 fn render_lifecycle(id: String, _status: &TurnStatusV2, _theme: CodexTheme) -> AnyElement {
@@ -1561,12 +1559,7 @@ fn work_kind_glyph(row: &WorkRowV2) -> &'static str {
 }
 
 fn is_disclosure_key(event: &KeyDownEvent) -> bool {
-    is_disclosure_key_name(&event.keystroke.key)
-}
-
-#[must_use]
-fn is_disclosure_key_name(key: &str) -> bool {
-    matches!(key, "enter" | "return" | "space" | " ")
+    is_activation_key(&event.keystroke.key)
 }
 
 fn work_status_label(status: &WorkItemStatusV2) -> &str {
@@ -2096,10 +2089,10 @@ mod tests {
 
     #[test]
     fn disclosure_keyboard_activation_accepts_enter_and_space_only() {
-        assert!(is_disclosure_key_name("enter"));
-        assert!(is_disclosure_key_name("space"));
-        assert!(is_disclosure_key_name(" "));
-        assert!(!is_disclosure_key_name("escape"));
+        assert!(is_activation_key("enter"));
+        assert!(is_activation_key("space"));
+        assert!(is_activation_key(" "));
+        assert!(!is_activation_key("escape"));
     }
 
     #[test]
