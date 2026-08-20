@@ -100,11 +100,12 @@ backends.
 
 ## Embedding the first GPUI surface
 
-`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, `CodexComposer`, and
-`CodexSubagentNavigator` as reusable GPUI entities. The host passes disposable
-presentation models and later updates them from a GPUI context. The components
-own only presentation, draft, focus, and viewport state: they do not start App
-Server, create a Tokio runtime, or open a window.
+`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, `CodexComposer`,
+`CodexGoal`, and `CodexSubagentNavigator` as reusable GPUI entities. The host
+passes disposable presentation
+models and later updates them from a GPUI context. The components own only
+presentation, draft, focus, and viewport state: they do not start App Server,
+create a Tokio runtime, or open a window.
 
 The transcript uses GPUI's bottom-aligned variable-height list, stable
 composite row identities, tail following, identity splices, and targeted
@@ -143,6 +144,14 @@ the same ordered path. Generated validation checks the pinned response shape,
 while stable goal status and extension fields remain open for future values.
 Set, get, and clear replace canonical thread goal state before callers resume;
 goal-only observations are field- and thread-scoped.
+
+`project_goal` converts that canonical value into framework-neutral labels,
+tones, usage summaries, and safe pause/resume affordances. The controlled
+`CodexGoal` panel reuses the native IME input engine for objective and token
+budget drafts and emits only `GoalEvent` intents. The reference host resolves
+those intents through its retained `CodexThread`, including during an active
+turn, and republishes server-driven token, time, and status changes from the
+selected thread's canonical observation while idle or running.
 
 Prompt projections preserve the exact connection-epoch/request-ID identity and
 declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host

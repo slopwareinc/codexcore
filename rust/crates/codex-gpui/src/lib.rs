@@ -6,6 +6,7 @@
 
 mod auth;
 mod composer;
+mod goal;
 mod markdown;
 mod model_picker;
 mod prompt;
@@ -16,6 +17,7 @@ mod transcript;
 
 pub use auth::{CodexAuthentication, LoginEvent};
 pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as init_composer};
+pub use goal::{CodexGoal, GoalEvent};
 pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use queue::{CodexQueue, QueueEvent};

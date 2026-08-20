@@ -82,6 +82,7 @@ pub(crate) struct ComposerInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
+    accessibility_label: SharedString,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -103,6 +104,7 @@ impl ComposerInput {
             focus_handle: cx.focus_handle(),
             content: SharedString::default(),
             placeholder,
+            accessibility_label: "Message Codex".into(),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -118,12 +120,20 @@ impl ComposerInput {
         &self.content
     }
 
+    pub(crate) fn with_accessibility_label(
+        mut self,
+        accessibility_label: impl Into<SharedString>,
+    ) -> Self {
+        self.accessibility_label = accessibility_label.into();
+        self
+    }
+
     pub(crate) fn set_theme(&mut self, theme: CodexTheme, cx: &mut Context<Self>) {
         self.theme = theme;
         cx.notify();
     }
 
-    fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+    pub(crate) fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let text = bounded_replacement(text, MAXIMUM_DRAFT_BYTES);
         self.content = text.into();
         self.selected_range = self.content.len()..self.content.len();
@@ -466,7 +476,7 @@ impl Render for ComposerInput {
             } else {
                 Role::TextInput
             })
-            .aria_label("Message Codex")
+            .aria_label(self.accessibility_label.clone())
             .aria_placeholder(self.placeholder.clone())
             .aria_value(if self.secret {
                 SharedString::from("*".repeat(self.content.len()))

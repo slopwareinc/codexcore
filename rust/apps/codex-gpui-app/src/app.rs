@@ -14,17 +14,18 @@ use codex_app_server_sdk::{
 use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
-    ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexModelPicker, CodexPrompt,
-    CodexQueue, CodexSubagentNavigator, CodexThreadList, CodexTranscript, ComposerEvent,
-    LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent, SubagentSelectionEvent,
-    ThreadSelectionEvent, TranscriptEvent,
+    ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexGoal, CodexModelPicker,
+    CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexThreadList, CodexTranscript,
+    ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
+    SubagentSelectionEvent, ThreadSelectionEvent, TranscriptEvent,
 };
 use codex_presentation::{
-    AuthenticationPresentation, ModelPickerPresentation, PromptActionKind, PromptPresentation,
-    QueuePresentation, StandardItemPolicy, TaskStatusPresentation, ThreadGraphKey,
-    ThreadGraphProjector, ThreadGraphSnapshot, ThreadListPresentation, ThreadListRow,
-    TranscriptPresentation, TranscriptProjector, project_account, project_login_challenge,
-    project_model_picker, project_prompt, project_queue, project_thread_list,
+    AuthenticationPresentation, GoalPresentation, ModelPickerPresentation, PromptActionKind,
+    PromptPresentation, QueuePresentation, StandardItemPolicy, TaskStatusPresentation,
+    ThreadGraphKey, ThreadGraphProjector, ThreadGraphSnapshot, ThreadListPresentation,
+    ThreadListRow, TranscriptPresentation, TranscriptProjector, project_account, project_goal,
+    project_login_challenge, project_model_picker, project_prompt, project_queue,
+    project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -35,6 +36,7 @@ use gpui_tokio::Tokio;
 use serde_json::json;
 
 use crate::config::RunConfiguration;
+use crate::goal::execute_goal_event;
 
 const UPDATE_CAPACITY: usize = 32;
 const COMMAND_CAPACITY: usize = 16;
@@ -123,6 +125,11 @@ async fn print_updates(
                 println!("tasks: {}", presentation.rows.len());
             }
             AppUpdate::Queue(presentation) => println!("queue: {}", presentation.rows.len()),
+            AppUpdate::Goal(Some(presentation)) => println!(
+                "goal: {} · {}",
+                presentation.status_label, presentation.token_usage_label
+            ),
+            AppUpdate::Goal(None) => println!("goal: none"),
             AppUpdate::Authentication(presentation) => println!(
                 "authentication: {}",
                 match presentation {
@@ -164,6 +171,7 @@ enum AppUpdate {
     ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
     Queue(QueuePresentation),
+    Goal(Option<GoalPresentation>),
     Authentication(AuthenticationPresentation),
     TurnActive(bool),
     Failed(String),
@@ -180,6 +188,7 @@ enum HostCommand {
     SelectThread(ThreadId),
     SelectModel(ModelSelectionEvent),
     Queue(QueueEvent),
+    Goal(GoalEvent),
     Login(LoginEvent),
     Shutdown,
 }
@@ -190,6 +199,7 @@ struct CodexApp {
     subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
+    goal: Entity<CodexGoal>,
     authentication: Entity<CodexAuthentication>,
     authentication_visible: bool,
     composer: Entity<CodexComposer>,
@@ -201,6 +211,7 @@ struct CodexApp {
     _subagent_subscription: Subscription,
     _model_picker_subscription: Subscription,
     _queue_subscription: Subscription,
+    _goal_subscription: Subscription,
     _authentication_subscription: Subscription,
     _quit_subscription: Subscription,
     status: String,
@@ -215,6 +226,7 @@ struct InitialViews {
     subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
+    goal: Entity<CodexGoal>,
     composer: Entity<CodexComposer>,
     authentication: Entity<CodexAuthentication>,
 }
@@ -261,6 +273,7 @@ fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialView
                 next_cursor: None,
             })
         }),
+        goal: cx.new(|cx| CodexGoal::new(None, cx)),
         composer: cx.new(|cx| {
             let mut composer = CodexComposer::new(cx);
             composer.set_queue_enabled(queue_enabled, cx);
@@ -307,6 +320,30 @@ fn subscribe_subagent_selection(
     })
 }
 
+fn subscribe_goal(
+    goal: &Entity<CodexGoal>,
+    sender: Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    cx.subscribe(goal, move |_, _, event: &GoalEvent, _| {
+        let _ = sender.try_send(HostCommand::Goal(event.clone()));
+    })
+}
+
+fn subscribe_authentication(
+    authentication: &Entity<CodexAuthentication>,
+    sender: Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    cx.subscribe(authentication, move |_, _, event: &LoginEvent, cx| {
+        if let LoginEvent::OpenUrl(url) = event {
+            cx.open_url(url);
+        } else {
+            let _ = sender.try_send(HostCommand::Login(event.clone()));
+        }
+    })
+}
+
 fn selected_subagent_thread(event: &SubagentSelectionEvent) -> Option<ThreadId> {
     (event.key.host_id == LOCAL_HOST_ID).then(|| event.key.thread_id.clone())
 }
@@ -330,6 +367,7 @@ impl CodexApp {
             subagent_navigator,
             model_picker,
             queue,
+            goal,
             composer,
             authentication,
         } = initial_views(!config.ephemeral, cx);
@@ -366,15 +404,9 @@ impl CodexApp {
         let queue_subscription = cx.subscribe(&queue, move |_, _, event: &QueueEvent, _| {
             let _ = queue_sender.try_send(HostCommand::Queue(event.clone()));
         });
-        let auth_sender = command_sender.clone();
+        let goal_subscription = subscribe_goal(&goal, command_sender.clone(), cx);
         let authentication_subscription =
-            cx.subscribe(&authentication, move |_, _, event: &LoginEvent, cx| {
-                if let LoginEvent::OpenUrl(url) = event {
-                    cx.open_url(url);
-                } else {
-                    let _ = auth_sender.try_send(HostCommand::Login(event.clone()));
-                }
-            });
+            subscribe_authentication(&authentication, command_sender.clone(), cx);
         let quit_sender = command_sender.clone();
         let quit_subscription = cx.on_app_quit(move |_, _| {
             let quit_sender = quit_sender.clone();
@@ -404,6 +436,7 @@ impl CodexApp {
             subagent_navigator,
             model_picker,
             queue,
+            goal,
             authentication,
             authentication_visible: true,
             composer,
@@ -415,6 +448,7 @@ impl CodexApp {
             _subagent_subscription: subagent_subscription,
             _model_picker_subscription: model_picker_subscription,
             _queue_subscription: queue_subscription,
+            _goal_subscription: goal_subscription,
             _authentication_subscription: authentication_subscription,
             _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
@@ -453,6 +487,11 @@ impl CodexApp {
             AppUpdate::Queue(presentation) => {
                 self.queue.update(cx, |queue, cx| {
                     queue.set_presentation(presentation, cx);
+                });
+            }
+            AppUpdate::Goal(presentation) => {
+                self.goal.update(cx, |goal, cx| {
+                    goal.set_presentation(presentation, cx);
                 });
             }
             AppUpdate::Authentication(presentation) => {
@@ -549,8 +588,16 @@ impl Render for CodexApp {
                             .flex_shrink_0()
                             .flex()
                             .flex_col()
+                            .overflow_hidden()
                             .border_l_1()
                             .border_color(rgb(0x003a_3a3a))
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .border_b_1()
+                                    .border_color(rgb(0x003a_3a3a))
+                                    .child(self.goal.clone()),
+                            )
                             .child(div().flex_1().min_h_0().child(self.model_picker.clone()))
                             .child(
                                 div()
@@ -736,13 +783,28 @@ async fn run_session(
         start_initial_thread(&codex, &config, &turn_options, &updates).await?;
     let mut thread = Some(started_thread);
     let mut canonical_observation = observe_thread(&codex, &thread_id).await?;
+    refresh_goal_for_selection(
+        thread
+            .as_ref()
+            .ok_or_else(|| "selected thread lease is missing".to_owned())?,
+        &updates,
+    )
+    .await;
     let mut next_launch = Some(TurnLaunch::Input(config.prompt.clone()));
     let mut next_queue_id = 1_u64;
     let mut shutdown = false;
     while !shutdown {
         let launch = match next_launch.take() {
             Some(launch) => launch,
-            None => match next_idle_action(codex.client(), &commands).await? {
+            None => match next_idle_action(
+                codex.client(),
+                &thread_id,
+                &mut canonical_observation,
+                &commands,
+                &updates,
+            )
+            .await?
+            {
                 IdleAction::Submit(input) => TurnLaunch::Input(input),
                 IdleAction::Select(selected) => {
                     if selected != thread_id {
@@ -770,6 +832,13 @@ async fn run_session(
                         .ok_or_else(|| "selected thread lease is missing".to_owned())?;
                     handle_queue_event(current, event).await?;
                     publish_queue(current, &updates).await?;
+                    continue;
+                }
+                IdleAction::Goal(event) => {
+                    let current = thread
+                        .as_ref()
+                        .ok_or_else(|| "selected thread lease is missing".to_owned())?;
+                    handle_goal_event(current, event, &updates).await;
                     continue;
                 }
                 IdleAction::Shutdown => break,
@@ -1070,6 +1139,9 @@ impl TurnDriver<'_> {
                 handle_queue_event(thread, event).await?;
                 publish_queue(thread, self.updates).await?;
             }
+            Ok(HostCommand::Goal(event)) => {
+                handle_goal_event(thread, event, self.updates).await;
+            }
             Ok(HostCommand::Login(_)) => {}
             Ok(HostCommand::Shutdown) | Err(_) => outcome.shutdown = true,
         }
@@ -1167,6 +1239,7 @@ async fn switch_thread(
         .resume_thread_hydrated(selected.clone(), PaginatedResumeOptions::default())
         .await
         .map_err(|error| error.to_string())?;
+    refresh_goal_for_selection(&replacement, updates).await;
     if let Some(previous) = previous.take() {
         previous.close().await.map_err(|error| error.to_string())?;
     }
@@ -1273,6 +1346,37 @@ async fn publish_queue(thread: &CodexThread, updates: &Sender<AppUpdate>) -> Res
         .map_err(|_| "GPUI update receiver closed".to_owned())
 }
 
+async fn refresh_goal(thread: &CodexThread, updates: &Sender<AppUpdate>) -> Result<(), String> {
+    let goal = thread.get_goal().await.map_err(|error| error.to_string())?;
+    updates
+        .send(AppUpdate::Goal(project_goal(goal.as_ref())))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())
+}
+
+async fn refresh_goal_for_selection(thread: &CodexThread, updates: &Sender<AppUpdate>) {
+    if let Err(error) = refresh_goal(thread, updates).await {
+        updates.send(AppUpdate::Goal(None)).await.ok();
+        send_status(updates, &format!("Goal refresh failed: {error}")).await;
+    }
+}
+
+async fn handle_goal_event(thread: &CodexThread, event: GoalEvent, updates: &Sender<AppUpdate>) {
+    match execute_goal_event(thread, event).await {
+        Ok(status) => match refresh_goal(thread, updates).await {
+            Ok(()) => send_status(updates, status).await,
+            Err(error) => {
+                send_status(
+                    updates,
+                    &format!("{status}, but the goal could not be refreshed: {error}"),
+                )
+                .await;
+            }
+        },
+        Err(error) => send_status(updates, &format!("Goal update failed: {error}")).await,
+    }
+}
+
 async fn handle_queue_event(thread: &CodexThread, event: QueueEvent) -> Result<(), String> {
     match event {
         QueueEvent::Remove { id } => {
@@ -1345,6 +1449,15 @@ async fn publish_transcript(
         })
         .await
         .map_err(|_| "GPUI update receiver closed".to_owned())?;
+    updates
+        .send(AppUpdate::Goal(project_goal(
+            state
+                .threads
+                .get(thread_id)
+                .and_then(|thread| thread.goal.as_ref()),
+        )))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())?;
     let terminal = turn_key.is_some_and(|turn_key| {
         state
             .turns
@@ -1373,26 +1486,37 @@ enum IdleAction {
     Select(ThreadId),
     SelectModel(ModelSelectionEvent),
     Queue(QueueEvent),
+    Goal(GoalEvent),
     Shutdown,
 }
 
 async fn next_idle_action(
     client: &AppServerClient,
+    thread_id: &ThreadId,
+    observation: &mut CanonicalObservation,
     commands: &Receiver<HostCommand>,
+    updates: &Sender<AppUpdate>,
 ) -> Result<IdleAction, String> {
     loop {
-        match commands.recv().await {
-            Ok(HostCommand::Submit { text, .. }) => return Ok(IdleAction::Submit(text)),
-            Ok(HostCommand::SelectThread(thread_id)) => {
-                return Ok(IdleAction::Select(thread_id));
+        tokio::select! {
+            changed = observation.changed() => {
+                changed.map_err(|error| error.to_string())?;
+                publish_transcript(client, thread_id, None, updates).await?;
             }
-            Ok(HostCommand::SelectModel(selection)) => {
-                return Ok(IdleAction::SelectModel(selection));
+            command = commands.recv() => match command {
+                Ok(HostCommand::Submit { text, .. }) => return Ok(IdleAction::Submit(text)),
+                Ok(HostCommand::SelectThread(thread_id)) => {
+                    return Ok(IdleAction::Select(thread_id));
+                }
+                Ok(HostCommand::SelectModel(selection)) => {
+                    return Ok(IdleAction::SelectModel(selection));
+                }
+                Ok(HostCommand::Queue(event)) => return Ok(IdleAction::Queue(event)),
+                Ok(HostCommand::Goal(event)) => return Ok(IdleAction::Goal(event)),
+                Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
+                Ok(HostCommand::Interrupt | HostCommand::Login(_)) => {}
+                Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
             }
-            Ok(HostCommand::Queue(event)) => return Ok(IdleAction::Queue(event)),
-            Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
-            Ok(HostCommand::Interrupt | HostCommand::Login(_)) => {}
-            Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
         }
     }
 }

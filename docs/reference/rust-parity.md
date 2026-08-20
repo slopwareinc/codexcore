@@ -40,8 +40,8 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Approval and user-input prompts | Complete | Exact identity, approval decisions, choice/free-form/secret answers | Visual/accessibility interaction baselines |
 | MCP elicitation | Partial | URL opening and primitive JSON Schema forms; unsupported fields block submit | Nested arrays/objects and external URL completion lifecycle |
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |
-| Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan/Goal controls |
-| Plans/goals | Partial | Typed `turn/plan/updated` replacement and accessible stable plan row; ordered, lossless canonical Goal lifecycle plus SDK methods | Goal/completed-plan panels and typed Plan/Goal composer modes |
+| Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan controls |
+| Plans/goals | Partial | Typed `turn/plan/updated` replacement and accessible stable plan row; ordered, lossless canonical Goal lifecycle, SDK methods, controlled native Goal panel, and idle/active host observation | Completed-plan panels and typed Plan/Goal composer modes |
 | Subagents/side chat | Partial | Framework-neutral child graph projection, accessible recursive virtual navigator, collaboration activity rows, and host-owned hydrated child lease transfer | Concurrent parent/child panes, side-chat creation, graph actions |
 | Theming/accessibility | Partial | Semantic dark theme and AccessKit roles/labels | Light/high-contrast themes, keyboard audit, VoiceOver/NVDA/Orca smoke |
 

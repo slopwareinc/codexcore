@@ -1,6 +1,7 @@
 //! Framework-neutral transcript, activity, and prompt presentation.
 
 mod collaboration_graph;
+mod goal;
 mod markdown;
 
 pub use collaboration_graph::{
@@ -8,6 +9,7 @@ pub use collaboration_graph::{
     ThreadGraphEdge, ThreadGraphEdgeSource, ThreadGraphKey, ThreadGraphKind, ThreadGraphNode,
     ThreadGraphProjector, ThreadGraphSnapshot,
 };
+pub use goal::{GoalLifecycleAction, GoalPresentation, GoalStatusTone, project_goal};
 pub use markdown::{
     MarkdownAlignment, MarkdownBlock, MarkdownDocument, MarkdownLink, MarkdownNode,
     MarkdownQuoteKind,

@@ -190,6 +190,13 @@ thread.clear_goal().await?;
 # }
 ```
 
+GPUI hosts can pass `project_goal(canonical_goal)` into the controlled
+`CodexGoal` component and subscribe to `GoalEvent::{Set, Pause, Resume, Clear}`.
+The component owns only editable drafts. The host must apply each event through
+the exact retained `CodexThread`, then reproject the authoritative canonical
+goal; it should also reproject scoped canonical invalidations so server-driven
+usage and lifecycle changes remain live.
+
 Every pending server request is keyed by `(connection epoch, JSON-RPC id)`.
 Resolve that exact key once with `resolve_server_request`. Production hosts must
 eventually provide explicit policy or UI for every request family documented in
