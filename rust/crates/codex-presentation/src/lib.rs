@@ -702,14 +702,35 @@ fn message_text(payload: &Value) -> String {
     if let Some(text) = string(payload, "text") {
         return text;
     }
-    payload
+    let parts = payload
         .get("content")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|part| part.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .filter_map(user_input_part_text)
+        .collect::<Vec<_>>();
+    parts.join("\n")
+}
+
+fn user_input_part_text(part: &Value) -> Option<String> {
+    if let Some(text) = part.get("text").and_then(Value::as_str) {
+        return Some(text.to_owned());
+    }
+    let kind = part.get("type").and_then(Value::as_str)?;
+    let value = match kind {
+        "image" | "localImage" => "📎 image".to_owned(),
+        "audio" | "localAudio" => "📎 audio".to_owned(),
+        "skill" => part
+            .get("name")
+            .and_then(Value::as_str)
+            .map_or_else(|| "◈ skill".to_owned(), |name| format!("◈ {name}")),
+        "mention" => part
+            .get("name")
+            .and_then(Value::as_str)
+            .map_or_else(|| "@mention".to_owned(), |name| format!("@{name}")),
+        _ => return None,
+    };
+    Some(value)
 }
 
 fn string(value: &Value, key: &str) -> Option<String> {
@@ -1192,6 +1213,18 @@ mod tests {
             projected.turns[0].entries[1].content,
             TranscriptEntry::Unknown { .. }
         ));
+    }
+
+    #[test]
+    fn user_message_projection_keeps_non_text_input_chips_visible() {
+        let payload = serde_json::json!({
+            "content": [
+                {"type": "text", "text": "Review this"},
+                {"type": "localImage", "path": "/tmp/diagram.png"},
+                {"type": "mention", "name": "src"}
+            ]
+        });
+        assert_eq!(message_text(&payload), "Review this\n📎 image\n@src");
     }
 
     #[test]
