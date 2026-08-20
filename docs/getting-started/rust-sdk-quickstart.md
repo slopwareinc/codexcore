@@ -217,6 +217,12 @@ Official App Server user agents must remain on the generated major/minor line
 and meet its patch floor; for this tree that means `0.148.0` or a newer
 `0.148.x` patch.
 
+Authentication is an App Server lifecycle, not an SDK-owned credential file
+policy. Read account state with `Codex::account`; start API-key, browser OAuth,
+or device-code login with `Codex::login`; cancel with `cancel_login`; and remove
+credentials with `logout`. Browser/device challenges preserve the exact
+`login_id` required by later completion/cancellation notifications.
+
 ## Run the GPUI reference host bootstrap
 
 The native host runs real multi-turn prompts through terminal canonical state,

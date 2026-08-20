@@ -138,6 +138,13 @@ response_validator!(
     validate_thread_section_move_response,
     ThreadSectionMoveResponse
 );
+response_validator!(validate_account_read_response, GetAccountResponse);
+response_validator!(validate_account_login_response, LoginAccountResponse);
+response_validator!(
+    validate_account_login_cancel_response,
+    CancelLoginAccountResponse
+);
+response_validator!(validate_account_logout_response, LogoutAccountResponse);
 
 /// Validate a `thread/turns/list` result.
 ///

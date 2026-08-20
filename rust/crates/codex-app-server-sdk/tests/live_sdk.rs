@@ -35,6 +35,20 @@ async fn start_and_release_ephemeral_thread() {
 
 #[tokio::test]
 #[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn read_authenticated_account_through_stable_sdk() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let account = codex.account(false).await.expect("read account");
+    assert!(account.account.is_some());
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
 async fn durable_queue_add_list_update_reorder_delete() {
     let executable = std::env::var_os("CODEX_BINARY")
         .map(PathBuf::from)

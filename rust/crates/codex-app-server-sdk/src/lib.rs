@@ -10,12 +10,16 @@ use codex_app_server_state::{ThreadId, TurnId};
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
+mod auth;
 mod history;
 mod models;
 mod queue;
 mod sections;
 mod threads;
 
+pub use auth::{
+    AccountKind, AccountSnapshot, CancelLoginStatus, LoginAppBrand, LoginChallenge, LoginRequest,
+};
 pub use codex_app_server_history::HistoryPolicy;
 pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
@@ -203,6 +207,42 @@ pub struct Codex {
 }
 
 impl Codex {
+    /// Read current authentication/account state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn account(&self, refresh_token: bool) -> Result<AccountSnapshot, SdkError> {
+        auth::read(&self.client, refresh_token).await
+    }
+
+    /// Start one supported login flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn login(&self, request: LoginRequest) -> Result<LoginChallenge, SdkError> {
+        auth::login(&self.client, request).await
+    }
+
+    /// Cancel an in-progress browser or device-code login.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn cancel_login(&self, login_id: &str) -> Result<CancelLoginStatus, SdkError> {
+        auth::cancel(&self.client, login_id).await
+    }
+
+    /// Remove the current stored account credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or schema failure.
+    pub async fn logout(&self) -> Result<(), SdkError> {
+        auth::logout(&self.client).await
+    }
+
     /// Connect over the transport selected by `SessionConfig`.
     ///
     /// # Errors

@@ -24,7 +24,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Stored threads and models | Complete | Generated validation, stable pages, GCP live catalog tests | Pagination/search UI and cache invalidation |
 | Thread sections | Partial | Stable list/create/update/delete/move SDK with explicit appearance tri-state | Grouped GPUI navigation and section ordering controls |
 | Dynamic-tool declaration/handlers | Partial | Request/reply types and safe unknown failure | Typed declaration builder and handler registry |
-| Authentication/config/home isolation | Partial | Existing credentials work; runtime compatibility enforced | Login flows, isolated-home hardening, API-key/device-code UI |
+| Authentication/config/home isolation | Partial | Stable account read, API-key/browser/device-code/Bedrock login, cancel/logout SDK; existing credentials and runtime compatibility live-tested | Isolated-home hardening and GPUI login/account UI |
 | Realtime Voice | Missing | Generated wire types only | SDK stream, audio platform adapter, host UI |
 
 ## Reusable presentation and GPUI
