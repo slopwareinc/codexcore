@@ -12,11 +12,13 @@ use thiserror::Error;
 
 mod history;
 mod models;
+mod queue;
 mod threads;
 
 pub use codex_app_server_history::HistoryPolicy;
 pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
+pub use queue::{QueuePage, QueuedSubmission};
 pub use threads::{ListThreadsOptions, SortDirection, ThreadPage, ThreadSortKey, ThreadSummary};
 
 /// SDK facade or response-shape failure.
@@ -364,6 +366,193 @@ impl CodexThread {
         &self.id
     }
 
+    /// Add a durable queued follow-up.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn queue_add(
+        &self,
+        input: Vec<CodexInput>,
+        client_user_message_id: String,
+    ) -> Result<QueuedSubmission, SdkError> {
+        let response = self
+            .client
+            .request(
+                "thread/queue/add",
+                json!({
+                    "threadId": self.id.as_str(),
+                    "input": queue::input_values(input),
+                    "clientUserMessageId": client_user_message_id,
+                }),
+            )
+            .await?;
+        validate_response(
+            "thread/queue/add",
+            &response.value,
+            codex_app_server_types::validate_thread_queue_add_response,
+        )?;
+        queue::parse_submission(
+            "thread/queue/add",
+            response
+                .value
+                .get("queuedSubmission")
+                .ok_or(SdkError::MissingResponseField {
+                    method: "thread/queue/add",
+                    field: "queuedSubmission",
+                })?,
+        )
+    }
+
+    /// List one page of durable queued follow-ups.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn queue_list(
+        &self,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    ) -> Result<QueuePage, SdkError> {
+        queue::list(&self.client, self.id.as_str(), cursor, limit).await
+    }
+
+    /// Replace queued input while preserving queue identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn queue_update(
+        &self,
+        queued_submission_id: &str,
+        input: Vec<CodexInput>,
+    ) -> Result<QueuedSubmission, SdkError> {
+        let response = self
+            .client
+            .request(
+                "thread/queue/update",
+                json!({
+                    "threadId": self.id.as_str(),
+                    "queuedSubmissionId": queued_submission_id,
+                    "input": queue::input_values(input),
+                }),
+            )
+            .await?;
+        validate_response(
+            "thread/queue/update",
+            &response.value,
+            codex_app_server_types::validate_thread_queue_update_response,
+        )?;
+        queue::parse_submission(
+            "thread/queue/update",
+            response
+                .value
+                .get("queuedSubmission")
+                .ok_or(SdkError::MissingResponseField {
+                    method: "thread/queue/update",
+                    field: "queuedSubmission",
+                })?,
+        )
+    }
+
+    /// Delete one queued follow-up.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or schema failure.
+    pub async fn queue_delete(&self, queued_submission_id: &str) -> Result<bool, SdkError> {
+        let response = self
+            .client
+            .request(
+                "thread/queue/delete",
+                json!({
+                    "threadId": self.id.as_str(),
+                    "queuedSubmissionId": queued_submission_id,
+                }),
+            )
+            .await?;
+        validate_response(
+            "thread/queue/delete",
+            &response.value,
+            codex_app_server_types::validate_thread_queue_delete_response,
+        )?;
+        response
+            .value
+            .get("deleted")
+            .and_then(Value::as_bool)
+            .ok_or(SdkError::MissingResponseField {
+                method: "thread/queue/delete",
+                field: "deleted",
+            })
+    }
+
+    /// Replace the complete queued-submission order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or schema failure.
+    pub async fn queue_reorder(&self, queued_submission_ids: Vec<String>) -> Result<(), SdkError> {
+        let response = self
+            .client
+            .request(
+                "thread/queue/reorder",
+                json!({
+                    "threadId": self.id.as_str(),
+                    "queuedSubmissionIds": queued_submission_ids,
+                }),
+            )
+            .await?;
+        validate_response(
+            "thread/queue/reorder",
+            &response.value,
+            codex_app_server_types::validate_thread_queue_reorder_response,
+        )
+    }
+
+    /// Start the first or selected queued submission as an active turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, identity, or lease failure.
+    pub async fn queue_start(
+        &self,
+        queued_submission_id: Option<&str>,
+    ) -> Result<CodexTurn, SdkError> {
+        let response = self
+            .client
+            .request(
+                "thread/queue/start",
+                json!({
+                    "threadId": self.id.as_str(),
+                    "queuedSubmissionId": queued_submission_id,
+                }),
+            )
+            .await?;
+        validate_response(
+            "thread/queue/start",
+            &response.value,
+            codex_app_server_types::validate_thread_queue_start_response,
+        )?;
+        let turn_id = response
+            .value
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .ok_or(SdkError::MissingResponseField {
+                method: "thread/queue/start",
+                field: "turn.id",
+            })?;
+        let lease = self
+            .client
+            .acquire_thread(self.id.clone(), LeaseReason::ActiveTurn)
+            .await?;
+        Ok(CodexTurn {
+            client: self.client.clone(),
+            thread_id: self.id.clone(),
+            turn_id: TurnId::new(turn_id),
+            lease: Some(lease),
+        })
+    }
+
     /// Start a turn and retain the thread for its active lifetime.
     ///
     /// # Errors
@@ -409,6 +598,17 @@ impl CodexThread {
         }
         Ok(())
     }
+}
+
+fn validate_response(
+    method: &'static str,
+    value: &Value,
+    validate: fn(&Value) -> Result<(), serde_json::Error>,
+) -> Result<(), SdkError> {
+    validate(value).map_err(|error| SdkError::ResponseValidation {
+        method,
+        message: error.to_string(),
+    })
 }
 
 /// Active turn capability.

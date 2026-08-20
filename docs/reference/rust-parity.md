@@ -20,7 +20,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Thread leases | Complete | Semantic priorities, stale completion suppression, reconnect tests | Turn-operation lease inventory audit |
 | Legacy/paginated hydration | Complete | Mode-aware read, cut coordinator, live materialized legacy/paginated tests | Reconnect-during-page live stress |
 | Approvals/questions/MCP/dynamic-tool/auth/time requests | Complete | All request schemas, typed inbox/replies, safe defaults, GPUI routing | Pluggable token/attestation providers |
-| Thread/turn SDK facade | Partial | Start/resume, hydrated resume, turn start/steer/interrupt, input builders | Fork/revert/rollback, rename/archive/delete wrappers, operation streams |
+| Thread/turn SDK facade | Partial | Start/resume, hydrated resume, turn start/steer/interrupt, durable queue add/list/update/delete/reorder/start, input builders | Fork/revert/rollback, rename/archive/delete wrappers, operation streams |
 | Stored threads and models | Complete | Generated validation, stable pages, GCP live catalog tests | Pagination/search UI and cache invalidation |
 | Thread sections | Missing | Generated wire types only | Stable SDK wrappers and host navigation |
 | Dynamic-tool declaration/handlers | Partial | Request/reply types and safe unknown failure | Typed declaration builder and handler registry |

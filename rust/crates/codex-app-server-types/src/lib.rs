@@ -92,6 +92,33 @@ pub fn validate_model_list_response(value: &serde_json::Value) -> Result<(), ser
     serde_json::from_value::<ModelListResponse>(value.clone()).map(drop)
 }
 
+macro_rules! response_validator {
+    ($name:ident, $type:ty) => {
+        pub fn $name(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+            serde_json::from_value::<$type>(value.clone()).map(drop)
+        }
+    };
+}
+
+response_validator!(validate_thread_queue_add_response, ThreadQueueAddResponse);
+response_validator!(validate_thread_queue_list_response, ThreadQueueListResponse);
+response_validator!(
+    validate_thread_queue_update_response,
+    ThreadQueueUpdateResponse
+);
+response_validator!(
+    validate_thread_queue_delete_response,
+    ThreadQueueDeleteResponse
+);
+response_validator!(
+    validate_thread_queue_start_response,
+    ThreadQueueStartResponse
+);
+response_validator!(
+    validate_thread_queue_reorder_response,
+    ThreadQueueReorderResponse
+);
+
 /// Validate a `thread/turns/list` result.
 ///
 /// # Errors

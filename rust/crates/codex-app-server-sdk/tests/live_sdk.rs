@@ -35,6 +35,47 @@ async fn start_and_release_ephemeral_thread() {
 
 #[tokio::test]
 #[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn durable_queue_add_list_update_reorder_delete() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let thread = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(workspace.path().to_owned()),
+            ephemeral: Some(true),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .expect("start queue thread");
+    let queued = thread
+        .queue_add(
+            vec![CodexInput::text("first")],
+            "live-queue-client-message".to_owned(),
+        )
+        .await
+        .expect("add queued submission");
+    let page = thread.queue_list(None, Some(20)).await.expect("list queue");
+    assert!(page.data.iter().any(|item| item.id == queued.id));
+    let updated = thread
+        .queue_update(&queued.id, vec![CodexInput::text("updated")])
+        .await
+        .expect("update queue");
+    assert_eq!(updated.id, queued.id);
+    thread
+        .queue_reorder(vec![queued.id.clone()])
+        .await
+        .expect("reorder queue");
+    assert!(thread.queue_delete(&queued.id).await.expect("delete queue"));
+    thread.close().await.expect("release thread");
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
 async fn list_stored_threads_through_stable_sdk_page() {
     let executable = std::env::var_os("CODEX_BINARY")
         .map(PathBuf::from)

@@ -98,6 +98,32 @@ request whose write attempt began is completed locally with
 The successful connection receives a new epoch, so old pending server-request
 identities cannot be resolved against it.
 
+Durable follow-ups use the typed thread queue instead of a client-only list:
+
+```rust
+# async fn queue(thread: &codex_app_server_sdk::CodexThread) -> Result<(), Box<dyn std::error::Error>> {
+use codex_app_server_sdk::CodexInput;
+
+let queued = thread
+    .queue_add(
+        vec![CodexInput::text("Run this after the active turn")],
+        "stable-client-message-id".to_owned(),
+    )
+    .await?;
+let page = thread.queue_list(None, Some(50)).await?;
+thread
+    .queue_update(&queued.id, vec![CodexInput::text("Updated follow-up")])
+    .await?;
+thread
+    .queue_reorder(page.data.iter().map(|item| item.id.clone()).collect())
+    .await?;
+# Ok(())
+# }
+```
+
+The SDK also exposes `queue_delete` and `queue_start`. Queue identities and
+input arrays are generated-schema validated on every response.
+
 Every pending server request is keyed by `(connection epoch, JSON-RPC id)`.
 Resolve that exact key once with `resolve_server_request`. Production hosts must
 eventually provide explicit policy or UI for every request family documented in
