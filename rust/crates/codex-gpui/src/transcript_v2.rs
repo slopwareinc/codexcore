@@ -179,6 +179,7 @@ struct TranscriptFooterProjection {
     timestamp: Option<String>,
     copy_text: String,
     copy_label: String,
+    edit_text: Option<String>,
     actions: Vec<TranscriptFooterAction>,
 }
 
@@ -202,6 +203,10 @@ fn user_footer_projection(turn_id: &TurnId, message: &UserMessageV2) -> Transcri
         timestamp: message.sent_at_unix_seconds.map(format_timestamp),
         copy_text: user_copy_text(message),
         copy_label: "Copy message".to_owned(),
+        edit_text: message
+            .delegation_source_thread_id
+            .is_none()
+            .then(|| message.raw_text.clone()),
         actions,
     }
 }
@@ -228,6 +233,7 @@ fn assistant_footer_projection(
         } else {
             "Copy response".to_owned()
         },
+        edit_text: None,
         actions,
     }
 }
@@ -1083,9 +1089,78 @@ fn render_footer(
     row_id: &str,
     footer: &TranscriptFooterProjection,
     theme: CodexTheme,
-    _emitter: &WeakEntity<CodexTranscriptV2>,
+    emitter: &WeakEntity<CodexTranscriptV2>,
 ) -> AnyElement {
-    let copy_text = footer.copy_text.clone();
+    let mut action_buttons = Vec::new();
+    for action in &footer.actions {
+        match action {
+            TranscriptFooterAction::Copy => {
+                let copy_text = footer.copy_text.clone();
+                action_buttons.push(
+                    footer_button(
+                        format!("{row_id}:footer:copy"),
+                        &footer.copy_label,
+                        theme,
+                        move |cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                        },
+                    )
+                    .into_any(),
+                );
+            }
+            TranscriptFooterAction::Edit => {
+                let (Some(message_id), Some(edit_text)) =
+                    (footer.message_id.clone(), footer.edit_text.clone())
+                else {
+                    continue;
+                };
+                let event = TranscriptEvent::EditUserMessage {
+                    turn_id: footer.turn_id.clone(),
+                    message_id,
+                    text: edit_text,
+                };
+                action_buttons.push(transcript_event_button(
+                    format!("{row_id}:footer:edit"),
+                    "Edit message",
+                    theme,
+                    emitter,
+                    event,
+                ));
+            }
+            TranscriptFooterAction::Retry => {
+                let Some(message_id) = footer.message_id.clone() else {
+                    continue;
+                };
+                let event = TranscriptEvent::RetryTurn {
+                    turn_id: footer.turn_id.clone(),
+                    message_id,
+                };
+                action_buttons.push(transcript_event_button(
+                    format!("{row_id}:footer:retry"),
+                    "Retry turn",
+                    theme,
+                    emitter,
+                    event,
+                ));
+            }
+            TranscriptFooterAction::Fork => {
+                let Some(message_id) = footer.message_id.clone() else {
+                    continue;
+                };
+                let event = TranscriptEvent::ForkTurn {
+                    turn_id: footer.turn_id.clone(),
+                    message_id,
+                };
+                action_buttons.push(transcript_event_button(
+                    format!("{row_id}:footer:fork"),
+                    "Fork chat",
+                    theme,
+                    emitter,
+                    event,
+                ));
+            }
+        }
+    }
     div()
         .id(format!("{row_id}:footer"))
         .role(Role::Group)
@@ -1106,15 +1181,22 @@ fn render_footer(
                     .child(timestamp),
             )
         })
-        .child(footer_button(
-            format!("{row_id}:footer:copy"),
-            &footer.copy_label,
-            theme,
-            move |cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
-            },
-        ))
+        .children(action_buttons)
         .into_any()
+}
+
+fn transcript_event_button(
+    id: String,
+    label: &'static str,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscriptV2>,
+    event: TranscriptEvent,
+) -> AnyElement {
+    let emitter = emitter.clone();
+    footer_button(id, label, theme, move |cx| {
+        emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
+    })
+    .into_any()
 }
 
 fn footer_button(
@@ -2554,6 +2636,7 @@ mod tests {
         assert_eq!(footer.timestamp.as_deref(), Some("01:30"));
         assert_eq!(footer.copy_text, "Review this");
         assert_eq!(footer.copy_label, "Copy message");
+        assert_eq!(footer.edit_text.as_deref(), Some("raw prompt"));
         assert_eq!(
             footer.actions,
             vec![TranscriptFooterAction::Copy, TranscriptFooterAction::Edit]
@@ -2581,6 +2664,7 @@ mod tests {
         assert_eq!(footer.timestamp.as_deref(), Some("00:15"));
         assert_eq!(footer.copy_text, "Done");
         assert_eq!(footer.copy_label, "Copy final answer");
+        assert!(footer.edit_text.is_none());
         assert_eq!(
             footer.actions,
             vec![
