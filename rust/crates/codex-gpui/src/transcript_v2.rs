@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
+    rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -18,8 +19,8 @@ use codex_presentation::{
     },
 };
 use gpui::{
-    AnyElement, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment, ListState,
-    ObjectFit, Render, Role, Task, WeakEntity, Window, div, img, list, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment,
+    ListState, ObjectFit, Render, Role, Task, WeakEntity, Window, div, img, list, prelude::*, px,
 };
 
 use crate::{
@@ -149,6 +150,86 @@ impl TranscriptV2Row {
 
 fn work_group_stable_id(turn_id: &TurnId, segment_id: &str, group_id: &str) -> String {
     format!("turn:{turn_id}:segment:{segment_id}:work-group:{group_id}")
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TranscriptFooterKind {
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TranscriptFooterAction {
+    Copy,
+    Edit,
+    Retry,
+    Fork,
+}
+
+/// Pure footer data shared by the renderer and its action tests.
+///
+/// The message identity is deliberately retained separately from display-row
+/// identity. A row can be remeasured or moved while a host action is pending,
+/// but `(turn_id, message_id)` remains the exact server/user identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TranscriptFooterProjection {
+    kind: TranscriptFooterKind,
+    turn_id: TurnId,
+    message_id: Option<String>,
+    timestamp: Option<String>,
+    copy_text: String,
+    copy_label: String,
+    actions: Vec<TranscriptFooterAction>,
+}
+
+fn user_copy_text(message: &UserMessageV2) -> String {
+    if message.text.is_empty() {
+        message.display_text()
+    } else {
+        message.text.clone()
+    }
+}
+
+fn user_footer_projection(turn_id: &TurnId, message: &UserMessageV2) -> TranscriptFooterProjection {
+    let mut actions = vec![TranscriptFooterAction::Copy];
+    if message.delegation_source_thread_id.is_none() {
+        actions.push(TranscriptFooterAction::Edit);
+    }
+    TranscriptFooterProjection {
+        kind: TranscriptFooterKind::User,
+        turn_id: turn_id.clone(),
+        message_id: Some(message.id.clone()),
+        timestamp: message.sent_at_unix_seconds.map(format_timestamp),
+        copy_text: user_copy_text(message),
+        copy_label: "Copy message".to_owned(),
+        actions,
+    }
+}
+
+fn assistant_footer_projection(
+    turn_id: &TurnId,
+    prose: &AssistantTextV2,
+    is_final_answer: bool,
+    status: &TurnStatusV2,
+    opening_message: Option<&UserMessageV2>,
+) -> TranscriptFooterProjection {
+    let mut actions = vec![TranscriptFooterAction::Copy];
+    if is_final_answer && is_terminal_turn(status) && opening_message.is_some() {
+        actions.extend([TranscriptFooterAction::Fork, TranscriptFooterAction::Retry]);
+    }
+    TranscriptFooterProjection {
+        kind: TranscriptFooterKind::Assistant,
+        turn_id: turn_id.clone(),
+        message_id: opening_message.map(|message| message.id.clone()),
+        timestamp: prose.sent_at_unix_seconds.map(format_timestamp),
+        copy_text: prose.text.clone(),
+        copy_label: if is_final_answer {
+            "Copy final answer".to_owned()
+        } else {
+            "Copy response".to_owned()
+        },
+        actions,
+    }
 }
 
 /// Flatten a V2 projection using presentation-declared disclosure defaults.
@@ -339,6 +420,7 @@ pub struct CodexTranscriptV2 {
     group_expansion_overrides: BTreeMap<String, bool>,
     expanded_work_rows: BTreeSet<String>,
     selected_file_indices: BTreeMap<String, usize>,
+    hovered_rows: BTreeSet<String>,
 }
 
 impl CodexTranscriptV2 {
@@ -363,6 +445,7 @@ impl CodexTranscriptV2 {
             group_expansion_overrides: BTreeMap::new(),
             expanded_work_rows: BTreeSet::new(),
             selected_file_indices: BTreeMap::new(),
+            hovered_rows: BTreeSet::new(),
         }
     }
 
@@ -396,6 +479,7 @@ impl CodexTranscriptV2 {
         self.sync_working_client_starts();
         self.prune_expansion_state();
         self.rebuild_rows();
+        self.prune_hover_state();
         if !self.has_working_turn() {
             self.work_tick_task.take();
         }
@@ -520,6 +604,23 @@ impl CodexTranscriptV2 {
         cx.notify();
     }
 
+    fn set_row_hovered(&mut self, row_key: String, hovered: bool, cx: &mut Context<Self>) {
+        let changed = if hovered {
+            self.hovered_rows.insert(row_key)
+        } else {
+            self.hovered_rows.remove(&row_key)
+        };
+        if changed {
+            cx.notify();
+        }
+    }
+
+    fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
+        self.list_state.set_follow_mode(FollowMode::Tail);
+        self.list_state.scroll_to_end();
+        cx.notify();
+    }
+
     fn rebuild_rows(&mut self) {
         let next: Arc<[TranscriptV2Row]> =
             project_rows(&self.presentation, &self.turn_expansion_overrides).into();
@@ -574,11 +675,21 @@ impl CodexTranscriptV2 {
                 .any(|group_key| row_key.starts_with(&format!("{group_key}:row:")))
         });
     }
+
+    fn prune_hover_state(&mut self) {
+        let row_ids = self
+            .rows
+            .iter()
+            .map(TranscriptV2Row::stable_id)
+            .collect::<BTreeSet<_>>();
+        self.hovered_rows.retain(|row_id| row_ids.contains(row_id));
+    }
 }
 
 impl EventEmitter<TranscriptEvent> for CodexTranscriptV2 {}
 
 impl Render for CodexTranscriptV2 {
+    #[allow(clippy::too_many_lines)]
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_work_tick(cx);
         let rows = Arc::clone(&self.rows);
@@ -590,6 +701,10 @@ impl Render for CodexTranscriptV2 {
         let group_expansion_overrides = self.group_expansion_overrides.clone();
         let expanded_work_rows = self.expanded_work_rows.clone();
         let selected_file_indices = self.selected_file_indices.clone();
+        let hovered_rows = self.hovered_rows.clone();
+        let opening_user_messages = opening_user_messages(&self.presentation);
+        let turn_statuses = turn_statuses(&self.presentation);
+        let show_jump_to_latest = state.item_count() > 0 && !state.is_following_tail();
         div()
             .id("codex-transcript-v2")
             .role(Role::Log)
@@ -610,29 +725,102 @@ impl Render for CodexTranscriptV2 {
                             .w_full()
                             .max_w(px(TranscriptLayoutMetrics::OUTER_MAX_WIDTH))
                             .h_full()
+                            .relative()
                             .child(
-                                list(state, move |index, _window, _cx| {
-                                    rows.get(index).map_or_else(
-                                        || div().into_any(),
-                                        |row| {
-                                            render_row(
-                                                row,
-                                                theme,
-                                                &emitter,
-                                                &group_expansion_overrides,
-                                                &expanded_work_rows,
-                                                &selected_file_indices,
-                                                now_unix_seconds,
-                                                &working_client_started_unix_seconds,
-                                            )
-                                        },
-                                    )
+                                list(state, {
+                                    let list_emitter = emitter.clone();
+                                    move |index, _window, _cx| {
+                                        rows.get(index).map_or_else(
+                                            || div().into_any(),
+                                            |row| {
+                                                render_row(
+                                                    row,
+                                                    theme,
+                                                    &list_emitter,
+                                                    &group_expansion_overrides,
+                                                    &expanded_work_rows,
+                                                    &selected_file_indices,
+                                                    &hovered_rows,
+                                                    &opening_user_messages,
+                                                    &turn_statuses,
+                                                    now_unix_seconds,
+                                                    &working_client_started_unix_seconds,
+                                                )
+                                            },
+                                        )
+                                    }
                                 })
                                 .size_full(),
-                            ),
+                            )
+                            .when(show_jump_to_latest, |view| {
+                                let emitter = emitter.clone();
+                                view.child(
+                                    div()
+                                        .id("codex-transcript-v2-jump-to-latest")
+                                        .absolute()
+                                        .right(px(16.))
+                                        .bottom(px(16.))
+                                        .role(Role::Button)
+                                        .aria_label("Jump to latest")
+                                        .focusable()
+                                        .tab_stop(true)
+                                        .cursor_pointer()
+                                        .rounded_full()
+                                        .border_1()
+                                        .border_color(theme.border)
+                                        .bg(theme.elevated_surface)
+                                        .px_3()
+                                        .py_2()
+                                        .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                                        .text_color(theme.text)
+                                        .on_click({
+                                            let emitter = emitter.clone();
+                                            move |_, _, cx| {
+                                                emitter
+                                                    .update(cx, |transcript, cx| {
+                                                        transcript.jump_to_latest(cx);
+                                                    })
+                                                    .ok();
+                                            }
+                                        })
+                                        .on_key_down(move |event, window, cx| {
+                                            if is_activation_key(&event.keystroke.key) {
+                                                window.prevent_default();
+                                                emitter
+                                                    .update(cx, |transcript, cx| {
+                                                        transcript.jump_to_latest(cx);
+                                                    })
+                                                    .ok();
+                                            }
+                                        })
+                                        .child("Jump to latest"),
+                                )
+                            }),
                     ),
             )
     }
+}
+
+fn opening_user_messages(
+    presentation: &TranscriptV2Presentation,
+) -> BTreeMap<String, UserMessageV2> {
+    presentation
+        .turns
+        .iter()
+        .filter_map(|turn| {
+            turn.opening_user_message
+                .as_ref()
+                .map(|message| (turn.turn_id.as_str().to_owned(), message.clone()))
+        })
+        .collect()
+}
+
+fn turn_statuses(presentation: &TranscriptV2Presentation) -> BTreeMap<String, TurnStatusV2> {
+    presentation
+        .turns
+        .iter()
+        .map(|turn| (turn.turn_id.as_str().to_owned(), turn.status.clone()))
+        .collect()
 }
 
 fn update_list_state(state: &ListState, old: &[TranscriptV2Row], new: &[TranscriptV2Row]) {
@@ -683,13 +871,23 @@ fn render_row(
     group_expansion_overrides: &BTreeMap<String, bool>,
     expanded_work_rows: &BTreeSet<String>,
     selected_file_indices: &BTreeMap<String, usize>,
+    hovered_rows: &BTreeSet<String>,
+    opening_user_messages: &BTreeMap<String, UserMessageV2>,
+    turn_statuses: &BTreeMap<String, TurnStatusV2>,
     now_unix_seconds: i64,
     working_client_started_unix_seconds: &BTreeMap<String, i64>,
 ) -> AnyElement {
+    let row_id = row.stable_id();
+    let is_hovered = hovered_rows.contains(&row_id);
     match row {
         TranscriptV2Row::OpeningUser { message, .. }
         | TranscriptV2Row::SteeredUser { message, .. } => {
-            render_user(row.stable_id(), message, theme)
+            let (TranscriptV2Row::OpeningUser { turn_id, .. }
+            | TranscriptV2Row::SteeredUser { turn_id, .. }) = row
+            else {
+                unreachable!("user row pattern already matched")
+            };
+            render_user(&row_id, turn_id, message, theme, emitter, is_hovered)
         }
         TranscriptV2Row::WorkDisclosure {
             turn_id,
@@ -709,10 +907,44 @@ fn render_row(
                 .get(turn_id.as_str())
                 .copied(),
         ),
-        TranscriptV2Row::Prose { prose, .. }
-        | TranscriptV2Row::FinalAnswer { answer: prose, .. } => {
-            render_assistant(row.stable_id(), prose, theme, emitter)
-        }
+        TranscriptV2Row::Prose { turn_id, prose, .. } => render_assistant(
+            &row_id, turn_id, prose, false, None, None, theme, emitter, is_hovered,
+        ),
+        TranscriptV2Row::FinalAnswer { turn_id, answer } => render_assistant(
+            &row_id,
+            turn_id,
+            answer,
+            true,
+            opening_user_messages.get(turn_id.as_str()),
+            turn_statuses.get(turn_id.as_str()),
+            theme,
+            emitter,
+            is_hovered,
+        ),
+        _ => render_non_message_row(
+            row,
+            theme,
+            emitter,
+            group_expansion_overrides,
+            expanded_work_rows,
+            selected_file_indices,
+            now_unix_seconds,
+            working_client_started_unix_seconds,
+        ),
+    }
+}
+
+fn render_non_message_row(
+    row: &TranscriptV2Row,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscriptV2>,
+    group_expansion_overrides: &BTreeMap<String, bool>,
+    expanded_work_rows: &BTreeSet<String>,
+    selected_file_indices: &BTreeMap<String, usize>,
+    _now_unix_seconds: i64,
+    _working_client_started_unix_seconds: &BTreeMap<String, i64>,
+) -> AnyElement {
+    match row {
         TranscriptV2Row::WorkGroup { group, .. } => {
             let group_key = row.stable_id();
             render_work_group(
@@ -743,13 +975,33 @@ fn render_row(
         TranscriptV2Row::Lifecycle { status, .. } => {
             render_lifecycle(row.stable_id(), status, theme)
         }
+        TranscriptV2Row::WorkDisclosure { .. } => {
+            unreachable!("work disclosure rows are rendered before non-message rows")
+        }
+        TranscriptV2Row::OpeningUser { .. }
+        | TranscriptV2Row::SteeredUser { .. }
+        | TranscriptV2Row::Prose { .. }
+        | TranscriptV2Row::FinalAnswer { .. } => {
+            unreachable!("message rows are rendered before non-message rows")
+        }
     }
 }
 
-fn render_user(id: String, message: &UserMessageV2, theme: CodexTheme) -> AnyElement {
+#[allow(clippy::too_many_arguments)]
+fn render_user(
+    id: &str,
+    turn_id: &TurnId,
+    message: &UserMessageV2,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscriptV2>,
+    is_hovered: bool,
+) -> AnyElement {
     let text = message.display_text();
-    div()
-        .id(id)
+    let hover_id = id.to_owned();
+    let hover_emitter = emitter.clone();
+    let footer = user_footer_projection(turn_id, message);
+    let mut view = div()
+        .id(id.to_owned())
         .role(Role::Article)
         .aria_label(bounded_label(format!("You: {text}")))
         .w_full()
@@ -766,26 +1018,131 @@ fn render_user(id: String, message: &UserMessageV2, theme: CodexTheme) -> AnyEle
                 .border_color(theme.user_message_stroke)
                 .px_3()
                 .py_2()
+                .cursor_text()
                 .whitespace_normal()
                 .child(text),
         )
-        .into_any()
+        .on_hover(move |hovered, _, cx| {
+            hover_emitter
+                .update(cx, |transcript, cx| {
+                    transcript.set_row_hovered(hover_id.clone(), *hovered, cx);
+                })
+                .ok();
+        });
+    if is_hovered {
+        view = view.child(render_footer(id, &footer, theme, emitter));
+    }
+    view.into_any()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assistant(
-    id: String,
+    id: &str,
+    turn_id: &TurnId,
     prose: &AssistantTextV2,
+    is_final_answer: bool,
+    opening_message: Option<&UserMessageV2>,
+    status: Option<&TurnStatusV2>,
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
+    is_hovered: bool,
 ) -> AnyElement {
-    div()
-        .id(id)
+    let hover_id = id.to_owned();
+    let hover_emitter = emitter.clone();
+    let footer = assistant_footer_projection(
+        turn_id,
+        prose,
+        is_final_answer,
+        status.unwrap_or(&TurnStatusV2::Working {
+            since_unix_seconds: None,
+        }),
+        opening_message,
+    );
+    let mut view = div()
+        .id(id.to_owned())
         .role(Role::Article)
         .aria_label(bounded_label(format!("Codex: {}", prose.text)))
         .w_full()
         .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
+        .cursor_text()
         .child(render_markdown(&prose.markdown, theme, emitter))
+        .on_hover(move |hovered, _, cx| {
+            hover_emitter
+                .update(cx, |transcript, cx| {
+                    transcript.set_row_hovered(hover_id.clone(), *hovered, cx);
+                })
+                .ok();
+        });
+    if is_hovered {
+        view = view.child(render_footer(id, &footer, theme, emitter));
+    }
+    view.into_any()
+}
+
+fn render_footer(
+    row_id: &str,
+    footer: &TranscriptFooterProjection,
+    theme: CodexTheme,
+    _emitter: &WeakEntity<CodexTranscriptV2>,
+) -> AnyElement {
+    let copy_text = footer.copy_text.clone();
+    div()
+        .id(format!("{row_id}:footer"))
+        .role(Role::Group)
+        .aria_label("Message actions")
+        .w_full()
+        .flex()
+        .items_center()
+        .gap_2()
+        .when(footer.kind == TranscriptFooterKind::User, |view| {
+            view.justify_end()
+        })
+        .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+        .text_color(theme.tertiary_text)
+        .when_some(footer.timestamp.clone(), |view, timestamp| {
+            view.child(
+                div()
+                    .id(format!("{row_id}:footer:timestamp"))
+                    .child(timestamp),
+            )
+        })
+        .child(footer_button(
+            format!("{row_id}:footer:copy"),
+            &footer.copy_label,
+            theme,
+            move |cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            },
+        ))
         .into_any()
+}
+
+fn footer_button(
+    id: String,
+    label: &str,
+    theme: CodexTheme,
+    on_activate: impl Fn(&mut App) + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    let action: Rc<dyn Fn(&mut App)> = Rc::new(on_activate);
+    let click_action = action.clone();
+    let keyboard_action = action;
+    div()
+        .id(id)
+        .role(Role::Button)
+        .aria_label(label.to_owned())
+        .focusable()
+        .tab_stop(true)
+        .cursor_pointer()
+        .text_color(theme.muted_text)
+        .hover(|style| style.text_color(theme.text))
+        .on_click(move |_, _, cx| click_action(cx))
+        .on_key_down(move |event, window, cx| {
+            if is_activation_key(&event.keystroke.key) {
+                window.prevent_default();
+                keyboard_action(cx);
+            }
+        })
+        .child(label.to_owned())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1693,6 +2050,18 @@ fn unix_seconds() -> i64 {
         })
 }
 
+fn format_timestamp(unix_seconds: i64) -> String {
+    const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
+    let day_seconds = unix_seconds.rem_euclid(SECONDS_PER_DAY);
+    let hour = day_seconds / (60 * 60);
+    let minute = (day_seconds % (60 * 60)) / 60;
+    format!("{hour:02}:{minute:02}")
+}
+
+fn is_terminal_turn(status: &TurnStatusV2) -> bool {
+    !matches!(status, TurnStatusV2::Working { .. })
+}
+
 /// Calculate active work elapsed time from the server timestamp, falling back
 /// to the client-side start captured when the component was created.
 #[must_use]
@@ -2170,5 +2539,81 @@ mod tests {
         assert_eq!(theme.user_message, gpui::rgba(0xffff_ff0f));
         assert_eq!(theme.user_message_stroke, gpui::rgba(0xffff_ff14));
         assert_eq!(theme.tertiary_text, gpui::rgb(0x0076_767e));
+    }
+
+    #[test]
+    fn footer_projection_preserves_exact_user_identity_and_timestamp() {
+        let turn_id = TurnId::from("turn");
+        let mut message = user("message", "Review this");
+        message.raw_text = "raw prompt".to_owned();
+        message.sent_at_unix_seconds = Some(90 * 60 + 7);
+        let footer = user_footer_projection(&turn_id, &message);
+        assert_eq!(footer.kind, TranscriptFooterKind::User);
+        assert_eq!(footer.turn_id, turn_id);
+        assert_eq!(footer.message_id.as_deref(), Some("message"));
+        assert_eq!(footer.timestamp.as_deref(), Some("01:30"));
+        assert_eq!(footer.copy_text, "Review this");
+        assert_eq!(footer.copy_label, "Copy message");
+        assert_eq!(
+            footer.actions,
+            vec![TranscriptFooterAction::Copy, TranscriptFooterAction::Edit]
+        );
+    }
+
+    #[test]
+    fn final_footer_projection_exposes_copy_and_terminal_turn_actions() {
+        let turn_id = TurnId::from("turn");
+        let message = user("message", "Review this");
+        let mut answer = prose("answer", "Done");
+        answer.sent_at_unix_seconds = Some(15 * 60 + 42);
+        let footer = assistant_footer_projection(
+            &turn_id,
+            &answer,
+            true,
+            &TurnStatusV2::Done {
+                duration_ms: Some(1_000),
+            },
+            Some(&message),
+        );
+        assert_eq!(footer.kind, TranscriptFooterKind::Assistant);
+        assert_eq!(footer.turn_id, turn_id);
+        assert_eq!(footer.message_id.as_deref(), Some("message"));
+        assert_eq!(footer.timestamp.as_deref(), Some("00:15"));
+        assert_eq!(footer.copy_text, "Done");
+        assert_eq!(footer.copy_label, "Copy final answer");
+        assert_eq!(
+            footer.actions,
+            vec![
+                TranscriptFooterAction::Copy,
+                TranscriptFooterAction::Fork,
+                TranscriptFooterAction::Retry,
+            ]
+        );
+    }
+
+    #[test]
+    fn final_footer_does_not_offer_mutating_actions_while_working() {
+        let turn_id = TurnId::from("turn");
+        let message = user("message", "Review this");
+        let footer = assistant_footer_projection(
+            &turn_id,
+            &prose("answer", "Streaming"),
+            true,
+            &TurnStatusV2::Working {
+                since_unix_seconds: None,
+            },
+            Some(&message),
+        );
+        assert_eq!(footer.actions, vec![TranscriptFooterAction::Copy]);
+    }
+
+    #[test]
+    fn timestamp_format_is_stable_for_negative_and_large_epochs() {
+        assert_eq!(format_timestamp(0), "00:00");
+        assert_eq!(format_timestamp(-60), "23:59");
+        assert_eq!(
+            format_timestamp(86_400 * 10 + 23 * 3_600 + 59 * 60),
+            "23:59"
+        );
     }
 }

@@ -1411,4 +1411,32 @@ mod tests {
         let rows = transcript_rows(&presentation);
         assert_eq!(rows[0].stable_id(), "turn:turn:plan");
     }
+
+    #[test]
+    fn transcript_mutation_events_retain_exact_turn_and_message_identity() {
+        let turn_id = TurnId::from("turn-42");
+        let edit = TranscriptEvent::EditUserMessage {
+            turn_id: turn_id.clone(),
+            message_id: "message-7".to_owned(),
+            text: "raw prompt".to_owned(),
+        };
+        assert_eq!(
+            edit,
+            TranscriptEvent::EditUserMessage {
+                turn_id: TurnId::from("turn-42"),
+                message_id: "message-7".to_owned(),
+                text: "raw prompt".to_owned(),
+            }
+        );
+        let retry = TranscriptEvent::RetryTurn {
+            turn_id: turn_id.clone(),
+            message_id: "message-7".to_owned(),
+        };
+        let fork = TranscriptEvent::ForkTurn {
+            turn_id,
+            message_id: "message-7".to_owned(),
+        };
+        assert!(matches!(retry, TranscriptEvent::RetryTurn { .. }));
+        assert!(matches!(fork, TranscriptEvent::ForkTurn { .. }));
+    }
 }
