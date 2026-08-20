@@ -1,6 +1,6 @@
 //! Virtualized Codex transcript implementation.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use codex_app_server_state::{LifecycleStatus, PlanStepStatus, StateRevision};
 use codex_presentation::{
@@ -165,6 +165,7 @@ pub struct CodexTranscript {
     rows: Arc<[TranscriptRow]>,
     list_state: ListState,
     theme: CodexTheme,
+    expanded_work_groups: BTreeSet<String>,
 }
 
 impl CodexTranscript {
@@ -181,6 +182,7 @@ impl CodexTranscript {
             rows,
             list_state,
             theme: CodexTheme::default(),
+            expanded_work_groups: BTreeSet::new(),
         }
     }
 
@@ -201,6 +203,13 @@ impl CodexTranscript {
     #[must_use]
     pub fn list_state(&self) -> ListState {
         self.list_state.clone()
+    }
+
+    fn toggle_work_group(&mut self, id: String, cx: &mut Context<Self>) {
+        if !self.expanded_work_groups.remove(&id) {
+            self.expanded_work_groups.insert(id);
+        }
+        cx.notify();
     }
 
     /// Replace the disposable presentation while retaining viewport state.
@@ -232,6 +241,7 @@ impl Render for CodexTranscript {
         let theme = self.theme;
         let state = self.list_state.clone();
         let emitter = cx.entity().downgrade();
+        let expanded_work_groups = self.expanded_work_groups.clone();
         div()
             .id("codex-transcript")
             .role(Role::Log)
@@ -246,7 +256,14 @@ impl Render for CodexTranscript {
                         list(state, move |index, _window, _cx| {
                             rows.get(index).map_or_else(
                                 || div().into_any(),
-                                |row| render_row(row, theme, &emitter),
+                                |row| {
+                                    render_row(
+                                        row,
+                                        theme,
+                                        &emitter,
+                                        expanded_work_groups.contains(&row.stable_id()),
+                                    )
+                                },
                             )
                         })
                         .size_full(),
@@ -308,6 +325,7 @@ fn render_row(
     row: &TranscriptRow,
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscript>,
+    work_group_expanded: bool,
 ) -> AnyElement {
     match row {
         TranscriptRow::Turn { id, status } => div()
@@ -331,7 +349,7 @@ fn render_row(
             id,
             entries,
             status,
-        } => render_work_group(id, entries, status, theme, emitter),
+        } => render_work_group(id, entries, status, theme, emitter, work_group_expanded),
         TranscriptRow::Plan { plan, .. } => render_plan(row.stable_id(), plan, theme),
     }
 }
@@ -417,6 +435,7 @@ fn render_work_group(
     status: &LifecycleStatus,
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscript>,
+    expanded: bool,
 ) -> AnyElement {
     let label = if status.is_terminal() {
         "Completed work"
@@ -424,6 +443,7 @@ fn render_work_group(
         "Working"
     };
     let group_id = format!("work-group:{id}");
+    let toggle_id = id.to_owned();
     div()
         .id(group_id)
         .role(Role::Group)
@@ -438,7 +458,7 @@ fn render_work_group(
                 .gap_2()
                 .text_sm()
                 .text_color(theme.muted_text)
-                .child("⌄")
+                .child(if expanded { "⌄" } else { "›" })
                 .child(label)
                 .child(
                     div()
@@ -450,11 +470,23 @@ fn render_work_group(
                         .child(entries.len().to_string()),
                 ),
         )
-        .children(
-            entries
-                .iter()
-                .map(|entry| render_entry(entry, theme, emitter)),
-        )
+        .on_click({
+            let emitter = emitter.clone();
+            move |_, _, cx| {
+                emitter
+                    .update(cx, |transcript, cx| {
+                        transcript.toggle_work_group(toggle_id.clone(), cx);
+                    })
+                    .ok();
+            }
+        })
+        .when(expanded, |view| {
+            view.children(
+                entries
+                    .iter()
+                    .map(|entry| render_entry(entry, theme, emitter)),
+            )
+        })
         .into_any()
 }
 
