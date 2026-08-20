@@ -65,6 +65,11 @@ pub enum TranscriptRow {
         status: LifecycleStatus,
     },
     Entry(Box<PresentedEntry>),
+    WorkGroup {
+        id: String,
+        entries: Arc<[PresentedEntry]>,
+        status: LifecycleStatus,
+    },
     Plan {
         turn_id: String,
         plan: Box<PlanPresentation>,
@@ -81,6 +86,7 @@ impl TranscriptRow {
                 "item:{}:{}:{}",
                 entry.key.thread_id, entry.key.turn_id, entry.key.item_id
             ),
+            Self::WorkGroup { id, .. } => format!("work-group:{id}"),
             Self::Plan { turn_id, .. } => format!("turn:{turn_id}:plan"),
         }
     }
@@ -93,23 +99,64 @@ pub fn transcript_rows(presentation: &TranscriptPresentation) -> Vec<TranscriptR
         .turns
         .iter()
         .flat_map(|turn| {
-            std::iter::once(TranscriptRow::Turn {
+            let mut rows = vec![TranscriptRow::Turn {
                 id: turn.turn_id.as_str().to_owned(),
                 status: turn.status.clone(),
-            })
-            .chain(
-                turn.entries
-                    .iter()
-                    .cloned()
-                    .map(Box::new)
-                    .map(TranscriptRow::Entry),
-            )
-            .chain(turn.plan.clone().map(|plan| TranscriptRow::Plan {
-                turn_id: turn.turn_id.as_str().to_owned(),
-                plan: Box::new(plan),
-            }))
+            }];
+            let mut work_entries: Vec<PresentedEntry> = Vec::new();
+            for entry in &turn.entries {
+                if is_work_entry(entry) {
+                    work_entries.push(entry.clone());
+                } else {
+                    flush_work_group(&mut rows, &mut work_entries);
+                    rows.push(TranscriptRow::Entry(Box::new(entry.clone())));
+                }
+            }
+            flush_work_group(&mut rows, &mut work_entries);
+            if let Some(plan) = turn.plan.clone() {
+                rows.push(TranscriptRow::Plan {
+                    turn_id: turn.turn_id.as_str().to_owned(),
+                    plan: Box::new(plan),
+                });
+            }
+            rows.into_iter()
         })
         .collect()
+}
+
+fn is_work_entry(entry: &PresentedEntry) -> bool {
+    matches!(
+        entry.content,
+        TranscriptEntry::Activity(_)
+            | TranscriptEntry::Command { .. }
+            | TranscriptEntry::FileChanges { .. }
+            | TranscriptEntry::ToolCall { .. }
+    )
+}
+
+fn flush_work_group(rows: &mut Vec<TranscriptRow>, entries: &mut Vec<PresentedEntry>) {
+    if entries.is_empty() {
+        return;
+    }
+    let id = entries
+        .first()
+        .map(|entry| {
+            format!(
+                "{}:{}:{}",
+                entry.key.thread_id, entry.key.turn_id, entry.key.item_id
+            )
+        })
+        .unwrap_or_default();
+    let status = if entries.iter().any(|entry| !entry.status.is_terminal()) {
+        LifecycleStatus::InProgress
+    } else {
+        LifecycleStatus::Completed
+    };
+    rows.push(TranscriptRow::WorkGroup {
+        id,
+        entries: std::mem::take(entries).into(),
+        status,
+    });
 }
 
 /// Virtualized bottom-aligned Codex transcript.
@@ -265,22 +312,26 @@ fn render_row(
     match row {
         TranscriptRow::Turn { id, status } => div()
             .id(row.stable_id())
-            .role(Role::Heading)
+            .role(Role::Status)
             .aria_level(2)
             .aria_label(format!("Turn {id}, {}", status.as_raw()))
             .w_full()
             .px_6()
-            .pt_5()
-            .pb_2()
+            .pt_2()
+            .pb_1()
             .flex()
             .items_center()
             .gap_2()
             .text_xs()
             .text_color(theme.muted_text)
-            .child(format!("Turn {id}"))
             .child(status_badge(status, theme))
             .into_any(),
         TranscriptRow::Entry(entry) => render_entry(entry, theme, emitter),
+        TranscriptRow::WorkGroup {
+            id,
+            entries,
+            status,
+        } => render_work_group(id, entries, status, theme, emitter),
         TranscriptRow::Plan { plan, .. } => render_plan(row.stable_id(), plan, theme),
     }
 }
@@ -358,6 +409,53 @@ fn plan_status_label(status: &PlanStepStatus) -> &'static str {
         PlanStepStatus::Completed => "Completed",
         PlanStepStatus::Unknown(_) => "Unknown",
     }
+}
+
+fn render_work_group(
+    id: &str,
+    entries: &[PresentedEntry],
+    status: &LifecycleStatus,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscript>,
+) -> AnyElement {
+    let label = if status.is_terminal() {
+        "Completed work"
+    } else {
+        "Working"
+    };
+    let group_id = format!("work-group:{id}");
+    div()
+        .id(group_id)
+        .role(Role::Group)
+        .aria_label(format!("{label}, {} activity item(s)", entries.len()))
+        .w_full()
+        .px_6()
+        .py_2()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_sm()
+                .text_color(theme.muted_text)
+                .child("⌄")
+                .child(label)
+                .child(
+                    div()
+                        .rounded_full()
+                        .border_1()
+                        .border_color(theme.border)
+                        .px_2()
+                        .text_xs()
+                        .child(entries.len().to_string()),
+                ),
+        )
+        .children(
+            entries
+                .iter()
+                .map(|entry| render_entry(entry, theme, emitter)),
+        )
+        .into_any()
 }
 
 fn render_entry(
@@ -918,6 +1016,27 @@ mod tests {
         let second = transcript_rows(&presentation(vec![entry("item", "two")]));
         assert_eq!(first[1].stable_id(), second[1].stable_id());
         assert_ne!(first[1], second[1]);
+    }
+
+    #[test]
+    fn consecutive_work_items_share_a_swift_style_group_row() {
+        let mut first = entry("read", "Read files");
+        first.content = TranscriptEntry::Activity(ActivityPresentation {
+            id: "read".to_owned(),
+            kind: ActivityKind::Read,
+            label: "Read files".to_owned(),
+            detail: None,
+        });
+        let mut second = entry("search", "Search files");
+        second.content = TranscriptEntry::Activity(ActivityPresentation {
+            id: "search".to_owned(),
+            kind: ActivityKind::Search,
+            label: "Search files".to_owned(),
+            detail: None,
+        });
+        let rows = transcript_rows(&presentation(vec![first, second]));
+        assert!(matches!(rows[1], TranscriptRow::WorkGroup { .. }));
+        assert_eq!(rows[1].stable_id(), "work-group:thread:turn:read");
     }
 
     #[test]
