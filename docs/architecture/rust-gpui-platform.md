@@ -71,7 +71,9 @@ seed. Thread and turn scopes include descendants, sibling changes do not wake
 them, and each watch channel retains only the newest relevant revision. The
 reference host uses a selected-thread canonical observer for transcript work
 and a separate session observer for pending requests, avoiding transcript
-rebuilds on unrelated RPC completions.
+rebuilds on unrelated RPC completions. It also compares each signaled revision
+to the last snapshot actually projected, suppressing an already-buffered seed
+revision without risking a change that races the snapshot read.
 
 WebSocket transport accepts `ws://`/`wss://` with an optional upgrade-only
 bearer credential, plus WebSocket-over-Unix-socket endpoints. It enforces text

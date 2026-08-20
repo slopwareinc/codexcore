@@ -530,15 +530,19 @@ async fn drive_turn(
         pending_selection: None,
         pending_model: None,
     };
-    let mut terminal =
+    let (mut terminal, mut projected_revision) =
         publish_current(codex.client(), thread_id, &turn_key, driver.updates).await?;
     while !terminal {
         tokio::select! {
             changed = driver.canonical_observation.changed() => {
-                changed.map_err(|error| error.to_string())?;
-                terminal = publish_transcript(
-                    codex.client(), thread_id, Some(&turn_key), driver.updates
-                ).await?.1;
+                let changed = changed.map_err(|error| error.to_string())?;
+                if changed > projected_revision {
+                    let (state, is_terminal) = publish_transcript(
+                        codex.client(), thread_id, Some(&turn_key), driver.updates
+                    ).await?;
+                    projected_revision = state.revision;
+                    terminal = is_terminal;
+                }
             }
             changed = driver.session_observation.changed() => {
                 changed.map_err(|error| error.to_string())?;
@@ -681,13 +685,10 @@ async fn publish_current(
     thread_id: &ThreadId,
     turn_key: &TurnKey,
     updates: &Sender<AppUpdate>,
-) -> Result<bool, String> {
+) -> Result<(bool, codex_app_server_state::StateRevision), String> {
     publish_pending(client, updates).await?;
-    Ok(
-        publish_transcript(client, thread_id, Some(turn_key), updates)
-            .await?
-            .1,
-    )
+    let (state, terminal) = publish_transcript(client, thread_id, Some(turn_key), updates).await?;
+    Ok((terminal, state.revision))
 }
 
 async fn publish_selected(
