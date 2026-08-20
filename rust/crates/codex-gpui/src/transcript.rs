@@ -10,7 +10,7 @@ use codex_presentation::{
 };
 use gpui::{
     AnyElement, Context, EventEmitter, FollowMode, ListAlignment, ListState, Render, Rgba, Role,
-    WeakEntity, Window, div, list, prelude::*, px, rgb,
+    WeakEntity, Window, div, list, prelude::*, px, rgb, rgba,
 };
 
 /// Swift Transcript V2 column geometry shared by every native transcript row.
@@ -69,8 +69,10 @@ pub struct CodexTheme {
     pub border: Rgba,
     pub text: Rgba,
     pub muted_text: Rgba,
+    pub tertiary_text: Rgba,
     pub accent: Rgba,
     pub user_message: Rgba,
+    pub user_message_stroke: Rgba,
     pub success: Rgba,
     pub warning: Rgba,
     pub danger: Rgba,
@@ -83,11 +85,13 @@ impl Default for CodexTheme {
             background: rgb(0x000f_0f10),
             surface: rgb(0x0016_1618),
             elevated_surface: rgb(0x001f_1f22),
-            border: rgb(0x0033_3338),
+            border: rgba(0xffff_ff16),
             text: rgb(0x00fa_fafa),
             muted_text: rgb(0x00a8_a8b0),
+            tertiary_text: rgb(0x0076_767e),
             accent: rgb(0x0081_89ff),
-            user_message: rgb(0x002a_2a2c),
+            user_message: rgba(0xffff_ff0f),
+            user_message_stroke: rgba(0xffff_ff14),
             success: rgb(0x0044_d17e),
             warning: rgb(0x00e7_a23c),
             danger: rgb(0x00ff_6b66),

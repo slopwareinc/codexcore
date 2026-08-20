@@ -75,45 +75,23 @@ impl Render for CodexThreadList {
             .bg(self.theme.surface)
             .child(
                 div()
-                    .h(px(110.))
+                    .h(px(78.))
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap_1()
                     .p_3()
-                    .border_b_1()
-                    .border_color(self.theme.border)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(self.theme.muted_text)
-                                    .child("WORKSPACE"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(self.theme.muted_text)
-                                    .child("⌘K"),
-                            ),
-                    )
                     .child(
                         div()
                             .id("codex-new-chat")
                             .role(Role::Button)
                             .focusable()
                             .tab_stop(true)
+                            .h(px(30.))
                             .rounded_lg()
-                            .bg(self.theme.elevated_surface)
-                            .border_1()
-                            .border_color(self.theme.border)
-                            .px_3()
-                            .py_2()
+                            .px_2()
+                            .flex()
+                            .items_center()
                             .text_sm()
                             .text_color(self.theme.text)
                             .cursor_pointer()
@@ -121,7 +99,7 @@ impl Render for CodexThreadList {
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::NewChat)),
                             )
-                            .child("＋  New chat"),
+                            .child("＋   New chat"),
                     )
                     .child(
                         div()
@@ -129,15 +107,17 @@ impl Render for CodexThreadList {
                             .role(Role::Button)
                             .focusable()
                             .tab_stop(true)
+                            .h(px(28.))
                             .rounded_lg()
-                            .px_3()
-                            .py_1()
+                            .px_2()
+                            .flex()
+                            .items_center()
                             .text_xs()
-                            .text_color(self.theme.muted_text)
+                            .text_color(self.theme.tertiary_text)
                             .cursor_pointer()
                             .aria_label("Search chats")
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::Search)))
-                            .child("⌕  Search chats"),
+                            .child("⌕   Search chats"),
                     ),
             )
             .child(
@@ -155,7 +135,7 @@ impl Render for CodexThreadList {
                             .text_xs()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(self.theme.muted_text)
-                            .child(format!("CHATS  ·  {item_count}")),
+                            .child(format!("Chats  ·  {item_count}")),
                     )
                     .child(
                         uniform_list(
@@ -180,61 +160,23 @@ impl Render for CodexThreadList {
                         .size_full(),
                     ),
             )
-            .child(
-                div()
-                    .h(px(58.))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .border_t_1()
-                    .border_color(self.theme.border)
-                    .child(
-                        div()
-                            .size(px(30.))
-                            .rounded_full()
-                            .bg(self.theme.accent.opacity(0.24))
-                            .border_1()
-                            .border_color(self.theme.accent)
-                            .text_center()
-                            .py_1()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("PC"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(div().text_xs().text_color(self.theme.text).child("Codex"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(self.theme.muted_text)
-                                    .child("Connected"),
-                            ),
-                    ),
-            )
     }
 }
 
 fn render_row(row: &ThreadListRow, theme: CodexTheme) -> gpui::Stateful<gpui::Div> {
-    let (status, color) = status_presentation(row.status, theme);
+    let (status, _) = status_presentation(row.status, theme);
     div()
         .id(format!("thread:{}", row.thread_id))
         .role(Role::ListItem)
         .aria_label(format!("{}. {status}. {}", row.title, row.cwd))
-        .h(px(68.))
+        .h(px(54.))
         .w_full()
+        .mx_2()
         .px_3()
-        .py_2()
+        .py_1()
         .flex()
         .items_center()
-        .gap_3()
-        .border_b_1()
-        .border_color(theme.border)
+        .rounded_lg()
         .bg(if row.is_selected {
             theme.elevated_surface
         } else {
@@ -242,7 +184,6 @@ fn render_row(row: &ThreadListRow, theme: CodexTheme) -> gpui::Stateful<gpui::Di
         })
         .hover(move |style| style.bg(theme.elevated_surface))
         .cursor_pointer()
-        .child(div().size(px(8.)).rounded_full().bg(color).flex_shrink_0())
         .child(
             div()
                 .min_w_0()
@@ -260,7 +201,7 @@ fn render_row(row: &ThreadListRow, theme: CodexTheme) -> gpui::Stateful<gpui::Di
                 .child(
                     div()
                         .text_xs()
-                        .text_color(theme.muted_text)
+                        .text_color(theme.tertiary_text)
                         .truncate()
                         .child(row.cwd.clone()),
                 ),

@@ -116,13 +116,14 @@ composite row identities, tail following, identity splices, and targeted
 remeasurement for streaming content. Unknown canonical items render as visible
 fallback cards rather than disappearing.
 
-The reference transcript follows the Swift V2 turn grammar: conversation rows
-come first, lifecycle chrome follows the turn, consecutive command/file/tool
-items become one collapsed work group, and compact work rows expand into
-bounded command output, file paths/diffs, or tool arguments/results. The
-default GPUI theme uses the Swift app's Slate canvas/surface/elevated-surface
-and indigo accent tokens; the content column is centered at the same bounded
-width instead of stretching cards across the whole window.
+The reference transcript follows the Swift V2 turn grammar: the user message
+comes first, lifecycle is expressed by the compact work disclosure instead of
+a standalone status badge, consecutive command/file/tool items become one
+collapsed work group, and compact work rows expand into bounded command output,
+file paths/diffs, or tool arguments/results. The default GPUI theme uses the
+Swift app's exact Slate canvas/surface/elevated-surface colors, translucent
+border and user-bubble tokens, and indigo accent; the content column is centered
+at the same bounded width instead of stretching cards across the whole window.
 
 File-change projection decodes stable path, move destination, kind, and diff
 semantics while retaining malformed raw values. GPUI renders a bounded native
@@ -192,7 +193,10 @@ The composer uses GPUI's native input-handler contract for IME composition,
 UTF-16 platform ranges, grapheme navigation, selection, and clipboard actions.
 Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key
 bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
-steering, queueing, and persistence remain host policy.
+steering, queueing, and persistence remain host policy. The host also supplies
+the current catalog display name through `set_model_label`; activating that
+compact control emits `OpenModelPicker` so it opens the real picker rather than
+showing an inert placeholder chip.
 
 The reference host supplies that basic policy: Submit starts a new turn while
 idle. During an active turn, Queue is the default and Steer is an explicit

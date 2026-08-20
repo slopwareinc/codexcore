@@ -71,6 +71,7 @@ pub enum ComposerEvent {
         active_behavior: ActiveSubmitBehavior,
     },
     Interrupt,
+    OpenModelPicker,
 }
 
 pub(crate) enum InputEvent {
@@ -706,6 +707,7 @@ fn marked_runs(
 pub struct CodexComposer {
     input: Entity<ComposerInput>,
     theme: CodexTheme,
+    model_label: SharedString,
     turn_active: bool,
     queue_enabled: bool,
     active_submit_behavior: ActiveSubmitBehavior,
@@ -725,6 +727,7 @@ impl CodexComposer {
         Self {
             input,
             theme,
+            model_label: "Model".into(),
             turn_active: false,
             queue_enabled: true,
             active_submit_behavior: ActiveSubmitBehavior::Queue,
@@ -754,6 +757,15 @@ impl CodexComposer {
     pub fn set_turn_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.turn_active != active {
             self.turn_active = active;
+            cx.notify();
+        }
+    }
+
+    /// Update the compact model label shown in the composer control row.
+    pub fn set_model_label(&mut self, label: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let label = label.into();
+        if self.model_label != label {
+            self.model_label = label;
             cx.notify();
         }
     }
@@ -811,6 +823,7 @@ impl Render for CodexComposer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let can_submit = !self.input.read(cx).text().trim().is_empty();
         let theme = self.theme;
+        let model_label = self.model_label.clone();
         let submit_label = if self.turn_active {
             match self.active_submit_behavior {
                 ActiveSubmitBehavior::Queue => "Queue",
@@ -827,11 +840,11 @@ impl Render for CodexComposer {
             .flex()
             .flex_col()
             .gap_2()
-            .rounded_xl()
+            .rounded(px(16.))
             .border_1()
             .border_color(theme.border)
             .bg(theme.elevated_surface)
-            .p_3()
+            .p(px(10.))
             .child(
                 div()
                     .min_h(px(34.))
@@ -845,9 +858,7 @@ impl Render for CodexComposer {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(composer_chip("＋", "Add", theme))
-                    .child(composer_chip("⌁", "Mention", theme))
-                    .child(composer_chip("◈", "Model", theme))
+                    .child(composer_icon_button("＋", "Add files and more", theme))
                     .child(div().flex_1())
                     .when(self.turn_active && self.queue_enabled, |view| {
                         view.child(
@@ -873,14 +884,38 @@ impl Render for CodexComposer {
                     })
                     .child(
                         div()
+                            .id("codex-composer-model")
+                            .focusable()
+                            .tab_stop(true)
+                            .role(Role::Button)
+                            .aria_label("Choose model")
+                            .h(px(28.))
+                            .max_w(px(240.))
+                            .px_1()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(ComposerEvent::OpenModelPicker);
+                            }))
+                            .child(model_label)
+                            .child("⌄"),
+                    )
+                    .child(
+                        div()
                             .id("codex-composer-submit")
                             .focusable()
                             .tab_stop(true)
                             .role(Role::Button)
                             .aria_label(format!("{submit_label} message"))
-                            .rounded_lg()
-                            .px_3()
-                            .py_2()
+                            .size(px(32.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .bg(if can_submit {
                                 theme.accent
                             } else {
@@ -895,7 +930,7 @@ impl Render for CodexComposer {
                             .when(can_submit, |button| {
                                 button.on_click(cx.listener(|this, _, _, cx| this.submit(cx)))
                             })
-                            .child(submit_label),
+                            .child("↑"),
                     ),
             )
             .when(self.turn_active, |view| {
@@ -906,21 +941,23 @@ impl Render for CodexComposer {
                         .tab_stop(true)
                         .role(Role::Button)
                         .aria_label("Interrupt active turn")
-                        .rounded_lg()
+                        .size(px(32.))
+                        .rounded_full()
                         .border_1()
                         .border_color(theme.danger)
-                        .px_3()
-                        .py_2()
+                        .flex()
+                        .items_center()
+                        .justify_center()
                         .text_color(theme.danger)
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx)))
-                        .child("Stop"),
+                        .child("■"),
                 )
             })
     }
 }
 
-fn composer_chip(
+fn composer_icon_button(
     glyph: &'static str,
     label: &'static str,
     theme: CodexTheme,
@@ -931,15 +968,14 @@ fn composer_chip(
         .tab_stop(true)
         .role(Role::Button)
         .aria_label(label)
-        .rounded_lg()
-        .border_1()
-        .border_color(theme.border)
-        .px_2()
-        .py_1()
+        .size(px(28.))
+        .flex()
+        .items_center()
+        .justify_center()
         .text_xs()
         .text_color(theme.muted_text)
         .cursor_pointer()
-        .child(format!("{glyph} {label}"))
+        .child(glyph)
 }
 
 fn bounded_replacement(value: &str, maximum_bytes: usize) -> String {

@@ -41,6 +41,9 @@ use crate::goal::execute_goal_event;
 const UPDATE_CAPACITY: usize = 32;
 const COMMAND_CAPACITY: usize = 16;
 const LOCAL_HOST_ID: &str = "local";
+const SIDEBAR_WIDTH: f32 = 304.;
+const TOOLBAR_HEIGHT: f32 = 46.;
+const COMPOSER_FRAME_WIDTH: f32 = 768.;
 
 pub fn run() {
     let config = match RunConfiguration::parse(std::env::args().skip(1)) {
@@ -62,7 +65,7 @@ pub fn run() {
     application().run(move |cx: &mut App| {
         gpui_tokio::init(cx);
         codex_gpui::init_composer(cx);
-        let bounds = Bounds::centered(None, size(px(1_040.), px(780.)), cx);
+        let bounds = Bounds::centered(None, size(px(1_200.), px(840.)), cx);
         cx.open_window(
             WindowOptions {
                 focus: true,
@@ -378,6 +381,32 @@ fn subscribe_thread_commands(
     })
 }
 
+fn subscribe_composer(
+    composer: &Entity<CodexComposer>,
+    sender: &Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    let sender = sender.clone();
+    cx.subscribe(composer, move |this, _, event: &ComposerEvent, cx| {
+        let command = match event {
+            ComposerEvent::Submit {
+                text,
+                active_behavior,
+            } => HostCommand::Submit {
+                text: text.clone(),
+                active_behavior: *active_behavior,
+            },
+            ComposerEvent::Interrupt => HostCommand::Interrupt,
+            ComposerEvent::OpenModelPicker => {
+                this.inspector_visible = true;
+                cx.notify();
+                return;
+            }
+        };
+        let _ = sender.try_send(command);
+    })
+}
+
 impl CodexApp {
     fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
         let InitialViews {
@@ -392,21 +421,7 @@ impl CodexApp {
         } = initial_views(!config.ephemeral, cx);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
-        let composer_sender = command_sender.clone();
-        let composer_subscription =
-            cx.subscribe(&composer, move |_, _, event: &ComposerEvent, _| {
-                let command = match event {
-                    ComposerEvent::Submit {
-                        text,
-                        active_behavior,
-                    } => HostCommand::Submit {
-                        text: text.clone(),
-                        active_behavior: *active_behavior,
-                    },
-                    ComposerEvent::Interrupt => HostCommand::Interrupt,
-                };
-                let _ = composer_sender.try_send(command);
-            });
+        let composer_subscription = subscribe_composer(&composer, &command_sender, cx);
         let transcript_subscription = subscribe_transcript_links(&transcript, cx);
         let thread_list_subscription =
             subscribe_thread_selection(&thread_list, &command_sender, cx);
@@ -498,6 +513,10 @@ impl CodexApp {
             }
             AppUpdate::Prompt(presentation) => self.install_prompt(presentation, cx),
             AppUpdate::ModelPicker(presentation) => {
+                let composer_label = composer_model_label(&presentation);
+                self.composer.update(cx, |composer, cx| {
+                    composer.set_model_label(composer_label, cx);
+                });
                 self.model_picker.update(cx, |picker, cx| {
                     picker.set_presentation(presentation, cx);
                 });
@@ -582,35 +601,23 @@ impl Render for CodexApp {
             .child(
                 div()
                     .id("codex-window-chrome")
-                    .h(px(52.))
+                    .h(px(TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .bg(theme.surface)
+                    .bg(theme.background)
                     .child(
                         div()
-                            .w(px(276.))
+                            .w(px(SIDEBAR_WIDTH))
                             .h_full()
                             .flex_shrink_0()
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .px_5()
+                            .px_4()
+                            .bg(theme.surface)
                             .child(
                                 div()
-                                    .size(px(22.))
-                                    .rounded_lg()
-                                    .bg(theme.accent)
-                                    .text_color(theme.background)
-                                    .text_center()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .child("C"),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
+                                    .text_base()
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .child("Codex"),
                             ),
@@ -622,7 +629,7 @@ impl Render for CodexApp {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .px_5()
+                            .px_4()
                             .child(
                                 div()
                                     .flex()
@@ -632,7 +639,7 @@ impl Render for CodexApp {
                                     .child(
                                         div()
                                             .text_xs()
-                                            .text_color(theme.muted_text)
+                                            .text_color(theme.tertiary_text)
                                             .child("CodexCore"),
                                     ),
                             )
@@ -641,12 +648,14 @@ impl Render for CodexApp {
                                     .flex()
                                     .items_center()
                                     .gap_2()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_text)
-                                            .child(self.status.clone()),
-                                    )
+                                    .when(self.status.starts_with("Session failed:"), |view| {
+                                        view.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme.danger)
+                                                .child(self.status.clone()),
+                                        )
+                                    })
                                     .child(
                                         shell_button(
                                             "inspector-toggle",
@@ -675,7 +684,7 @@ impl Render for CodexApp {
                     .child(
                         div()
                             .id("codex-sidebar")
-                            .w(px(276.))
+                            .w(px(SIDEBAR_WIDTH))
                             .h_full()
                             .flex_shrink_0()
                             .border_r_1()
@@ -702,10 +711,13 @@ impl Render for CodexApp {
                                     .w_full()
                                     .flex()
                                     .justify_center()
-                                    .px_5()
-                                    .pb_5()
+                                    .px(px(14.))
+                                    .pb(px(22.))
                                     .child(
-                                        div().w_full().max_w(px(760.)).child(self.composer.clone()),
+                                        div()
+                                            .w_full()
+                                            .max_w(px(COMPOSER_FRAME_WIDTH))
+                                            .child(self.composer.clone()),
                                     ),
                             ),
                     )
@@ -1814,6 +1826,26 @@ async fn send_status(updates: &Sender<AppUpdate>, status: &str) {
         .ok();
 }
 
+fn composer_model_label(presentation: &ModelPickerPresentation) -> String {
+    let display_name = presentation
+        .models
+        .iter()
+        .find(|model| model.model == presentation.selected_model)
+        .map(|model| model.display_name.as_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(presentation.selected_model.as_str());
+    if display_name.trim().is_empty() {
+        return "Model".to_owned();
+    }
+    let effort = match presentation.selected_effort.as_str() {
+        "" => return display_name.to_owned(),
+        "xhigh" => "Extra high",
+        "none" => "No reasoning",
+        value => value,
+    };
+    format!("{display_name} · {effort}")
+}
+
 fn current_unix_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1928,6 +1960,23 @@ mod tests {
         );
         assert_eq!(options.model.as_deref(), Some("model"));
         assert_eq!(options.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn composer_model_label_uses_catalog_name_and_human_effort() {
+        let presentation = ModelPickerPresentation {
+            models: vec![codex_presentation::ModelChoicePresentation {
+                model: "gpt-5.6-sol".to_owned(),
+                display_name: "5.6 Sol".to_owned(),
+                description: String::new(),
+                is_default: true,
+                default_effort: "xhigh".to_owned(),
+                efforts: Vec::new(),
+            }],
+            selected_model: "gpt-5.6-sol".to_owned(),
+            selected_effort: "xhigh".to_owned(),
+        };
+        assert_eq!(composer_model_label(&presentation), "5.6 Sol · Extra high");
     }
 
     #[test]

@@ -629,10 +629,10 @@ fn render_user(id: String, message: &UserMessageV2, theme: CodexTheme) -> AnyEle
         .child(
             div()
                 .max_w(px(TranscriptLayoutMetrics::USER_MAX_WIDTH))
-                .rounded_xl()
+                .rounded(px(16.))
                 .bg(theme.user_message)
                 .border_1()
-                .border_color(theme.border)
+                .border_color(theme.user_message_stroke)
                 .px_3()
                 .py_2()
                 .whitespace_normal()
@@ -667,54 +667,50 @@ fn render_work_disclosure(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
 ) -> AnyElement {
-    let label = work_disclosure_label(status);
+    let label = work_disclosure_label(status, visible_entry_count);
     let toggle_turn_id = turn_id.as_str().to_owned();
+    let is_actionable = matches!(status, TurnStatusV2::Done { .. });
     div()
         .id(id)
-        .role(Role::Button)
         .aria_label(format!(
             "{label}, {visible_entry_count} item(s), {}",
             if expanded { "expanded" } else { "collapsed" }
         ))
-        .aria_expanded(expanded)
-        .focusable()
-        .tab_stop(true)
         .w_full()
         .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .h(px(TranscriptLayoutMetrics::WORK_HEADER_HEIGHT))
         .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
         .flex()
         .items_center()
-        .gap_2()
-        .text_sm()
-        .text_color(theme.muted_text)
-        .cursor_pointer()
-        .child(if expanded { "⌄" } else { "›" })
+        .gap_1()
+        .text_xs()
+        .text_color(theme.tertiary_text)
         .child(label)
-        .child(
-            div()
-                .rounded_full()
-                .border_1()
-                .border_color(theme.border)
-                .px_2()
-                .text_xs()
-                .child(visible_entry_count.to_string()),
-        )
-        .on_click({
-            let emitter = emitter.clone();
-            move |_, _, cx| {
-                emitter
-                    .update(cx, |transcript, cx| {
-                        transcript.toggle_turn_work(toggle_turn_id.clone(), cx);
-                    })
-                    .ok();
-            }
+        .when(is_actionable, |view| {
+            view.child(div().child(if expanded { "⌄" } else { "›" }))
         })
+        .when(is_actionable, |view| {
+            let emitter = emitter.clone();
+            view.role(Role::Button)
+                .aria_expanded(expanded)
+                .focusable()
+                .tab_stop(true)
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    emitter
+                        .update(cx, |transcript, cx| {
+                            transcript.toggle_turn_work(toggle_turn_id.clone(), cx);
+                        })
+                        .ok();
+                })
+        })
+        .when(!is_actionable, |view| view.role(Role::Status))
         .into_any()
 }
 
-fn work_disclosure_label(status: &TurnStatusV2) -> String {
+fn work_disclosure_label(status: &TurnStatusV2, visible_entry_count: usize) -> String {
     match status {
+        TurnStatusV2::Working { .. } if visible_entry_count == 0 => "Thinking".to_owned(),
         TurnStatusV2::Working { .. } => "Working".to_owned(),
         TurnStatusV2::Done { duration_ms } => duration_ms.map_or_else(
             || "Worked".to_owned(),
@@ -742,7 +738,8 @@ fn render_work_group(
         .w_full()
         .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
-        .child(
+        .child({
+            let emitter = emitter.clone();
             div()
                 .id(format!("{id}:disclosure"))
                 .role(Role::Button)
@@ -754,36 +751,25 @@ fn render_work_group(
                 .aria_expanded(expanded)
                 .focusable()
                 .tab_stop(true)
-                .h(px(TranscriptLayoutMetrics::WORK_HEADER_HEIGHT))
+                .h(px(TranscriptLayoutMetrics::WORK_ROW_HEIGHT))
                 .w_full()
                 .flex()
                 .items_center()
                 .gap_2()
-                .text_sm()
-                .text_color(theme.muted_text)
+                .text_xs()
+                .text_color(theme.tertiary_text)
                 .cursor_pointer()
-                .child(if expanded { "⌄" } else { "›" })
-                .child(label)
-                .child(
-                    div()
-                        .rounded_full()
-                        .border_1()
-                        .border_color(theme.border)
-                        .px_2()
-                        .text_xs()
-                        .child(group.rows.len().to_string()),
-                )
-                .on_click({
-                    let emitter = emitter.clone();
-                    move |_, _, cx| {
-                        emitter
-                            .update(cx, |transcript, cx| {
-                                transcript.toggle_group(&group_key, cx);
-                            })
-                            .ok();
-                    }
-                }),
-        )
+                .child(work_status_glyph(&group.status, theme))
+                .child(div().min_w_0().truncate().child(label))
+                .child(div().child(if expanded { "⌄" } else { "›" }))
+                .on_click(move |_, _, cx| {
+                    emitter
+                        .update(cx, |transcript, cx| {
+                            transcript.toggle_group(&group_key, cx);
+                        })
+                        .ok();
+                })
+        })
         .when(expanded, |view| {
             view.child(
                 div()
@@ -849,13 +835,12 @@ fn render_work_row(
         })
         .h(px(TranscriptLayoutMetrics::WORK_ROW_HEIGHT))
         .w_full()
-        .pl(px(22.))
         .pr_2()
         .flex()
         .items_center()
         .gap_2()
         .text_xs()
-        .text_color(theme.muted_text)
+        .text_color(theme.tertiary_text)
         .child(work_status_glyph(status, theme))
         .child(div().min_w_0().flex_1().truncate().child(label))
         .when(has_detail, |view| {
@@ -1167,41 +1152,13 @@ fn render_generated_image(id: String, image: &GeneratedImageV2, theme: CodexThem
     )
 }
 
-fn render_lifecycle(id: String, status: &TurnStatusV2, theme: CodexTheme) -> AnyElement {
-    let (label, color) = match status {
-        TurnStatusV2::Working { .. } => ("Working".to_owned(), theme.accent),
-        TurnStatusV2::Done { duration_ms } => (
-            duration_ms.map_or_else(
-                || "Done".to_owned(),
-                |duration| format!("Done · {}", format_duration(duration)),
-            ),
-            theme.success,
-        ),
-        TurnStatusV2::Interrupted { message, .. } => {
-            (format!("Interrupted · {message}"), theme.warning)
-        }
-        TurnStatusV2::Failed { message, .. } => (format!("Failed · {message}"), theme.danger),
-    };
+fn render_lifecycle(id: String, _status: &TurnStatusV2, _theme: CodexTheme) -> AnyElement {
+    // Swift's AppKit transcript uses the work header and hover footer for turn
+    // state. There is no visible standalone lifecycle badge between turns.
     div()
         .id(id)
-        .role(Role::Status)
-        .aria_label(bounded_label(label.clone()))
         .w_full()
-        .h(px(TranscriptLayoutMetrics::WORK_HEADER_HEIGHT))
-        .mb(px(TranscriptLayoutMetrics::TURN_GAP))
-        .flex()
-        .items_center()
-        .justify_end()
-        .text_xs()
-        .text_color(color)
-        .child(
-            div()
-                .rounded_full()
-                .border_1()
-                .border_color(color)
-                .px_2()
-                .child(label),
-        )
+        .h(px(TranscriptLayoutMetrics::TURN_GAP))
         .into_any()
 }
 
@@ -1584,5 +1541,45 @@ mod tests {
         assert_close(TranscriptLayoutMetrics::user_width(600.), 425.04);
         assert_close(TranscriptLayoutMetrics::TURN_GAP, 16.);
         assert_close(TranscriptLayoutMetrics::ITEM_GAP, 4.);
+    }
+
+    #[test]
+    fn work_header_titles_follow_swift_semantics() {
+        assert_eq!(
+            work_disclosure_label(
+                &TurnStatusV2::Working {
+                    since_unix_seconds: None
+                },
+                0
+            ),
+            "Thinking"
+        );
+        assert_eq!(
+            work_disclosure_label(
+                &TurnStatusV2::Working {
+                    since_unix_seconds: None
+                },
+                2
+            ),
+            "Working"
+        );
+        assert_eq!(
+            work_disclosure_label(
+                &TurnStatusV2::Done {
+                    duration_ms: Some(4_800)
+                },
+                2
+            ),
+            "Worked for 4.8s"
+        );
+    }
+
+    #[test]
+    fn default_theme_uses_exact_swift_slate_translucencies() {
+        let theme = CodexTheme::default();
+        assert_eq!(theme.border, gpui::rgba(0xffff_ff16));
+        assert_eq!(theme.user_message, gpui::rgba(0xffff_ff0f));
+        assert_eq!(theme.user_message_stroke, gpui::rgba(0xffff_ff14));
+        assert_eq!(theme.tertiary_text, gpui::rgb(0x0076_767e));
     }
 }
