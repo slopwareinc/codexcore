@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use codex_app_server_state::{LifecycleStatus, StateRevision};
 use codex_presentation::{
-    ActivityKind, ActivityPresentation, PresentedEntry, TranscriptEntry, TranscriptPresentation,
+    ActivityKind, ActivityPresentation, FileChangeKind, FileChangePresentation, PresentedEntry,
+    TranscriptEntry, TranscriptPresentation,
 };
 use gpui::{
     AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Role, Window, div,
@@ -298,12 +299,7 @@ fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
             *exit_code,
             theme,
         ),
-        TranscriptEntry::FileChanges { changes } => card(
-            shell,
-            "File changes",
-            format!("{} change(s)", changes.len()),
-            theme,
-        ),
+        TranscriptEntry::FileChanges { changes } => render_file_changes(shell, changes, theme),
         TranscriptEntry::ToolCall {
             server,
             tool,
@@ -497,6 +493,146 @@ fn render_notice(shell: RowShell, text: &str, theme: CodexTheme) -> AnyElement {
                 .child(text.to_owned()),
         )
         .into_any()
+}
+
+fn render_file_changes(
+    shell: RowShell,
+    changes: &[FileChangePresentation],
+    theme: CodexTheme,
+) -> AnyElement {
+    const MAXIMUM_FILES: usize = 12;
+    let files = changes
+        .iter()
+        .take(MAXIMUM_FILES)
+        .enumerate()
+        .map(|(index, change)| render_file_change(change, index, theme))
+        .collect::<Vec<_>>();
+    shell
+        .child(
+            div()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .overflow_hidden()
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .bg(theme.elevated_surface)
+                        .text_sm()
+                        .child(format!("File changes · {}", changes.len())),
+                )
+                .children(files)
+                .when(changes.len() > MAXIMUM_FILES, |view| {
+                    view.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .child(format!(
+                                "{} additional file(s) hidden",
+                                changes.len() - MAXIMUM_FILES
+                            )),
+                    )
+                }),
+        )
+        .into_any()
+}
+
+fn render_file_change(
+    change: &FileChangePresentation,
+    index: usize,
+    theme: CodexTheme,
+) -> AnyElement {
+    const MAXIMUM_LINES: usize = 16;
+    let (kind, kind_color) = file_change_kind(&change.kind, theme);
+    let lines = change
+        .diff
+        .lines()
+        .take(MAXIMUM_LINES)
+        .enumerate()
+        .map(|(line_index, line)| {
+            let color = if line.starts_with('+') && !line.starts_with("+++") {
+                theme.success
+            } else if line.starts_with('-') && !line.starts_with("---") {
+                theme.danger
+            } else {
+                theme.muted_text
+            };
+            div()
+                .id(("diff-line", index * 1_000 + line_index))
+                .font_family("monospace")
+                .text_xs()
+                .text_color(color)
+                .whitespace_nowrap()
+                .child(line.to_owned())
+        })
+        .collect::<Vec<_>>();
+    let line_count = change.diff.lines().count();
+    div()
+        .id(("file-change", index))
+        .border_t_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().text_xs().text_color(kind_color).child(kind))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .font_family("monospace")
+                        .text_sm()
+                        .truncate()
+                        .child(change.path.clone()),
+                )
+                .when_some(change.destination_path.clone(), |view, destination| {
+                    view.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .child(format!("→ {destination}")),
+                    )
+                }),
+        )
+        .when(!lines.is_empty(), |view| {
+            view.child(
+                div()
+                    .px_3()
+                    .pb_2()
+                    .overflow_hidden()
+                    .flex()
+                    .flex_col()
+                    .children(lines),
+            )
+        })
+        .when(line_count > MAXIMUM_LINES, |view| {
+            view.child(
+                div()
+                    .px_3()
+                    .pb_2()
+                    .text_xs()
+                    .text_color(theme.muted_text)
+                    .child(format!("{} additional line(s)", line_count - MAXIMUM_LINES)),
+            )
+        })
+        .into_any()
+}
+
+fn file_change_kind(kind: &FileChangeKind, theme: CodexTheme) -> (String, Rgba) {
+    match kind {
+        FileChangeKind::Added => ("A".to_owned(), theme.success),
+        FileChangeKind::Deleted => ("D".to_owned(), theme.danger),
+        FileChangeKind::Modified => ("M".to_owned(), theme.warning),
+        FileChangeKind::Renamed => ("R".to_owned(), theme.accent),
+        FileChangeKind::Unknown(kind) => (kind.clone(), theme.muted_text),
+    }
 }
 
 fn card(shell: RowShell, title: &str, detail: String, theme: CodexTheme) -> AnyElement {

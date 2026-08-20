@@ -102,6 +102,11 @@ composite row identities, tail following, identity splices, and targeted
 remeasurement for streaming content. Unknown canonical items render as visible
 fallback cards rather than disappearing.
 
+File-change projection decodes stable path, move destination, kind, and diff
+semantics while retaining malformed raw values. GPUI renders a bounded native
+preview (12 files and 16 lines per file) with add/delete colors and explicit
+overflow counts; full review-grade expansion remains a host workbench concern.
+
 Prompt projections preserve the exact connection-epoch/request-ID identity and
 declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host
 still maps that intent to a generated-schema-validated reply or opens the

@@ -1,5 +1,7 @@
 //! Framework-neutral transcript, activity, and prompt presentation.
 
+use std::sync::Arc;
+
 pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
 use codex_app_server_sdk::{ThreadPage, ThreadSummary};
@@ -162,7 +164,7 @@ pub enum TranscriptEntry {
         exit_code: Option<i64>,
     },
     FileChanges {
-        changes: Vec<Value>,
+        changes: Vec<FileChangePresentation>,
     },
     ToolCall {
         server: Option<String>,
@@ -184,6 +186,25 @@ pub enum TranscriptEntry {
         kind: String,
         payload: Value,
     },
+}
+
+/// One semantic file change with lossless malformed fallback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FileChangePresentation {
+    pub path: String,
+    pub destination_path: Option<String>,
+    pub kind: FileChangeKind,
+    pub diff: Arc<str>,
+    pub malformed_raw: Option<Value>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FileChangeKind {
+    Added,
+    Deleted,
+    Modified,
+    Renamed,
+    Unknown(String),
 }
 
 /// Compact semantic activity row.
@@ -331,8 +352,10 @@ fn project_item(item: &CanonicalItem) -> TranscriptEntry {
             changes: payload
                 .get("changes")
                 .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten()
+                .filter_map(project_file_change)
+                .collect(),
         },
         "mcpToolCall" => TranscriptEntry::ToolCall {
             server: string(&payload, "server"),
@@ -368,6 +391,49 @@ fn project_item(item: &CanonicalItem) -> TranscriptEntry {
             payload,
         },
     }
+}
+
+fn project_file_change(value: &Value) -> Option<FileChangePresentation> {
+    let object = value.as_object()?;
+    let path = object.get("path")?.as_str()?.to_owned();
+    if path.is_empty() {
+        return None;
+    }
+    let kind_object = object.get("kind").and_then(Value::as_object);
+    let raw_kind = kind_object
+        .and_then(|kind| kind.get("type"))
+        .and_then(Value::as_str)
+        .or_else(|| object.get("kind").and_then(Value::as_str));
+    let destination_path = kind_object
+        .and_then(|kind| kind.get("move_path").or_else(|| kind.get("movePath")))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let kind = match (raw_kind, destination_path.is_some()) {
+        (Some("add"), _) => FileChangeKind::Added,
+        (Some("delete"), _) => FileChangeKind::Deleted,
+        (Some("update"), true) => FileChangeKind::Renamed,
+        (Some("update"), false) => FileChangeKind::Modified,
+        (Some(kind), _) => FileChangeKind::Unknown(kind.to_owned()),
+        (None, _) => FileChangeKind::Unknown("unknown".to_owned()),
+    };
+    let diff = object
+        .get("diff")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let malformed = raw_kind.is_none()
+        || object.get("diff").is_some_and(|diff| !diff.is_string())
+        || kind_object.is_some_and(|kind| {
+            kind.get("move_path")
+                .or_else(|| kind.get("movePath"))
+                .is_some_and(|path| !path.is_string() && !path.is_null())
+        });
+    Some(FileChangePresentation {
+        path,
+        destination_path,
+        kind,
+        diff: Arc::from(diff),
+        malformed_raw: malformed.then(|| value.clone()),
+    })
 }
 
 fn activity(item: &CanonicalItem, kind: ActivityKind, label: String) -> ActivityPresentation {
@@ -780,6 +846,33 @@ mod tests {
     fn humanizes_tool_names() {
         assert_eq!(humanize("create_issue"), "Create issue");
         assert_eq!(humanize("webSearch"), "Web search");
+    }
+
+    #[test]
+    fn file_change_projection_preserves_move_and_diff_semantics() {
+        let change = project_file_change(&serde_json::json!({
+            "path": "old.rs",
+            "kind": {"type": "update", "move_path": "new.rs"},
+            "diff": "@@ -1 +1 @@\n-old\n+new"
+        }))
+        .expect("file change");
+        assert_eq!(change.path, "old.rs");
+        assert_eq!(change.destination_path.as_deref(), Some("new.rs"));
+        assert_eq!(change.kind, FileChangeKind::Renamed);
+        assert!(change.diff.contains("+new"));
+        assert!(change.malformed_raw.is_none());
+    }
+
+    #[test]
+    fn malformed_file_change_remains_visible_and_lossless() {
+        let raw = serde_json::json!({
+            "path": "file.rs",
+            "kind": {"unexpected": true},
+            "diff": 7
+        });
+        let change = project_file_change(&raw).expect("file change");
+        assert_eq!(change.kind, FileChangeKind::Unknown("unknown".to_owned()));
+        assert_eq!(change.malformed_raw, Some(raw));
     }
 
     #[test]

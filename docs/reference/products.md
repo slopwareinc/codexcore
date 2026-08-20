@@ -7,8 +7,8 @@ Portable Rust foundations for the App Server SDK and GPUI platform are under
 independent of GPUI. `codex-gpui` consumes disposable presentation models and
 provides an accessible virtualized transcript, exact-identity prompt cards,
 a bounded native IME-aware composer, virtualized stored-task navigation, and a
-compiling native example; it does not own an App Server session or application
-lifecycle. See the
+bounded semantic file-diff preview plus a compiling native example; it does not
+own an App Server session or application lifecycle. See the
 [Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
 
 `codex-gpui-app` is the native reference-host bootstrap. It currently owns one
