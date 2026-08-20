@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use codex_presentation::{
     PromptActionEmphasis, PromptActionKind, PromptActionPresentation, PromptPresentation,
-    ServerRequestKey,
+    ServerRequestKey, UserQuestionPresentation,
 };
 use gpui::{AnyElement, Context, EventEmitter, Render, Role, Window, div, prelude::*, px};
 
@@ -15,12 +17,14 @@ use crate::CodexTheme;
 pub struct PromptIntent {
     pub key: ServerRequestKey,
     pub action: PromptActionKind,
+    pub answers: Option<BTreeMap<String, Vec<String>>>,
 }
 
 /// Accessible blocking-prompt card with host-routed semantic actions.
 pub struct CodexPrompt {
     presentation: PromptPresentation,
     theme: CodexTheme,
+    answers: BTreeMap<String, Vec<String>>,
 }
 
 impl CodexPrompt {
@@ -29,6 +33,7 @@ impl CodexPrompt {
         Self {
             presentation,
             theme: CodexTheme::default(),
+            answers: BTreeMap::new(),
         }
     }
 
@@ -45,7 +50,20 @@ impl CodexPrompt {
 
     pub fn set_presentation(&mut self, presentation: PromptPresentation, cx: &mut Context<Self>) {
         self.presentation = presentation;
+        self.answers.clear();
         cx.notify();
+    }
+
+    fn select_answer(&mut self, question_id: String, answer: String, cx: &mut Context<Self>) {
+        self.answers.insert(question_id, vec![answer]);
+        cx.notify();
+    }
+
+    fn form_is_complete(&self) -> bool {
+        self.presentation
+            .user_input
+            .as_ref()
+            .is_none_or(|form| answers_complete(&form.questions, &self.answers))
     }
 }
 
@@ -53,12 +71,36 @@ impl EventEmitter<PromptIntent> for CodexPrompt {}
 
 impl Render for CodexPrompt {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let questions = self
+            .presentation
+            .user_input
+            .as_ref()
+            .map(|form| form.questions.clone())
+            .unwrap_or_default();
+        let question_elements = questions
+            .iter()
+            .enumerate()
+            .map(|(index, question)| {
+                render_question(question, index, &self.answers, self.theme, cx)
+            })
+            .collect::<Vec<_>>();
+        let form_complete = self.form_is_complete();
         let action_elements = self
             .presentation
             .actions
             .iter()
             .cloned()
-            .map(|action| render_action(&self.presentation.key, action, self.theme, cx))
+            .map(|action| {
+                let enabled = action.kind != PromptActionKind::Respond || form_complete;
+                render_action(
+                    &self.presentation.key,
+                    action,
+                    enabled,
+                    &self.answers,
+                    self.theme,
+                    cx,
+                )
+            })
             .collect::<Vec<_>>();
         let identity = prompt_identity(&self.presentation.key);
 
@@ -105,6 +147,7 @@ impl Render for CodexPrompt {
                         .child(message),
                 )
             })
+            .children(question_elements)
             .child(
                 div()
                     .id("prompt-actions")
@@ -121,11 +164,14 @@ impl Render for CodexPrompt {
 fn render_action(
     key: &ServerRequestKey,
     action: PromptActionPresentation,
+    enabled: bool,
+    answers: &BTreeMap<String, Vec<String>>,
     theme: CodexTheme,
     cx: &mut Context<CodexPrompt>,
 ) -> AnyElement {
     let event_key = key.clone();
     let event_kind = action.kind;
+    let event_answers = (action.kind == PromptActionKind::Respond).then(|| answers.clone());
     let (background, foreground, border) = match action.emphasis {
         PromptActionEmphasis::Primary => (theme.accent, theme.background, theme.accent),
         PromptActionEmphasis::Secondary => (theme.surface, theme.text, theme.border),
@@ -143,19 +189,124 @@ fn render_action(
         .rounded_lg()
         .border_1()
         .border_color(border)
-        .bg(background)
-        .text_color(foreground)
+        .bg(if enabled { background } else { theme.surface })
+        .text_color(if enabled {
+            foreground
+        } else {
+            theme.muted_text
+        })
         .text_sm()
         .text_center()
-        .cursor_pointer()
-        .hover(move |style| style.bg(background.opacity(0.82)))
-        .on_click(cx.listener(move |_, _, _, cx| {
-            cx.emit(PromptIntent {
-                key: event_key.clone(),
-                action: event_kind,
-            });
-        }))
+        .when(enabled, |button| {
+            button
+                .cursor_pointer()
+                .hover(move |style| style.bg(background.opacity(0.82)))
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.emit(PromptIntent {
+                        key: event_key.clone(),
+                        action: event_kind,
+                        answers: event_answers.clone(),
+                    });
+                }))
+        })
         .child(action.label)
+        .into_any()
+}
+
+fn render_question(
+    question: &UserQuestionPresentation,
+    index: usize,
+    answers: &BTreeMap<String, Vec<String>>,
+    theme: CodexTheme,
+    cx: &mut Context<CodexPrompt>,
+) -> AnyElement {
+    let selected = answers
+        .get(&question.id)
+        .and_then(|answers| answers.first());
+    let options = question
+        .options
+        .iter()
+        .enumerate()
+        .map(|(option_index, option)| {
+            let is_selected = selected == Some(&option.label);
+            let question_id = question.id.clone();
+            let answer = option.label.clone();
+            div()
+                .id(("question-option", index * 1_000 + option_index))
+                .focusable()
+                .tab_stop(true)
+                .role(Role::RadioButton)
+                .aria_label(option.label.clone())
+                .aria_selected(is_selected)
+                .rounded_lg()
+                .border_1()
+                .border_color(if is_selected {
+                    theme.accent
+                } else {
+                    theme.border
+                })
+                .bg(if is_selected {
+                    theme.surface
+                } else {
+                    theme.elevated_surface
+                })
+                .px_3()
+                .py_2()
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_answer(question_id.clone(), answer.clone(), cx);
+                }))
+                .child(option.label.clone())
+                .when_some(option.description.clone(), |view, description| {
+                    view.child(
+                        div()
+                            .ml_2()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .child(description),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    div()
+        .id(("prompt-question", index))
+        .role(Role::Group)
+        .aria_label(question.question.clone())
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_sm()
+                .child(question.question.clone())
+                .when(question.is_secret, |view| {
+                    view.child(
+                        div()
+                            .ml_2()
+                            .text_xs()
+                            .text_color(theme.warning)
+                            .child("Secret response"),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .id(("question-options", index))
+                .role(Role::RadioGroup)
+                .aria_label(question.header.clone())
+                .flex()
+                .flex_col()
+                .gap_2()
+                .children(options),
+        )
+        .when(question.is_other_allowed, |view| {
+            view.child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_text)
+                    .child("Custom response entry is not available yet."),
+            )
+        })
         .into_any()
 }
 
@@ -165,6 +316,17 @@ fn prompt_identity(key: &ServerRequestKey) -> String {
         key.connection_epoch,
         serde_json::to_string(&key.request_id).unwrap_or_else(|_| "invalid".to_owned())
     )
+}
+
+fn answers_complete(
+    questions: &[UserQuestionPresentation],
+    answers: &BTreeMap<String, Vec<String>>,
+) -> bool {
+    questions.iter().all(|question| {
+        answers
+            .get(&question.id)
+            .is_some_and(|answers| !answers.is_empty())
+    })
 }
 
 #[cfg(test)]
@@ -183,5 +345,22 @@ mod tests {
             request_id: JsonRpcId::String("7".to_owned()),
         };
         assert_ne!(prompt_identity(&integer), prompt_identity(&string));
+    }
+
+    #[test]
+    fn every_question_requires_a_nonempty_answer() {
+        let questions = vec![UserQuestionPresentation {
+            id: "choice".to_owned(),
+            header: "Choice".to_owned(),
+            question: "Pick one".to_owned(),
+            is_secret: false,
+            is_other_allowed: false,
+            options: Vec::new(),
+        }];
+        assert!(!answers_complete(&questions, &BTreeMap::new()));
+        assert!(answers_complete(
+            &questions,
+            &BTreeMap::from([("choice".to_owned(), vec!["Safe".to_owned()])])
+        ));
     }
 }

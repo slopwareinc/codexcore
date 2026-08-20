@@ -664,7 +664,7 @@ async fn handle_prompt(client: &AppServerClient, intent: PromptIntent) -> Result
         .into_iter()
         .find(|request| request.key == intent.key)
         .ok_or_else(|| "prompt was already resolved".to_owned())?;
-    let Some(reply) = reply_for_intent(&request, intent.action) else {
+    let Some(reply) = reply_for_intent(&request, intent.action, intent.answers.as_ref()) else {
         return Ok(());
     };
     client
@@ -676,6 +676,7 @@ async fn handle_prompt(client: &AppServerClient, intent: PromptIntent) -> Result
 fn reply_for_intent(
     request: &TypedServerRequest,
     action: PromptActionKind,
+    answers: Option<&std::collections::BTreeMap<String, Vec<String>>>,
 ) -> Option<ServerRequestReply> {
     let approved = action == PromptActionKind::Approve;
     let declined = action == PromptActionKind::Decline;
@@ -719,6 +720,9 @@ fn reply_for_intent(
                 metadata: None,
             })
         }
+        ServerRequestBody::UserInput { .. } if action == PromptActionKind::Respond => answers
+            .cloned()
+            .map(|answers| ServerRequestReply::UserInput { answers }),
         _ => None,
     }
 }
@@ -751,7 +755,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use codex_app_server_client::ServerRequestKey;
-    use codex_app_server_interaction::InteractionScope;
+    use codex_app_server_interaction::{InteractionScope, UserQuestion};
     use codex_app_server_wire::JsonRpcId;
 
     use super::*;
@@ -798,9 +802,44 @@ mod tests {
             raw_params: BTreeMap::new(),
         };
         assert_eq!(
-            reply_for_intent(&request, PromptActionKind::Approve),
+            reply_for_intent(&request, PromptActionKind::Approve, None),
             Some(ServerRequestReply::CommandDecision(json!("accept")))
         );
-        assert_eq!(reply_for_intent(&request, PromptActionKind::Respond), None);
+        assert_eq!(
+            reply_for_intent(&request, PromptActionKind::Respond, None),
+            None
+        );
+    }
+
+    #[test]
+    fn maps_complete_user_answers_to_typed_reply() {
+        let request = TypedServerRequest {
+            key: ServerRequestKey {
+                connection_epoch: 2,
+                request_id: JsonRpcId::Integer(8),
+            },
+            body: ServerRequestBody::UserInput {
+                scope: InteractionScope {
+                    thread_id: ThreadId::from("thread"),
+                    turn_id: None,
+                    item_id: None,
+                },
+                is_blocking: true,
+                questions: vec![UserQuestion {
+                    id: "choice".to_owned(),
+                    header: "Choice".to_owned(),
+                    question: "Pick one".to_owned(),
+                    is_secret: false,
+                    is_other_allowed: false,
+                    options: Vec::new(),
+                }],
+            },
+            raw_params: BTreeMap::new(),
+        };
+        let answers = BTreeMap::from([("choice".to_owned(), vec!["Safe".to_owned()])]);
+        assert_eq!(
+            reply_for_intent(&request, PromptActionKind::Respond, Some(&answers)),
+            Some(ServerRequestReply::UserInput { answers })
+        );
     }
 }

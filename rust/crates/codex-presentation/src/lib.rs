@@ -430,6 +430,31 @@ pub struct PromptPresentation {
     pub is_destructive: bool,
     /// Ordered host-facing actions appropriate for this request family.
     pub actions: Vec<PromptActionPresentation>,
+    /// Structured user questions when this prompt requires answers.
+    pub user_input: Option<UserInputPresentation>,
+}
+
+/// Structured user-input form independent of a UI framework.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserInputPresentation {
+    pub questions: Vec<UserQuestionPresentation>,
+}
+
+/// One projected question and its advertised choices.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserQuestionPresentation {
+    pub id: String,
+    pub header: String,
+    pub question: String,
+    pub is_secret: bool,
+    pub is_other_allowed: bool,
+    pub options: Vec<UserQuestionOptionPresentation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserQuestionOptionPresentation {
+    pub label: String,
+    pub description: Option<String>,
 }
 
 /// One action exposed by a blocking prompt.
@@ -568,7 +593,7 @@ fn user_input_prompt(
     request: &TypedServerRequest,
     questions: &[codex_app_server_interaction::UserQuestion],
 ) -> PromptPresentation {
-    prompt(
+    let mut prompt = prompt(
         request,
         questions
             .first()
@@ -581,7 +606,28 @@ fn user_input_prompt(
             "Respond",
             PromptActionKind::Respond,
         )],
-    )
+    );
+    prompt.user_input = Some(UserInputPresentation {
+        questions: questions
+            .iter()
+            .map(|question| UserQuestionPresentation {
+                id: question.id.clone(),
+                header: question.header.clone(),
+                question: question.question.clone(),
+                is_secret: question.is_secret,
+                is_other_allowed: question.is_other_allowed,
+                options: question
+                    .options
+                    .iter()
+                    .map(|option| UserQuestionOptionPresentation {
+                        label: option.label.clone(),
+                        description: option.description.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    });
+    prompt
 }
 
 fn mcp_prompt(
@@ -645,6 +691,7 @@ fn prompt(
         kind,
         is_destructive,
         actions,
+        user_input: None,
     }
 }
 
@@ -678,7 +725,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use codex_app_server_interaction::InteractionScope;
+    use codex_app_server_interaction::{InteractionScope, QuestionOption, UserQuestion};
     use codex_app_server_state::{
         CanonicalItem, CanonicalMutation, CanonicalStateReducer, StateCoverage,
     };
@@ -767,6 +814,31 @@ mod tests {
         let prompt = project_prompt(&request);
         assert_eq!(prompt.actions[0].kind, PromptActionKind::OpenUrl);
         assert_eq!(prompt.actions[1].kind, PromptActionKind::Decline);
+    }
+
+    #[test]
+    fn user_input_prompt_preserves_every_question_and_option() {
+        let request = interaction(ServerRequestBody::UserInput {
+            scope: scope(),
+            is_blocking: true,
+            questions: vec![UserQuestion {
+                id: "choice".to_owned(),
+                header: "Approach".to_owned(),
+                question: "Which approach?".to_owned(),
+                is_secret: false,
+                is_other_allowed: true,
+                options: vec![QuestionOption {
+                    label: "Safe".to_owned(),
+                    description: Some("Use the conservative path".to_owned()),
+                }],
+            }],
+        });
+        let prompt = project_prompt(&request);
+        let form = prompt.user_input.expect("user input form");
+        assert_eq!(form.questions[0].id, "choice");
+        assert_eq!(form.questions[0].options[0].label, "Safe");
+        assert!(form.questions[0].is_other_allowed);
+        assert_eq!(prompt.actions[0].kind, PromptActionKind::Respond);
     }
 
     fn interaction(body: ServerRequestBody) -> TypedServerRequest {
