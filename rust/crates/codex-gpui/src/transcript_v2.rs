@@ -675,6 +675,7 @@ fn contiguous_ranges(indices: &[usize]) -> Vec<std::ops::Range<usize>> {
     ranges
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_row(
     row: &TranscriptV2Row,
     theme: CodexTheme,
@@ -1000,6 +1001,16 @@ fn render_work_row(
             emitter,
             expanded,
             selected_file_index,
+        );
+    }
+    if let WorkRowV2::Collaboration(collaboration) = row {
+        return crate::collaboration::render_collaboration_row(
+            &row_key,
+            group_key,
+            collaboration,
+            theme,
+            emitter,
+            expanded,
         );
     }
     let (label, detail) = work_row_content(row);

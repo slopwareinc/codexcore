@@ -270,7 +270,7 @@ fn bounded_text(text: &str, maximum_chars: usize) -> String {
 }
 
 fn classify_line(raw: &str) -> (DiffLineKind, String) {
-    if raw.starts_with("+++") || raw.starts_with("---") || raw.starts_with("\\") {
+    if raw.starts_with("+++") || raw.starts_with("---") || raw.starts_with('\\') {
         return (DiffLineKind::Metadata, bounded_text(raw, 4_096));
     }
     match raw.chars().next() {
@@ -427,6 +427,7 @@ fn render_row_header(
         .into_any()
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_file_change_details(
     id: &str,
     group_key: &str,

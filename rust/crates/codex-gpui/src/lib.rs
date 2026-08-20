@@ -5,6 +5,7 @@
 //! lifecycle, so hosts can compose them into an existing GPUI product.
 
 mod auth;
+mod collaboration;
 mod composer;
 mod file_change;
 mod goal;
@@ -18,6 +19,11 @@ mod transcript;
 mod transcript_v2;
 
 pub use auth::{CodexAuthentication, LoginEvent};
+pub use collaboration::{
+    AgentChipProjection, AgentMessageProjection, CollaborationProjection, MAX_AGENT_CHIPS,
+    MAX_AGENT_MESSAGES, MAX_COLLAB_TEXT_CHARS, MAX_MESSAGE_HEIGHT, action_summary,
+    display_status_label,
+};
 pub use composer::{
     ActiveSubmitBehavior, CodexComposer, ComposerAttachment, ComposerEvent, init as init_composer,
 };
