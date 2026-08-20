@@ -317,6 +317,12 @@ fn subscribe_transcript_links(
                 cx.open_url(destination);
             }
             TranscriptEvent::OpenLink { .. } => {}
+            // These actions intentionally remain host-owned seams. The
+            // reference host has no edit/fork/retry policy yet, so it does
+            // not pretend to mutate canonical state from a view event.
+            TranscriptEvent::EditUserMessage { .. }
+            | TranscriptEvent::RetryTurn { .. }
+            | TranscriptEvent::ForkTurn { .. } => {}
         },
     )
 }
