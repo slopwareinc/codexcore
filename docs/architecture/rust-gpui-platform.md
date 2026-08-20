@@ -114,6 +114,14 @@ Run the executable embedding example on a graphical machine:
 cargo run -p codex-gpui --example transcript
 ```
 
+`codex-gpui-app` is the first opinionated host slice. It pins the GPUI/Tokio
+bridge to the same Zed revision, retains both executor tasks, drives an actual
+SDK thread, coalesces canonical snapshots into transcript updates, and exposes
+typed pending prompts. Only safe non-user request families use the built-in
+default policy. Approval and decline require an explicit click and are resolved
+against the exact epoch-qualified identity. The same driver has a headless mode
+for authenticated Linux verification.
+
 ## Verification strategy
 
 - Pure Rust envelope, reducer, state-machine, and projection tests.

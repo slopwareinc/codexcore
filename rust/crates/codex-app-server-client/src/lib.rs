@@ -19,9 +19,9 @@ use codex_app_server_state::{
 };
 use codex_app_server_transport::{FrameConnection, FrameConnectionConfig, TransportError};
 use codex_app_server_wire::{
-    Envelope, JsonRpcErrorObject, JsonRpcId, NotificationEnvelope, ResponseOutcome,
-    ServerRequestEnvelope, WireCursor, decode_frame, encode_error, encode_notification,
-    encode_request, encode_result,
+    Envelope, JsonRpcErrorObject, JsonRpcId, NotificationEnvelope, PINNED_CODEX_CLI_VERSION,
+    ResponseOutcome, ServerRequestEnvelope, WireCursor, decode_frame, encode_error,
+    encode_notification, encode_request, encode_result,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -264,6 +264,14 @@ pub enum SessionError {
     /// Initialize response was missing or invalid.
     #[error("initialize failed: {0}")]
     Initialize(String),
+    /// Official App Server runtime is outside the generated compatibility line.
+    #[error(
+        "incompatible Codex App Server runtime {actual}; expected {expected} or a newer patch on the same major/minor line"
+    )]
+    IncompatibleRuntime {
+        expected: &'static str,
+        actual: String,
+    },
     /// Handshake buffer reached its explicit bound.
     #[error("initialize handshake frame buffer overflowed")]
     HandshakeBufferOverflow,
@@ -793,6 +801,7 @@ async fn bootstrap(
                 ResponseOutcome::Result(value) => {
                     let typed: ConnectedServer = serde_json::from_value(value.clone())
                         .map_err(|error| SessionError::Initialize(error.to_string()))?;
+                    validate_runtime_user_agent(&typed.user_agent)?;
                     break typed;
                 }
                 ResponseOutcome::Error(error) => return Err(SessionError::Rpc(error.clone())),
@@ -816,6 +825,51 @@ async fn bootstrap(
         },
         buffered,
     })
+}
+
+fn validate_runtime_user_agent(user_agent: &str) -> Result<(), SessionError> {
+    let Some(actual) = runtime_version_from_user_agent(user_agent) else {
+        return Ok(());
+    };
+    let expected = parse_version(PINNED_CODEX_CLI_VERSION).ok_or_else(|| {
+        SessionError::Initialize(format!(
+            "invalid compiled runtime version {PINNED_CODEX_CLI_VERSION}"
+        ))
+    })?;
+    let Some(actual_version) = parse_version(actual) else {
+        return Err(SessionError::IncompatibleRuntime {
+            expected: PINNED_CODEX_CLI_VERSION,
+            actual: actual.to_owned(),
+        });
+    };
+    if actual_version.0 == expected.0
+        && actual_version.1 == expected.1
+        && actual_version.2 >= expected.2
+    {
+        Ok(())
+    } else {
+        Err(SessionError::IncompatibleRuntime {
+            expected: PINNED_CODEX_CLI_VERSION,
+            actual: actual.to_owned(),
+        })
+    }
+}
+
+fn runtime_version_from_user_agent(user_agent: &str) -> Option<&str> {
+    user_agent
+        .split_once('/')
+        .map(|(_, suffix)| suffix)
+        .and_then(|suffix| suffix.split_whitespace().next())
+}
+
+fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = value.split('.');
+    let version = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(version)
 }
 
 async fn run_actor(
@@ -1453,6 +1507,32 @@ mod tests {
     use super::*;
     use codex_app_server_transport::{StdioConfig, TransportLimits};
     use futures_util::{SinkExt, StreamExt};
+
+    #[test]
+    fn official_runtime_user_agent_enforces_generated_compatibility_line() {
+        assert_eq!(validate_runtime_user_agent("codex_cli_rs/0.148.0"), Ok(()));
+        assert_eq!(
+            validate_runtime_user_agent("codexcore_rust/0.148.0 (Linux; x86_64)"),
+            Ok(())
+        );
+        assert_eq!(
+            validate_runtime_user_agent("codex-cli/0.148.3 linux"),
+            Ok(())
+        );
+        assert!(matches!(
+            validate_runtime_user_agent("codex_cli_rs/0.147.0"),
+            Err(SessionError::IncompatibleRuntime { .. })
+        ));
+        assert!(matches!(
+            validate_runtime_user_agent("codex-cli/0.149.0"),
+            Err(SessionError::IncompatibleRuntime { .. })
+        ));
+    }
+
+    #[test]
+    fn nonofficial_app_server_user_agent_remains_supported() {
+        assert_eq!(validate_runtime_user_agent("test-server"), Ok(()));
+    }
 
     fn shell_config(script: &str) -> LocalSessionConfig {
         let mut config = LocalSessionConfig::app_server("/bin/sh");

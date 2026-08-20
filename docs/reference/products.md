@@ -10,6 +10,11 @@ and a compiling native example; it does not own an App Server session or
 application lifecycle. See the
 [Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
 
+`codex-gpui-app` is the native reference-host bootstrap. It currently owns one
+window, one SDK session, a real thread/turn lifecycle, safe default interaction
+policy, approval routing, and the GPUI/Tokio bridge. It is not yet the full
+CodexCore reference-app replacement.
+
 `codex-app-server-client` is the current public runtime slice. It owns one
 ordered local session, validates initialize metadata, correlates raw requests,
 publishes revision invalidations, and retains exact pending server-request

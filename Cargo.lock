@@ -1091,6 +1091,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-gpui-app"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-channel",
+ "codex-app-server-client",
+ "codex-app-server-interaction",
+ "codex-app-server-sdk",
+ "codex-app-server-state",
+ "codex-app-server-wire",
+ "codex-gpui",
+ "codex-presentation",
+ "gpui",
+ "gpui_platform",
+ "gpui_tokio",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "codex-presentation"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -2470,6 +2489,17 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "smol_str",
+]
+
+[[package]]
+name = "gpui_tokio"
+version = "0.1.0"
+source = "git+https://github.com/zed-industries/zed?rev=8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe#8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "gpui_util",
+ "tokio",
 ]
 
 [[package]]
@@ -4837,7 +4867,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6831,7 +6861,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

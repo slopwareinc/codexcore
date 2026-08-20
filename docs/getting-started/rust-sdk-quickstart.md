@@ -120,6 +120,35 @@ CODEX_BINARY=/usr/local/bin/codex \
 The exact runtime remains `Tools/UPSTREAM_VERSION`; Rust schema drift is checked
 by the same protocol workflow as Swift.
 
+The ordered client validates the runtime version reported by `initialize`.
+Official App Server user agents must remain on the generated major/minor line
+and meet its patch floor; for this tree that means `0.148.0` or a newer
+`0.148.x` patch.
+
+## Run the GPUI reference host bootstrap
+
+The native host currently runs one real prompt from start through terminal
+canonical state, displays typed pending approval cards, and preserves exact
+request identity when routing approve/decline intent:
+
+```bash
+CODEX_BINARY=/absolute/path/to/codex \
+  cargo run -p codex-gpui-app -- \
+  --cwd /path/to/workspace \
+  --prompt "Summarize this project without changing files."
+```
+
+Use `--persist` to keep the thread; the safer default is ephemeral. A headless
+mode exercises the same SDK/session/projection driver without a display:
+
+```bash
+CODEX_BINARY=/absolute/path/to/codex \
+  cargo run -p codex-gpui-app -- --headless
+```
+
+User-input and MCP form editors are still pending. The host never synthesizes
+answers for those requests; they remain visibly pending.
+
 ## Remote and Unix-socket sessions
 
 Use the same SDK over an authenticated WebSocket by selecting the transport in
