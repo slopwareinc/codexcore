@@ -601,7 +601,9 @@ async fn next_queued_launch(
     }
     if queue_has_items(thread).await? {
         send_status(updates, "Starting queued follow-up…").await;
-        return Ok(Some(TurnLaunch::Queued));
+        return Ok(Some(TurnLaunch::Queued {
+            after: outcome.completed_turn_id.clone(),
+        }));
     }
     if outcome.queue_changed
         && let Some(turn_id) =
@@ -680,7 +682,9 @@ struct TurnOutcome {
 
 enum TurnLaunch {
     Input(String),
-    Queued,
+    Queued {
+        after: codex_app_server_state::TurnId,
+    },
     Existing(codex_app_server_state::TurnId),
 }
 
@@ -775,7 +779,18 @@ async fn drive_turn(
                 .start_turn(vec![CodexInput::text(input)], options.clone())
                 .await
         }
-        TurnLaunch::Queued => thread.queue_start(None).await,
+        TurnLaunch::Queued { after } => match thread.queue_start(None).await {
+            Ok(turn) => Ok(turn),
+            Err(start_error) => {
+                let successor =
+                    wait_for_successor_turn(codex, thread_id, &after, driver.canonical_observation)
+                        .await?;
+                match successor {
+                    Some(turn_id) => thread.retain_turn(turn_id).await,
+                    None => Err(start_error),
+                }
+            }
+        },
         TurnLaunch::Existing(turn_id) => thread.retain_turn(turn_id).await,
     }
     .map_err(|error| error.to_string())?;
