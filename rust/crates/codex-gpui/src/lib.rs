@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use codex_app_server_state::{LifecycleStatus, StateRevision};
 use codex_presentation::{
-    ActivityKind, ActivityPresentation, FileChangeKind, FileChangePresentation, PresentedEntry,
-    TranscriptEntry, TranscriptPresentation,
+    ActivityKind, ActivityPresentation, CommandOutputPresentation, FileChangeKind,
+    FileChangePresentation, PresentedEntry, TranscriptEntry, TranscriptPresentation,
 };
 use gpui::{
     AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Role, Window, div,
@@ -297,7 +297,7 @@ fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
             shell,
             command,
             cwd.as_deref(),
-            output.as_deref(),
+            output.as_ref(),
             *exit_code,
             theme,
         ),
@@ -421,10 +421,14 @@ fn render_command(
     shell: RowShell,
     command: &str,
     cwd: Option<&str>,
-    output: Option<&str>,
+    output: Option<&CommandOutputPresentation>,
     exit_code: Option<i64>,
     theme: CodexTheme,
 ) -> AnyElement {
+    let output_text = output.map(|output| output.text.to_string());
+    let omitted_bytes = output
+        .filter(|output| output.truncated)
+        .map(|output| output.total_bytes - output.text.len());
     shell
         .child(
             div()
@@ -452,7 +456,7 @@ fn render_command(
                             .child(cwd),
                     )
                 })
-                .when_some(output.map(str::to_owned), |view, output| {
+                .when_some(output_text, |view, output| {
                     view.child(
                         div()
                             .px_3()
@@ -461,6 +465,16 @@ fn render_command(
                             .text_sm()
                             .whitespace_normal()
                             .child(output),
+                    )
+                })
+                .when_some(omitted_bytes, |view, omitted| {
+                    view.child(
+                        div()
+                            .px_3()
+                            .pb_2()
+                            .text_xs()
+                            .text_color(theme.warning)
+                            .child(format!("{omitted} output byte(s) omitted")),
                     )
                 })
                 .when_some(exit_code, |view, code| {
@@ -692,7 +706,10 @@ fn activity_glyph(kind: ActivityKind) -> &'static str {
 }
 
 fn compact_json(value: &serde_json::Value) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "<invalid JSON>".to_owned())
+    truncate_accessibility(
+        serde_json::to_string(value).unwrap_or_else(|_| "<invalid JSON>".to_owned()),
+        12_000,
+    )
 }
 
 fn entry_accessibility_label(entry: &PresentedEntry) -> String {

@@ -232,7 +232,7 @@ pub enum TranscriptEntry {
     Command {
         command: String,
         cwd: Option<String>,
-        output: Option<String>,
+        output: Option<CommandOutputPresentation>,
         exit_code: Option<i64>,
     },
     FileChanges {
@@ -277,6 +277,13 @@ pub enum FileChangeKind {
     Modified,
     Renamed,
     Unknown(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandOutputPresentation {
+    pub text: Arc<str>,
+    pub total_bytes: usize,
+    pub truncated: bool,
 }
 
 /// Compact semantic activity row.
@@ -417,7 +424,11 @@ fn project_item(item: &CanonicalItem) -> TranscriptEntry {
         "commandExecution" => TranscriptEntry::Command {
             command: string(&payload, "command").unwrap_or_default(),
             cwd: string(&payload, "cwd"),
-            output: string(&payload, "aggregatedOutput").or_else(|| string(&payload, "output")),
+            output: payload
+                .get("aggregatedOutput")
+                .or_else(|| payload.get("output"))
+                .and_then(Value::as_str)
+                .map(project_command_output),
             exit_code: payload.get("exitCode").and_then(Value::as_i64),
         },
         "fileChange" => TranscriptEntry::FileChanges {
@@ -462,6 +473,19 @@ fn project_item(item: &CanonicalItem) -> TranscriptEntry {
             kind: kind.to_owned(),
             payload,
         },
+    }
+}
+
+fn project_command_output(output: &str) -> CommandOutputPresentation {
+    const MAXIMUM_OUTPUT_BYTES: usize = 256 * 1_024;
+    let mut end = output.len().min(MAXIMUM_OUTPUT_BYTES);
+    while !output.is_char_boundary(end) {
+        end -= 1;
+    }
+    CommandOutputPresentation {
+        text: Arc::from(&output[..end]),
+        total_bytes: output.len(),
+        truncated: end < output.len(),
     }
 }
 
@@ -946,6 +970,16 @@ mod tests {
         let change = project_file_change(&raw).expect("file change");
         assert_eq!(change.kind, FileChangeKind::Unknown("unknown".to_owned()));
         assert_eq!(change.malformed_raw, Some(raw));
+    }
+
+    #[test]
+    fn command_output_projection_is_bounded_and_utf8_safe() {
+        let output = "界".repeat(100_000);
+        let projected = project_command_output(&output);
+        assert!(projected.truncated);
+        assert_eq!(projected.total_bytes, output.len());
+        assert!(projected.text.len() <= 256 * 1_024);
+        assert!(projected.text.is_char_boundary(projected.text.len()));
     }
 
     #[test]

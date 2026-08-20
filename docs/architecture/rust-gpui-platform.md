@@ -107,6 +107,11 @@ semantics while retaining malformed raw values. GPUI renders a bounded native
 preview (12 files and 16 lines per file) with add/delete colors and explicit
 overflow counts; full review-grade expansion remains a host workbench concern.
 
+Command output presentation is capped at 256 KiB on a UTF-8 boundary and
+reports omitted bytes while canonical state retains the source fact. JSON tool
+summaries are capped at 12,000 characters. These are render-projection bounds,
+not protocol truncation or event-loss policies.
+
 Prompt projections preserve the exact connection-epoch/request-ID identity and
 declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host
 still maps that intent to a generated-schema-validated reply or opens the

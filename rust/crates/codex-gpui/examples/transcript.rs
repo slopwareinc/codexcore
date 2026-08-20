@@ -1,7 +1,8 @@
 use codex_app_server_state::{ItemId, ItemKey, LifecycleStatus, StateRevision, ThreadId, TurnId};
 use codex_gpui::CodexTranscript;
 use codex_presentation::{
-    PresentedEntry, TranscriptEntry, TranscriptPresentation, TurnPresentation,
+    CommandOutputPresentation, PresentedEntry, TranscriptEntry, TranscriptPresentation,
+    TurnPresentation,
 };
 use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
@@ -47,7 +48,11 @@ fn sample_transcript() -> TranscriptPresentation {
             content: TranscriptEntry::Command {
                 command: "cargo test --workspace".to_owned(),
                 cwd: Some("/workspace/codexcore".to_owned()),
-                output: Some("test result: ok".to_owned()),
+                output: Some(CommandOutputPresentation {
+                    text: "test result: ok".into(),
+                    total_bytes: 15,
+                    truncated: false,
+                }),
                 exit_code: Some(0),
             },
         },
