@@ -5,7 +5,8 @@
 Portable Rust foundations for the App Server SDK and GPUI platform are under
 `rust/`. The protocol, transport, canonical state, and presentation layers stay
 independent of GPUI. `codex-gpui` consumes disposable presentation models and
-provides an accessible virtualized transcript, exact-identity prompt cards,
+provides an accessible Swift-shaped `CodexTranscriptV2` (with the legacy
+transcript retained as a compatibility component), exact-identity prompt cards,
 a bounded native IME-aware composer, virtualized stored-task navigation, and a
 bounded semantic file-diff preview plus a compiling native example; it does not
 own an App Server session or application lifecycle. See the
@@ -25,9 +26,11 @@ publishes revision invalidations, and retains exact pending server-request
 identity. Start with the [Rust SDK quick start](../getting-started/rust-sdk-quickstart.md).
 
 `codex-presentation` projects immutable canonical snapshots and typed pending
-requests into framework-neutral transcript entries, semantic activities, host
-policy overrides, unknown-item fallbacks, and blocking prompt models. GPUI must
-consume these models rather than decode protocol payloads in render paths.
+requests into framework-neutral legacy entries plus the Swift-shaped
+`transcript_v2` turn grammar: opening/steered messages, semantic work groups,
+promoted final answers, live tails, generated images, and terminal metadata.
+GPUI must consume these models rather than decode protocol payloads in render
+paths.
 
 The Rust products are not yet a stable replacement for the supported Swift SDK
 or reference app. Capability claims must remain tied to compiling code and the

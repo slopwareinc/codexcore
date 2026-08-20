@@ -317,6 +317,13 @@ CODEX_BINARY=/absolute/path/to/codex \
 Add `--queue "follow-up"` in headless mode to inject a durable active-turn
 follow-up and verify automatic one-at-a-time queue draining.
 
+To run the standalone Swift-shaped Transcript V2 surface with deterministic
+sample data (no App Server or credentials required):
+
+```bash
+cargo run -p codex-gpui --example transcript
+```
+
 Advertised-choice, free-form, custom, and secret user questions can be answered
 inline. MCP primitive schema forms and URL-mode opening are supported; nested
 or compound schemas remain visibly blocked rather than receiving synthesized

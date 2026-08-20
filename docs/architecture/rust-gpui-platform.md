@@ -100,14 +100,18 @@ backends.
 
 ## Embedding the first GPUI surface
 
-`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, `CodexComposer`,
-`CodexGoal`, and `CodexSubagentNavigator` as reusable GPUI entities. The host
+`codex-gpui` exposes the legacy `CodexTranscript` plus the production-shaped
+`CodexTranscriptV2`, `CodexPrompt`, `CodexComposer`, `CodexGoal`, and
+`CodexSubagentNavigator` as reusable GPUI entities. The host
 passes disposable presentation
 models and later updates them from a GPUI context. The components own only
 presentation, draft, focus, and viewport state: they do not start App Server,
 create a Tokio runtime, or open a window.
 
-The transcript uses GPUI's bottom-aligned variable-height list, stable
+`CodexTranscriptV2` is the Swift-parity path. It consumes
+`codex_presentation::transcript_v2::TranscriptV2Presentation`, so protocol
+decoding and semantic grouping remain outside the renderer. The component
+uses GPUI's bottom-aligned variable-height list, stable
 composite row identities, tail following, identity splices, and targeted
 remeasurement for streaming content. Unknown canonical items render as visible
 fallback cards rather than disappearing.

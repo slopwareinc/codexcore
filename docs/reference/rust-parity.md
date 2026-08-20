@@ -15,7 +15,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | TCP/TLS WebSocket and Unix WebSocket | Complete | Bounded text frames, credential redaction, actor round-trip tests | Remote deployment soak test |
 | Ordered actor/correlation | Complete | Epoch-qualified IDs, handshake buffering, response-before-resume tests | Cross-language golden replay |
 | Disconnect/no-replay semantics | Complete | Write-attempt tracking and reconnect tests | Larger permutation/property suite |
-| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, orphan replay, typed Plan and Goal replacements, unknown fallback | Full item/notification inventory and Swift-normalized fixtures |
+| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, bounded ordered orphan replay, typed Plan/Goal replacements, and pinned 0.148.0 command/reasoning/file/MCP streaming deltas with terminal-authority tests | `terminalInteraction`, direct start/completion timestamp promotion, and the remaining non-transcript notification inventory |
 | Coalesced observation | Complete | Atomic scoped seed, descendant matching, field filters, newest-one actor tests | Expand coarse Rust masks as canonical field inventory grows |
 | Thread leases | Complete | Semantic priorities, stale completion suppression, reconnect tests | Turn-operation lease inventory audit |
 | Legacy/paginated hydration | Complete | Mode-aware read, cut coordinator, live materialized legacy/paginated tests | Reconnect-during-page live stress |
@@ -31,8 +31,9 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 
 | Capability | Rust status | Current evidence | Remaining proof/work |
 | --- | --- | --- | --- |
-| Virtual transcript | Partial | Bottom-aligned variable-height list, stable IDs, tail following, centered bounded column, targeted remeasurement, native Markdown blocks | Selection/copy, turn minimap, visual/stress baselines |
-| User/assistant/reasoning/activity rows | Partial | Swift-style turn ordering, collapsed work groups, compact expandable command/file/tool rows, accessible status glyphs, CommonMark/GFM headings, emphasis, code, quotes, lists/tasks, aligned tables, literal HTML fallback, image alt text, typed host-routed HTTP(S) link actions | Full phase grammar, syntax highlighting, incremental streaming-tail parsing |
+| Transcript V2 projection and grammar | Complete for the audited fixture set | `TranscriptV2Projector` preserves opening/steered messages, chronological segments, promoted final answers, generated images, live reasoning tails, work disclosure decisions, terminal duration/error metadata, optimistic submissions, and semantic work grouping; seven cross-language parity fixtures pass | Broaden corpus coverage as Swift adds protocol/item kinds |
+| Virtual transcript | Partial | `CodexTranscriptV2` uses a bottom-aligned variable-height list, stable scoped IDs, tail following, exact 768/640/560 column geometry, targeted remeasurement, keyboard-focusable disclosures, native Markdown blocks, and a runnable V2 example | Selection/copy, turn minimap, visual/stress baselines |
+| User/assistant/reasoning/activity rows | Partial | Swift-style turn ordering with reasoning hidden from the narrative, collapsed work groups, compact expandable command/file/MCP/collaboration rows, generated-image and notice rows, accessible status glyphs, CommonMark/GFM headings, emphasis, code, quotes, lists/tasks, aligned tables, literal HTML fallback, image alt text, typed host-routed HTTP(S) link actions | Full AppKit card parity, syntax highlighting, selection/copy, directives, and broader incremental streaming-tail coverage |
 | Commands | Partial | Bounded UTF-8 output, exit state, monospace card | ANSI styling, expand/copy, internal scrolling |
 | File changes | Partial | Stable semantic changes and bounded colored diff preview | Full unified parser, gutters/hunks, expansion/review actions |
 | Tool calls/unknown items | Partial | Semantic cards, bounded JSON, visible unknown fallback | Product renderer registry and structured result views |
@@ -41,7 +42,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | MCP elicitation | Partial | URL opening and primitive JSON Schema forms; unsupported fields block submit | Nested arrays/objects and external URL completion lifecycle |
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |
 | Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan controls |
-| Plans/goals | Partial | Typed `turn/plan/updated` replacement and accessible stable plan row; ordered, lossless canonical Goal lifecycle, SDK methods, controlled native Goal panel, and idle/active host observation | Completed-plan panels and typed Plan/Goal composer modes |
+| Plans/goals | Partial | Typed `turn/plan/updated` replacement and V2 plan row; ordered, lossless canonical Goal lifecycle, SDK methods, controlled native Goal panel, and idle/active host observation | Completed-plan panels and typed Plan/Goal composer modes |
 | Subagents/side chat | Partial | Framework-neutral child graph projection, accessible recursive virtual navigator, collaboration activity rows, and host-owned hydrated child lease transfer | Concurrent parent/child panes, side-chat creation, graph actions |
 | Theming/accessibility | Partial | Semantic dark theme and AccessKit roles/labels | Light/high-contrast themes, keyboard audit, VoiceOver/NVDA/Orca smoke |
 
@@ -49,7 +50,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 
 | Capability | Rust status | Current evidence | Remaining proof/work |
 | --- | --- | --- | --- |
-| Live native host | Partial | Real authenticated multi-turn GPUI/Tokio host and headless GCP run | Packaged app, crash recovery, persistence and visual QA |
+| Live native host | Partial | Real authenticated multi-turn GPUI/Tokio host, authenticated SDK smoke tests, and a compiling `CodexTranscriptV2` native example | Packaged app, crash recovery, persistence and visual QA |
 | Files/previews | Missing | None | Scoped filesystem adapter, tree, syntax preview |
 | Review/Git/worktrees | Missing | None | Safe read/mutation controller and native workbench |
 | Terminal | Missing | None | Optional PTY/terminal crate and accessibility policy |
