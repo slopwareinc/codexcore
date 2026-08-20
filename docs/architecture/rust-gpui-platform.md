@@ -112,6 +112,14 @@ composite row identities, tail following, identity splices, and targeted
 remeasurement for streaming content. Unknown canonical items render as visible
 fallback cards rather than disappearing.
 
+The reference transcript follows the Swift V2 turn grammar: conversation rows
+come first, lifecycle chrome follows the turn, consecutive command/file/tool
+items become one collapsed work group, and compact work rows expand into
+bounded command output, file paths/diffs, or tool arguments/results. The
+default GPUI theme uses the Swift app's Slate canvas/surface/elevated-surface
+and indigo accent tokens; the content column is centered at the same bounded
+width instead of stretching cards across the whole window.
+
 File-change projection decodes stable path, move destination, kind, and diff
 semantics while retaining malformed raw values. GPUI renders a bounded native
 preview (12 files and 16 lines per file) with add/delete colors and explicit
