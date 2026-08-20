@@ -697,6 +697,7 @@ pub struct CodexComposer {
     input: Entity<ComposerInput>,
     theme: CodexTheme,
     turn_active: bool,
+    queue_enabled: bool,
     active_submit_behavior: ActiveSubmitBehavior,
     _input_subscription: gpui::Subscription,
 }
@@ -715,6 +716,7 @@ impl CodexComposer {
             input,
             theme,
             turn_active: false,
+            queue_enabled: true,
             active_submit_behavior: ActiveSubmitBehavior::Queue,
             _input_subscription: subscription,
         }
@@ -742,6 +744,20 @@ impl CodexComposer {
     pub fn set_turn_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.turn_active != active {
             self.turn_active = active;
+            cx.notify();
+        }
+    }
+
+    /// Enable durable queue controls while a turn is active.
+    ///
+    /// Ephemeral App Server threads do not support durable queued submissions,
+    /// so hosts should disable this capability for those threads.
+    pub fn set_queue_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.queue_enabled != enabled {
+            self.queue_enabled = enabled;
+            if !enabled {
+                self.active_submit_behavior = ActiveSubmitBehavior::Steer;
+            }
             cx.notify();
         }
     }
@@ -806,7 +822,7 @@ impl Render for CodexComposer {
             .bg(theme.elevated_surface)
             .p_2()
             .child(div().flex_1().overflow_hidden().child(self.input.clone()))
-            .when(self.turn_active, |view| {
+            .when(self.turn_active && self.queue_enabled, |view| {
                 view.child(
                     div()
                         .id("codex-composer-active-behavior")

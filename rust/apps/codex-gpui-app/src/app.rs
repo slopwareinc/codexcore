@@ -202,7 +202,7 @@ struct InitialViews {
     authentication: Entity<CodexAuthentication>,
 }
 
-fn initial_views(cx: &mut Context<CodexApp>) -> InitialViews {
+fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialViews {
     let pending = TranscriptPresentation {
         revision: codex_app_server_state::StateRevision::ZERO,
         thread_id: ThreadId::from("pending"),
@@ -230,7 +230,11 @@ fn initial_views(cx: &mut Context<CodexApp>) -> InitialViews {
                 next_cursor: None,
             })
         }),
-        composer: cx.new(CodexComposer::new),
+        composer: cx.new(|cx| {
+            let mut composer = CodexComposer::new(cx);
+            composer.set_queue_enabled(queue_enabled, cx);
+            composer
+        }),
         authentication: cx.new(|cx| {
             CodexAuthentication::new(
                 AuthenticationPresentation::SignedOut {
@@ -251,7 +255,7 @@ impl CodexApp {
             queue,
             composer,
             authentication,
-        } = initial_views(cx);
+        } = initial_views(!config.ephemeral, cx);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
         let composer_sender = command_sender.clone();
@@ -622,6 +626,7 @@ async fn run_session(
     updates: Sender<AppUpdate>,
     commands: Receiver<HostCommand>,
 ) -> Result<(), String> {
+    let queue_enabled = !config.ephemeral;
     send_status(&updates, "Connecting to Codex App Server…").await;
     let codex = Codex::connect_local(LocalSessionConfig::app_server(config.codex_binary.clone()))
         .await
@@ -661,6 +666,11 @@ async fn run_session(
                     continue;
                 }
                 IdleAction::Queue(event) => {
+                    if !queue_enabled {
+                        send_status(&updates, "Durable queue is unavailable for ephemeral tasks")
+                            .await;
+                        continue;
+                    }
                     let current = thread
                         .as_ref()
                         .ok_or_else(|| "selected thread lease is missing".to_owned())?;
@@ -678,6 +688,7 @@ async fn run_session(
                 .ok_or_else(|| "selected thread lease is missing".to_owned())?,
             &thread_id,
             launch,
+            queue_enabled,
             &turn_options,
             TurnDriver {
                 session_observation: &mut session_observation,
@@ -685,6 +696,7 @@ async fn run_session(
                 commands: &commands,
                 updates: &updates,
                 next_queue_id: &mut next_queue_id,
+                queue_enabled,
             },
         )
         .await?;
@@ -712,6 +724,7 @@ async fn run_session(
                 .ok_or_else(|| "selected thread lease is missing".to_owned())?,
             &thread_id,
             &outcome,
+            queue_enabled,
             &mut canonical_observation,
             &updates,
         )
@@ -778,9 +791,13 @@ async fn next_queued_launch(
     thread: &CodexThread,
     thread_id: &ThreadId,
     outcome: &TurnOutcome,
+    queue_enabled: bool,
     observation: &mut CanonicalObservation,
     updates: &Sender<AppUpdate>,
 ) -> Result<Option<TurnLaunch>, String> {
+    if !queue_enabled {
+        return Ok(None);
+    }
     if !outcome.queue_changed && !outcome.check_queue_after {
         return Ok(None);
     }
@@ -879,6 +896,7 @@ struct TurnDriver<'a> {
     commands: &'a Receiver<HostCommand>,
     updates: &'a Sender<AppUpdate>,
     next_queue_id: &'a mut u64,
+    queue_enabled: bool,
 }
 
 impl TurnDriver<'_> {
@@ -901,6 +919,14 @@ impl TurnDriver<'_> {
                     .await
                     .map_err(|error| error.to_string())?,
                 ActiveSubmitBehavior::Queue => {
+                    if !self.queue_enabled {
+                        send_status(
+                            self.updates,
+                            "Durable queue is unavailable for ephemeral tasks",
+                        )
+                        .await;
+                        return Ok(());
+                    }
                     let queue_id = *self.next_queue_id;
                     *self.next_queue_id = self
                         .next_queue_id
@@ -939,6 +965,14 @@ impl TurnDriver<'_> {
                 send_status(self.updates, "Model change queued for the next turn…").await;
             }
             Ok(HostCommand::Queue(event)) => {
+                if !self.queue_enabled {
+                    send_status(
+                        self.updates,
+                        "Durable queue is unavailable for ephemeral tasks",
+                    )
+                    .await;
+                    return Ok(());
+                }
                 handle_queue_event(thread, event).await?;
                 publish_queue(thread, self.updates).await?;
             }
@@ -954,6 +988,7 @@ async fn drive_turn(
     thread: &CodexThread,
     thread_id: &ThreadId,
     launch: TurnLaunch,
+    queue_enabled: bool,
     options: &TurnOptions,
     mut driver: TurnDriver<'_>,
 ) -> Result<TurnOutcome, String> {
@@ -981,7 +1016,9 @@ async fn drive_turn(
     }
     .map_err(|error| error.to_string())?;
     driver.updates.send(AppUpdate::TurnActive(true)).await.ok();
-    publish_queue(thread, driver.updates).await?;
+    if queue_enabled {
+        publish_queue(thread, driver.updates).await?;
+    }
     let turn_key = TurnKey {
         thread_id: thread_id.clone(),
         turn_id: turn.id().clone(),

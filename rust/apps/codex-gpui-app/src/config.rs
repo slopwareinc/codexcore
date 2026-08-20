@@ -38,6 +38,9 @@ impl RunConfiguration {
         if prompt.trim().is_empty() {
             return Err("--prompt must not be empty".to_owned());
         }
+        if ephemeral && queued_prompt.is_some() {
+            return Err("--queue requires a persisted thread; remove --ephemeral".to_owned());
+        }
         Ok(Self {
             codex_binary,
             cwd,
@@ -96,5 +99,16 @@ mod tests {
         let ephemeral =
             RunConfiguration::parse(["--ephemeral".to_owned()]).expect("ephemeral override");
         assert!(ephemeral.ephemeral);
+    }
+
+    #[test]
+    fn rejects_durable_queue_for_ephemeral_threads() {
+        let error = RunConfiguration::parse([
+            "--ephemeral".to_owned(),
+            "--queue".to_owned(),
+            "follow up".to_owned(),
+        ])
+        .expect_err("ephemeral queue must be rejected");
+        assert!(error.contains("persisted thread"));
     }
 }
