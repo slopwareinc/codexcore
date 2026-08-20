@@ -29,6 +29,9 @@ impl TranscriptLayoutMetrics {
     pub const ITEM_GAP: f32 = 4.;
     pub const WORK_HEADER_HEIGHT: f32 = 22.;
     pub const WORK_ROW_HEIGHT: f32 = 28.;
+    pub const CHAT_TEXT_SIZE: f32 = 14.;
+    pub const CAPTION_TEXT_SIZE: f32 = 12.;
+    pub const CHAT_LINE_HEIGHT: f32 = 20.;
 
     /// Responsive outer-column width for a transcript viewport.
     #[must_use]

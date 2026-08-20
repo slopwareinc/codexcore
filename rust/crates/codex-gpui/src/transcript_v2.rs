@@ -480,6 +480,7 @@ impl Render for CodexTranscriptV2 {
             .overflow_hidden()
             .bg(theme.background)
             .text_color(theme.text)
+            .text_size(px(TranscriptLayoutMetrics::CHAT_TEXT_SIZE))
             .child(
                 div()
                     .flex()
@@ -683,7 +684,7 @@ fn render_work_disclosure(
         .flex()
         .items_center()
         .gap_1()
-        .text_xs()
+        .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
         .text_color(theme.tertiary_text)
         .child(label)
         .when(is_actionable, |view| {
@@ -756,7 +757,7 @@ fn render_work_group(
                 .flex()
                 .items_center()
                 .gap_2()
-                .text_xs()
+                .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
                 .text_color(theme.tertiary_text)
                 .cursor_pointer()
                 .child(work_status_glyph(&group.status, theme))
@@ -839,12 +840,16 @@ fn render_work_row(
         .flex()
         .items_center()
         .gap_2()
-        .text_xs()
+        .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
         .text_color(theme.tertiary_text)
         .child(work_status_glyph(status, theme))
         .child(div().min_w_0().flex_1().truncate().child(label))
         .when(has_detail, |view| {
-            view.child(div().text_xs().child(if expanded { "⌄" } else { "›" }))
+            view.child(
+                div()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                    .child(if expanded { "⌄" } else { "›" }),
+            )
         });
     div()
         .id(format!("work-row:{row_key}"))
@@ -870,7 +875,7 @@ fn render_work_row(
                     .bg(theme.surface)
                     .p_2()
                     .font_family("monospace")
-                    .text_xs()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
                     .text_color(theme.muted_text)
                     .whitespace_normal()
                     .when_some(detail, gpui::ParentElement::child),
@@ -1049,7 +1054,12 @@ fn render_inline_activity(
         .child(work_status_glyph(&activity.status, theme))
         .child(activity.label.clone())
         .when_some(activity.detail.clone(), |view, detail| {
-            view.child(div().text_xs().truncate().child(detail))
+            view.child(
+                div()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                    .truncate()
+                    .child(detail),
+            )
         })
         .into_any()
 }
@@ -1118,7 +1128,7 @@ fn render_plan(id: String, plan: &PlanPresentation, theme: CodexTheme) -> AnyEle
             view.child(
                 div()
                     .mt_1()
-                    .text_xs()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
                     .text_color(theme.muted_text)
                     .whitespace_normal()
                     .child(explanation),
@@ -1188,7 +1198,7 @@ fn render_card(
         .child(
             div()
                 .mt_1()
-                .text_xs()
+                .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
                 .text_color(theme.muted_text)
                 .whitespace_normal()
                 .child(detail),
@@ -1541,6 +1551,9 @@ mod tests {
         assert_close(TranscriptLayoutMetrics::user_width(600.), 425.04);
         assert_close(TranscriptLayoutMetrics::TURN_GAP, 16.);
         assert_close(TranscriptLayoutMetrics::ITEM_GAP, 4.);
+        assert_close(TranscriptLayoutMetrics::CHAT_TEXT_SIZE, 14.);
+        assert_close(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE, 12.);
+        assert_close(TranscriptLayoutMetrics::CHAT_LINE_HEIGHT, 20.);
     }
 
     #[test]

@@ -124,6 +124,9 @@ file paths/diffs, or tool arguments/results. The default GPUI theme uses the
 Swift app's exact Slate canvas/surface/elevated-surface colors, translucent
 border and user-bubble tokens, and indigo accent; the content column is centered
 at the same bounded width instead of stretching cards across the whole window.
+Transcript prose, user bubbles, and composer input share a 14pt chat token with
+a 20pt line height; work labels and secondary transcript chrome use the matching
+12pt caption token instead of inheriting unrelated GPUI defaults.
 
 File-change projection decodes stable path, move destination, kind, and diff
 semantics while retaining malformed raw values. GPUI renders a bounded native

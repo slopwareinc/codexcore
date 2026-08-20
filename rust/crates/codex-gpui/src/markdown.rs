@@ -8,7 +8,7 @@ use gpui::{
     StyledText, TextAlign, UnderlineStyle, WeakEntity, div, prelude::*, px,
 };
 
-use crate::transcript::{CodexTheme, TranscriptEvent};
+use crate::transcript::{CodexTheme, TranscriptEvent, TranscriptLayoutMetrics};
 
 pub(crate) fn render_markdown<E>(
     document: &MarkdownDocument,
@@ -27,6 +27,7 @@ where
         .flex()
         .flex_col()
         .gap_3()
+        .text_size(px(TranscriptLayoutMetrics::CHAT_TEXT_SIZE))
         .children(
             document
                 .blocks
@@ -77,7 +78,7 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
         MarkdownNode::Paragraph(children) => div()
             .id(id)
             .whitespace_normal()
-            .line_height(px(22.))
+            .line_height(px(TranscriptLayoutMetrics::CHAT_LINE_HEIGHT))
             .child(styled_inline(children, theme))
             .into_any(),
         MarkdownNode::Heading { level, children } => div()
