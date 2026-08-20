@@ -3,7 +3,8 @@
 mod markdown;
 
 pub use markdown::{
-    MarkdownAlignment, MarkdownBlock, MarkdownDocument, MarkdownNode, MarkdownQuoteKind,
+    MarkdownAlignment, MarkdownBlock, MarkdownDocument, MarkdownLink, MarkdownNode,
+    MarkdownQuoteKind,
 };
 
 use std::sync::Arc;

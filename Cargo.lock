@@ -1109,6 +1109,7 @@ dependencies = [
  "gpui_tokio",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]

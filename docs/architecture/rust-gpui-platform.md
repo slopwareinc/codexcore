@@ -127,8 +127,10 @@ the pinned MIT-licensed `pulldown-cmark` parser; GPUI never reparses source in
 destinations, fenced and indented code completeness, quotes, ordered and task
 lists, aligned tables, thematic rules, and image alt text. Raw block and inline
 HTML is rendered literally, never interpreted, and remote images are not
-fetched. Link activation remains a typed host capability rather than direct
-renderer authority.
+fetched. Link activation is emitted as a typed transcript event rather than
+direct renderer authority. The reference host accepts only parsed `http` and
+`https` URLs with a host and no embedded credentials; relative, `file`, `data`,
+JavaScript, and custom-scheme destinations remain inert.
 
 `turn/plan/updated` is generated-validated into typed, lossless plan-step
 statuses and an authoritative turn-level replacement. Reducer commits are

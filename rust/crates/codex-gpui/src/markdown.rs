@@ -5,12 +5,17 @@ use std::ops::Range;
 use codex_presentation::{MarkdownAlignment, MarkdownDocument, MarkdownNode, MarkdownQuoteKind};
 use gpui::{
     AnyElement, FontStyle, FontWeight, HighlightStyle, Role, StrikethroughStyle, StyledText,
-    TextAlign, UnderlineStyle, div, prelude::*, px,
+    TextAlign, UnderlineStyle, WeakEntity, div, prelude::*, px,
 };
 
-use crate::transcript::CodexTheme;
+use crate::transcript::{CodexTheme, CodexTranscript, TranscriptEvent};
 
-pub(crate) fn render_markdown(document: &MarkdownDocument, theme: CodexTheme) -> AnyElement {
+pub(crate) fn render_markdown(
+    document: &MarkdownDocument,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscript>,
+) -> AnyElement {
+    let links = document.links();
     div()
         .id("assistant-markdown")
         .role(Role::Document)
@@ -25,6 +30,40 @@ pub(crate) fn render_markdown(document: &MarkdownDocument, theme: CodexTheme) ->
                 .iter()
                 .map(|block| render_block(&block.node, block.ordinal, theme)),
         )
+        .when(!links.is_empty(), |view| {
+            view.child(
+                div()
+                    .id("assistant-markdown-links")
+                    .role(Role::List)
+                    .aria_label("Links in assistant response")
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .children(links.into_iter().enumerate().map(|(index, link)| {
+                        let event = TranscriptEvent::OpenLink {
+                            destination: link.destination,
+                            label: link.label.clone(),
+                        };
+                        let emitter = emitter.clone();
+                        div()
+                            .id(("assistant-markdown-link", index))
+                            .role(Role::Link)
+                            .aria_label(format!("Open link {}", link.label))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme.border)
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(theme.accent)
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| {
+                                emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
+                            })
+                            .child(link.label)
+                    })),
+            )
+        })
         .into_any()
 }
 

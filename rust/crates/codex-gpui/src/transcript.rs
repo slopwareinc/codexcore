@@ -9,12 +9,18 @@ use codex_presentation::{
     TranscriptPresentation,
 };
 use gpui::{
-    AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Role, Window, div,
-    list, prelude::*, px, rgb,
+    AnyElement, Context, EventEmitter, FollowMode, ListAlignment, ListState, Render, Rgba, Role,
+    WeakEntity, Window, div, list, prelude::*, px, rgb,
 };
 
 /// Exact Zed revision supplying GPUI for this crate.
 pub const GPUI_REVISION: &str = "8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe";
+
+/// Host-owned action emitted by transcript content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TranscriptEvent {
+    OpenLink { destination: String, label: String },
+}
 
 /// Semantic colors for the native transcript surface.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -170,11 +176,14 @@ impl CodexTranscript {
     }
 }
 
+impl EventEmitter<TranscriptEvent> for CodexTranscript {}
+
 impl Render for CodexTranscript {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = Arc::clone(&self.rows);
         let theme = self.theme;
         let state = self.list_state.clone();
+        let emitter = cx.entity().downgrade();
         div()
             .id("codex-transcript")
             .role(Role::Log)
@@ -186,7 +195,7 @@ impl Render for CodexTranscript {
             .child(
                 list(state, move |index, _window, _cx| {
                     rows.get(index)
-                        .map_or_else(|| div().into_any(), |row| render_row(row, theme))
+                        .map_or_else(|| div().into_any(), |row| render_row(row, theme, &emitter))
                 })
                 .size_full(),
             )
@@ -241,7 +250,11 @@ fn contiguous_ranges(indices: &[usize]) -> Vec<std::ops::Range<usize>> {
     ranges
 }
 
-fn render_row(row: &TranscriptRow, theme: CodexTheme) -> AnyElement {
+fn render_row(
+    row: &TranscriptRow,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscript>,
+) -> AnyElement {
     match row {
         TranscriptRow::Turn { id, status } => div()
             .id(row.stable_id())
@@ -260,7 +273,7 @@ fn render_row(row: &TranscriptRow, theme: CodexTheme) -> AnyElement {
             .child(format!("Turn {id}"))
             .child(status_badge(status, theme))
             .into_any(),
-        TranscriptRow::Entry(entry) => render_entry(entry, theme),
+        TranscriptRow::Entry(entry) => render_entry(entry, theme, emitter),
         TranscriptRow::Plan { plan, .. } => render_plan(row.stable_id(), plan, theme),
     }
 }
@@ -340,7 +353,11 @@ fn plan_status_label(status: &PlanStepStatus) -> &'static str {
     }
 }
 
-fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
+fn render_entry(
+    entry: &PresentedEntry,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscript>,
+) -> AnyElement {
     let shell = div()
         .id(format!(
             "entry:{}:{}:{}",
@@ -360,7 +377,7 @@ fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
             text: _,
             phase,
             markdown,
-        } => render_assistant(shell, markdown, phase.as_deref(), theme),
+        } => render_assistant(shell, markdown, phase.as_deref(), theme, emitter),
         TranscriptEntry::Reasoning { summary, detail } => {
             render_reasoning(shell, summary, detail.as_deref(), theme)
         }
@@ -440,6 +457,7 @@ fn render_assistant(
     markdown: &MarkdownDocument,
     phase: Option<&str>,
     theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscript>,
 ) -> AnyElement {
     shell
         .gap_2()
@@ -449,7 +467,7 @@ fn render_assistant(
         .child(
             div()
                 .max_w(px(840.))
-                .child(crate::markdown::render_markdown(markdown, theme)),
+                .child(crate::markdown::render_markdown(markdown, theme, emitter)),
         )
         .into_any()
 }

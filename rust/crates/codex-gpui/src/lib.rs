@@ -19,4 +19,6 @@ pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use queue::{CodexQueue, QueueEvent};
 pub use thread_list::{CodexThreadList, ThreadSelectionEvent};
-pub use transcript::{CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptRow, transcript_rows};
+pub use transcript::{
+    CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptRow, transcript_rows,
+};

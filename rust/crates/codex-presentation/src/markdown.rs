@@ -22,6 +22,14 @@ pub struct MarkdownBlock {
     pub node: MarkdownNode,
 }
 
+/// One link preserved from Markdown for an explicit host activation policy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownLink {
+    pub destination: String,
+    pub label: String,
+    pub title: String,
+}
+
 /// Safe semantic Markdown tree. Raw HTML remains visible text and is never interpreted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MarkdownNode {
@@ -176,6 +184,16 @@ impl MarkdownDocument {
                 .collect(),
         }
     }
+
+    /// Collect links without activating them or interpreting their schemes.
+    #[must_use]
+    pub fn links(&self) -> Vec<MarkdownLink> {
+        let mut links = Vec::new();
+        for block in &self.blocks {
+            collect_links(&block.node, &mut links);
+        }
+        links
+    }
 }
 
 impl MarkdownNode {
@@ -215,6 +233,50 @@ impl MarkdownNode {
 
 fn join_plain(children: &[MarkdownNode]) -> String {
     children.iter().map(MarkdownNode::plain_text).collect()
+}
+
+fn collect_links(node: &MarkdownNode, links: &mut Vec<MarkdownLink>) {
+    let children = match node {
+        MarkdownNode::Link {
+            destination,
+            title,
+            children,
+        } => {
+            links.push(MarkdownLink {
+                destination: destination.clone(),
+                label: join_plain(children),
+                title: title.clone(),
+            });
+            children.as_slice()
+        }
+        MarkdownNode::Paragraph(children)
+        | MarkdownNode::Heading { children, .. }
+        | MarkdownNode::BlockQuote { children, .. }
+        | MarkdownNode::Item(children)
+        | MarkdownNode::Table { children, .. }
+        | MarkdownNode::TableHead(children)
+        | MarkdownNode::TableRow(children)
+        | MarkdownNode::TableCell(children)
+        | MarkdownNode::Strong(children)
+        | MarkdownNode::Emphasis(children)
+        | MarkdownNode::Strikethrough(children)
+        | MarkdownNode::Superscript(children)
+        | MarkdownNode::Subscript(children)
+        | MarkdownNode::Group(children) => children.as_slice(),
+        MarkdownNode::List { items, .. } => items.as_slice(),
+        MarkdownNode::Image { alt, .. } => alt.as_slice(),
+        MarkdownNode::CodeBlock { .. }
+        | MarkdownNode::Text(_)
+        | MarkdownNode::InlineCode(_)
+        | MarkdownNode::SoftBreak
+        | MarkdownNode::HardBreak
+        | MarkdownNode::Rule
+        | MarkdownNode::TaskMarker { .. }
+        | MarkdownNode::HtmlFallback(_) => return,
+    };
+    for child in children {
+        collect_links(child, links);
+    }
 }
 
 struct Frame {
@@ -452,6 +514,14 @@ mod tests {
         assert!(debug.contains("checked: true"));
         assert!(debug.contains("Leading"));
         assert!(debug.contains("Trailing"));
+        assert_eq!(
+            document.links(),
+            vec![MarkdownLink {
+                destination: "https://example.com".to_owned(),
+                label: "docs".to_owned(),
+                title: String::new(),
+            }]
+        );
     }
 
     #[test]

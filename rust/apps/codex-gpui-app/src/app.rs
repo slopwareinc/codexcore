@@ -16,7 +16,7 @@ use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexModelPicker, CodexPrompt,
     CodexQueue, CodexThreadList, CodexTranscript, ComposerEvent, LoginEvent, ModelSelectionEvent,
-    PromptIntent, QueueEvent, ThreadSelectionEvent,
+    PromptIntent, QueueEvent, ThreadSelectionEvent, TranscriptEvent,
 };
 use codex_presentation::{
     AuthenticationPresentation, ModelPickerPresentation, PromptActionKind, PromptPresentation,
@@ -182,6 +182,7 @@ struct CodexApp {
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
     _composer_subscription: Subscription,
+    _transcript_subscription: Subscription,
     _thread_list_subscription: Subscription,
     _model_picker_subscription: Subscription,
     _queue_subscription: Subscription,
@@ -246,6 +247,23 @@ fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialView
     }
 }
 
+fn subscribe_transcript_links(
+    transcript: &Entity<CodexTranscript>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    cx.subscribe(
+        transcript,
+        move |_, _, event: &TranscriptEvent, cx| match event {
+            TranscriptEvent::OpenLink { destination, .. }
+                if is_allowed_external_url(destination) =>
+            {
+                cx.open_url(destination);
+            }
+            TranscriptEvent::OpenLink { .. } => {}
+        },
+    )
+}
+
 impl CodexApp {
     fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
         let InitialViews {
@@ -273,6 +291,7 @@ impl CodexApp {
                 };
                 let _ = composer_sender.try_send(command);
             });
+        let transcript_subscription = subscribe_transcript_links(&transcript, cx);
         let selection_sender = command_sender.clone();
         let thread_list_subscription = cx.subscribe(
             &thread_list,
@@ -335,6 +354,7 @@ impl CodexApp {
             prompt: None,
             prompt_subscription: None,
             _composer_subscription: composer_subscription,
+            _transcript_subscription: transcript_subscription,
             _thread_list_subscription: thread_list_subscription,
             _model_picker_subscription: model_picker_subscription,
             _queue_subscription: queue_subscription,
@@ -1405,6 +1425,16 @@ fn current_unix_seconds() -> i64 {
         .unwrap_or_default()
 }
 
+fn is_allowed_external_url(destination: &str) -> bool {
+    let Ok(url) = url::Url::parse(destination) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1414,6 +1444,17 @@ mod tests {
     use codex_app_server_wire::JsonRpcId;
 
     use super::*;
+
+    #[test]
+    fn external_link_policy_allows_only_network_urls_without_credentials() {
+        assert!(is_allowed_external_url("https://example.com/docs"));
+        assert!(is_allowed_external_url("http://localhost:3000"));
+        assert!(!is_allowed_external_url("javascript:alert(1)"));
+        assert!(!is_allowed_external_url("data:text/plain,secret"));
+        assert!(!is_allowed_external_url("file:///tmp/private"));
+        assert!(!is_allowed_external_url("https://user:pass@example.com"));
+        assert!(!is_allowed_external_url("/relative/path"));
+    }
 
     #[test]
     fn maps_only_explicit_command_approval_intents() {
