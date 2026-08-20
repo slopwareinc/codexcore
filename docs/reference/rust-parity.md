@@ -22,7 +22,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Approvals/questions/MCP/dynamic-tool/auth/time requests | Complete | All request schemas, typed inbox/replies, safe defaults, GPUI routing | Pluggable token/attestation providers |
 | Thread/turn SDK facade | Partial | Start/resume, hydrated resume, turn start/steer/interrupt, durable queue add/list/update/delete/reorder/start, input builders | Fork/revert/rollback, rename/archive/delete wrappers, operation streams |
 | Stored threads and models | Complete | Generated validation, stable pages, GCP live catalog tests | Pagination/search UI and cache invalidation |
-| Thread sections | Missing | Generated wire types only | Stable SDK wrappers and host navigation |
+| Thread sections | Partial | Stable list/create/update/delete/move SDK with explicit appearance tri-state | Grouped GPUI navigation and section ordering controls |
 | Dynamic-tool declaration/handlers | Partial | Request/reply types and safe unknown failure | Typed declaration builder and handler registry |
 | Authentication/config/home isolation | Partial | Existing credentials work; runtime compatibility enforced | Login flows, isolated-home hardening, API-key/device-code UI |
 | Realtime Voice | Missing | Generated wire types only | SDK stream, audio platform adapter, host UI |

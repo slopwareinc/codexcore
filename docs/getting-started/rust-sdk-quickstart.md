@@ -50,6 +50,12 @@ for thread in page.data {
 Pagination cursors stay opaque. `ThreadSummary::raw` preserves additional
 schema-valid fields without making generated wire structs the SDK contract.
 
+Server-persisted task sections are available through `list_sections`,
+`create_section`, `update_section`, `delete_section`, and
+`move_thread_to_section`. Appearance updates use an explicit
+`SectionAppearanceUpdate::{Preserve, Clear, Set}` policy so omission never
+accidentally clears synchronized metadata.
+
 The model catalog follows the same stable-page boundary:
 
 ```rust

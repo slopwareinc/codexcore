@@ -118,6 +118,26 @@ response_validator!(
     validate_thread_queue_reorder_response,
     ThreadQueueReorderResponse
 );
+response_validator!(
+    validate_thread_section_list_response,
+    ThreadSectionListResponse
+);
+response_validator!(
+    validate_thread_section_create_response,
+    ThreadSectionCreateResponse
+);
+response_validator!(
+    validate_thread_section_update_response,
+    ThreadSectionUpdateResponse
+);
+response_validator!(
+    validate_thread_section_delete_response,
+    ThreadSectionDeleteResponse
+);
+response_validator!(
+    validate_thread_section_move_response,
+    ThreadSectionMoveResponse
+);
 
 /// Validate a `thread/turns/list` result.
 ///

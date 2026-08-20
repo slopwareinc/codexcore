@@ -13,12 +13,14 @@ use thiserror::Error;
 mod history;
 mod models;
 mod queue;
+mod sections;
 mod threads;
 
 pub use codex_app_server_history::HistoryPolicy;
 pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
 pub use queue::{QueuePage, QueuedSubmission};
+pub use sections::{SectionAppearance, SectionAppearanceUpdate, SectionPage, ThreadSection};
 pub use threads::{ListThreadsOptions, SortDirection, ThreadPage, ThreadSortKey, ThreadSummary};
 
 /// SDK facade or response-shape failure.
@@ -249,6 +251,69 @@ impl Codex {
     /// Returns [`SdkError`] for request, schema, or stable projection failure.
     pub async fn list_models(&self, options: ListModelsOptions) -> Result<ModelPage, SdkError> {
         models::list_models(&self.client, options).await
+    }
+
+    /// List one page of server-persisted thread sections.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn list_sections(
+        &self,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    ) -> Result<SectionPage, SdkError> {
+        sections::list(&self.client, cursor, limit).await
+    }
+
+    /// Create a server-persisted thread section.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn create_section(
+        &self,
+        name: String,
+        appearance: Option<SectionAppearance>,
+    ) -> Result<ThreadSection, SdkError> {
+        sections::create(&self.client, name, appearance).await
+    }
+
+    /// Update a section with an explicit preserve/clear/set appearance policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or projection failure.
+    pub async fn update_section(
+        &self,
+        section_id: &str,
+        name: String,
+        appearance: SectionAppearanceUpdate,
+    ) -> Result<ThreadSection, SdkError> {
+        sections::update(&self.client, section_id, name, appearance).await
+    }
+
+    /// Delete a server-persisted section.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or schema failure.
+    pub async fn delete_section(&self, section_id: &str) -> Result<(), SdkError> {
+        sections::delete(&self.client, section_id).await
+    }
+
+    /// Move a thread into, within, or out of a section.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or schema failure.
+    pub async fn move_thread_to_section(
+        &self,
+        thread_id: &ThreadId,
+        section_id: Option<&str>,
+        before_thread_id: Option<&ThreadId>,
+    ) -> Result<(), SdkError> {
+        sections::move_thread(&self.client, thread_id, section_id, before_thread_id).await
     }
 
     /// Start and retain a new thread.

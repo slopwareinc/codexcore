@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use codex_app_server_client::LocalSessionConfig;
 use codex_app_server_sdk::{
     Codex, CodexInput, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
-    StartThreadOptions, TurnOptions,
+    SectionAppearance, SectionAppearanceUpdate, StartThreadOptions, TurnOptions,
 };
 use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
@@ -95,6 +95,69 @@ async fn durable_queue_add_list_update_reorder_delete() {
         .request("thread/delete", json!({"threadId": thread_id.as_str()}))
         .await
         .expect("delete queue test thread");
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn section_crud_and_thread_move() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let section = codex
+        .create_section(
+            "Rust SDK live test".to_owned(),
+            Some(SectionAppearance {
+                icon: Some("test".to_owned()),
+                color: None,
+            }),
+        )
+        .await
+        .expect("create section");
+    let updated = codex
+        .update_section(
+            &section.id,
+            "Rust SDK live test updated".to_owned(),
+            SectionAppearanceUpdate::Clear,
+        )
+        .await
+        .expect("update section");
+    assert_eq!(updated.name, "Rust SDK live test updated");
+    let page = codex
+        .list_sections(None, Some(100))
+        .await
+        .expect("list sections");
+    assert!(page.data.iter().any(|candidate| candidate.id == section.id));
+    let thread = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(workspace.path().to_owned()),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .expect("start movable thread");
+    let thread_id = thread.id().clone();
+    codex
+        .move_thread_to_section(&thread_id, Some(&section.id), None)
+        .await
+        .expect("move into section");
+    codex
+        .move_thread_to_section(&thread_id, None, None)
+        .await
+        .expect("move out of section");
+    thread.close().await.expect("release thread");
+    codex
+        .client()
+        .request("thread/delete", json!({"threadId": thread_id.as_str()}))
+        .await
+        .expect("delete movable thread");
+    codex
+        .delete_section(&section.id)
+        .await
+        .expect("delete section");
     codex.close().await.expect("close SDK");
 }
 
