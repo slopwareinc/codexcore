@@ -1,6 +1,6 @@
 //! Ergonomic thread/turn facade over the ordered App Server client.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, num::NonZeroU32, path::PathBuf};
 
 use codex_app_server_client::{
     AppServerClient, LocalSessionConfig, RequestResult, SessionConfig, SessionError, ThreadLease,
@@ -15,6 +15,7 @@ mod history;
 mod models;
 mod queue;
 mod sections;
+mod thread_ops;
 mod threads;
 
 pub use auth::{
@@ -25,6 +26,7 @@ pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
 pub use queue::{QueuePage, QueuedSubmission};
 pub use sections::{SectionAppearance, SectionAppearanceUpdate, SectionPage, ThreadSection};
+pub use thread_ops::{ForkPoint, ForkThreadOptions, ForkThreadResult, ThreadLifecycleResult};
 pub use threads::{ListThreadsOptions, SortDirection, ThreadPage, ThreadSortKey, ThreadSummary};
 
 /// SDK facade or response-shape failure.
@@ -44,6 +46,14 @@ pub enum SdkError {
     /// Generated response validation or history reconciliation failure.
     #[error("paginated history failed: {0}")]
     History(String),
+    /// Generated request validation failure.
+    #[error("{method} request failed validation: {message}")]
+    RequestValidation {
+        /// Request method.
+        method: &'static str,
+        /// Generated-schema error.
+        message: String,
+    },
     /// Generated response validation or stable projection failure.
     #[error("{method} response failed validation: {message}")]
     ResponseValidation {
@@ -284,6 +294,51 @@ impl Codex {
         threads::list_threads(&self.client, options).await
     }
 
+    /// Rename a stored or loaded thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, or session failure.
+    pub async fn rename_thread(&self, thread_id: &ThreadId, name: &str) -> Result<(), SdkError> {
+        thread_ops::rename(&self.client, thread_id, name).await
+    }
+
+    /// Archive a stored or loaded thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, or session failure.
+    pub async fn archive_thread(&self, thread_id: &ThreadId) -> Result<(), SdkError> {
+        thread_ops::archive(&self.client, thread_id).await
+    }
+
+    /// Unarchive a stored thread and return its complete validated result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, identity, or session
+    /// failure.
+    pub async fn unarchive_thread(
+        &self,
+        thread_id: &ThreadId,
+    ) -> Result<ThreadLifecycleResult, SdkError> {
+        thread_ops::unarchive(&self.client, thread_id).await
+    }
+
+    /// Fork a stored or loaded thread and retain the new thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, identity, session,
+    /// or lease failure.
+    pub async fn fork_thread(
+        &self,
+        thread_id: &ThreadId,
+        options: ForkThreadOptions,
+    ) -> Result<ForkThreadResult, SdkError> {
+        thread_ops::fork(&self.client, thread_id, options).await
+    }
+
     /// List generated-schema-validated model catalog entries.
     ///
     /// # Errors
@@ -469,6 +524,65 @@ impl CodexThread {
     #[must_use]
     pub fn id(&self) -> &ThreadId {
         &self.id
+    }
+
+    /// Rename this retained thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, or session failure.
+    pub async fn rename(&self, name: &str) -> Result<(), SdkError> {
+        thread_ops::rename(&self.client, &self.id, name).await
+    }
+
+    /// Archive this retained thread.
+    ///
+    /// The handle remains retained until [`Self::close`] is called.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, or session failure.
+    pub async fn archive(&self) -> Result<(), SdkError> {
+        thread_ops::archive(&self.client, &self.id).await
+    }
+
+    /// Fork this retained thread and retain the new thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, identity, session,
+    /// or lease failure.
+    pub async fn fork(&self, options: ForkThreadOptions) -> Result<ForkThreadResult, SdkError> {
+        thread_ops::fork(&self.client, &self.id, options).await
+    }
+
+    /// Replace paginated durable history with the prefix before one turn.
+    ///
+    /// This does not revert local file changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, identity, or session
+    /// failure.
+    pub async fn revert(&self, before_turn_id: &TurnId) -> Result<ThreadLifecycleResult, SdkError> {
+        thread_ops::revert(&self.client, &self.id, before_turn_id).await
+    }
+
+    /// Drop turns from the end of this thread's durable history.
+    ///
+    /// This deprecated protocol operation does not revert local file changes;
+    /// prefer [`Self::revert`] for paginated threads.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated-schema, identity, or session
+    /// failure.
+    #[deprecated(
+        since = "0.1.0-alpha.1",
+        note = "App Server deprecated thread/rollback; use CodexThread::revert"
+    )]
+    pub async fn rollback(&self, num_turns: NonZeroU32) -> Result<ThreadLifecycleResult, SdkError> {
+        thread_ops::rollback(&self.client, &self.id, num_turns).await
     }
 
     /// Retain a turn already proven live by canonical `turn/started` state.

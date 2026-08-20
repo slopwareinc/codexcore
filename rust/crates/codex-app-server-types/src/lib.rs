@@ -145,6 +145,18 @@ response_validator!(
     CancelLoginAccountResponse
 );
 response_validator!(validate_account_logout_response, LogoutAccountResponse);
+response_validator!(validate_thread_set_name_params, ThreadSetNameParams);
+response_validator!(validate_thread_set_name_response, ThreadSetNameResponse);
+response_validator!(validate_thread_archive_params, ThreadArchiveParams);
+response_validator!(validate_thread_archive_response, ThreadArchiveResponse);
+response_validator!(validate_thread_unarchive_params, ThreadUnarchiveParams);
+response_validator!(validate_thread_unarchive_response, ThreadUnarchiveResponse);
+response_validator!(validate_thread_fork_params, ThreadForkParams);
+response_validator!(validate_thread_fork_response, ThreadForkResponse);
+response_validator!(validate_thread_revert_params, ThreadRevertParams);
+response_validator!(validate_thread_revert_response, ThreadRevertResponse);
+response_validator!(validate_thread_rollback_params, ThreadRollbackParams);
+response_validator!(validate_thread_rollback_response, ThreadRollbackResponse);
 
 /// Validate a `thread/turns/list` result.
 ///

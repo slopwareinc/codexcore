@@ -50,6 +50,42 @@ for thread in page.data {
 Pagination cursors stay opaque. `ThreadSummary::raw` preserves additional
 schema-valid fields without making generated wire structs the SDK contract.
 
+Stored-task lifecycle calls are generated-schema validated without exposing
+generated protocol types. Root methods rename, archive, unarchive, or fork by
+stable thread identity; a retained `CodexThread` provides the same rename,
+archive, and fork operations plus history revert:
+
+```rust
+use codex_app_server_sdk::{ForkPoint, ForkThreadOptions};
+use codex_app_server_state::{ThreadId, TurnId};
+
+# async fn lifecycle(codex: &codex_app_server_sdk::Codex) -> Result<(), Box<dyn std::error::Error>> {
+let source = ThreadId::from("source-thread");
+codex.rename_thread(&source, "Stable title").await?;
+let forked = codex
+    .fork_thread(
+        &source,
+        ForkThreadOptions {
+            point: Some(ForkPoint::Before(TurnId::from("turn-to-exclude"))),
+            ..ForkThreadOptions::default()
+        },
+    )
+    .await?;
+let fork_id = forked.thread.id().clone();
+forked.thread.archive().await?;
+forked.thread.close().await?;
+let restored = codex.unarchive_thread(&fork_id).await?;
+assert_eq!(restored.thread_id, fork_id);
+# Ok(())
+# }
+```
+
+`ThreadLifecycleResult::raw` keeps the complete validated response. Revert
+results also project the opaque turn/item backwards cursors. The pinned runtime
+still exposes `thread/rollback`, but the SDK marks that wrapper deprecated and
+requires a nonzero turn count; prefer `CodexThread::revert` for paginated
+threads. Neither history operation reverts local file changes.
+
 Server-persisted task sections are available through `list_sections`,
 `create_section`, `update_section`, `delete_section`, and
 `move_thread_to_section`. Appearance updates use an explicit
