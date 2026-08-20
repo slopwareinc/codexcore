@@ -198,6 +198,11 @@ after each terminal turn. Composer state exposes an accessible Stop control
 only during an active turn; it calls `turn/interrupt` through the retained
 `CodexTurn` capability rather than a thread-global guess.
 
+Interactive startup creates the empty selected task and leaves the composer
+ready, matching the Swift app's new-task surface. The deterministic greeting
+prompt is reserved for headless smoke runs or an explicitly supplied
+`--prompt`; it is never injected into an interactive transcript.
+
 Stored task navigation follows the same boundary. `Codex::list_threads`
 validates the complete response against generated bindings and projects stable
 `ThreadSummary` pages with opaque cursors and a lossless raw field.
