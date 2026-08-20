@@ -69,3 +69,20 @@ locally.
 Side chats are ephemeral forks. Their transcript remains owned by a selected
 thread lease and their graph identity comes from fork metadata; they do not
 create a second reducer or replay child events into the parent.
+
+## Rust presentation projection
+
+The experimental Rust platform exposes the same framework-neutral projection
+from `codex-presentation`. It consumes only an immutable canonical snapshot and
+does not create another reducer or subscribe to protocol events:
+
+```rust
+use codex_presentation::{ThreadGraphKey, ThreadGraphProjector};
+
+let graph = ThreadGraphProjector::project(state, "local");
+let root = ThreadGraphKey::new("local", thread_id.clone());
+let descendants = graph.descendants(&root);
+```
+
+Receiver IDs, agent paths and nicknames remain exact; unknown future lifecycle
+and collaboration-tool values are retained by their lossless enum variants.

@@ -1,7 +1,13 @@
 //! Framework-neutral transcript, activity, and prompt presentation.
 
+mod collaboration_graph;
 mod markdown;
 
+pub use collaboration_graph::{
+    CollabAction, CollabActionStatus, CollabAgentLifecycle, CollabAgentState, ThreadGraphAction,
+    ThreadGraphEdge, ThreadGraphEdgeSource, ThreadGraphKey, ThreadGraphKind, ThreadGraphNode,
+    ThreadGraphProjector, ThreadGraphSnapshot,
+};
 pub use markdown::{
     MarkdownAlignment, MarkdownBlock, MarkdownDocument, MarkdownLink, MarkdownNode,
     MarkdownQuoteKind,
