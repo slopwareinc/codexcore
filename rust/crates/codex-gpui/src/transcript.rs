@@ -169,6 +169,7 @@ pub struct CodexTranscript {
     list_state: ListState,
     theme: CodexTheme,
     expanded_work_groups: BTreeSet<String>,
+    expanded_work_rows: BTreeSet<String>,
 }
 
 impl CodexTranscript {
@@ -186,6 +187,7 @@ impl CodexTranscript {
             list_state,
             theme: CodexTheme::default(),
             expanded_work_groups: BTreeSet::new(),
+            expanded_work_rows: BTreeSet::new(),
         }
     }
 
@@ -211,6 +213,13 @@ impl CodexTranscript {
     fn toggle_work_group(&mut self, id: String, cx: &mut Context<Self>) {
         if !self.expanded_work_groups.remove(&id) {
             self.expanded_work_groups.insert(id);
+        }
+        cx.notify();
+    }
+
+    fn toggle_work_row(&mut self, id: String, cx: &mut Context<Self>) {
+        if !self.expanded_work_rows.remove(&id) {
+            self.expanded_work_rows.insert(id);
         }
         cx.notify();
     }
@@ -245,6 +254,7 @@ impl Render for CodexTranscript {
         let state = self.list_state.clone();
         let emitter = cx.entity().downgrade();
         let expanded_work_groups = self.expanded_work_groups.clone();
+        let expanded_work_rows = self.expanded_work_rows.clone();
         div()
             .id("codex-transcript")
             .role(Role::Log)
@@ -265,6 +275,7 @@ impl Render for CodexTranscript {
                                         theme,
                                         &emitter,
                                         expanded_work_groups.contains(&row.stable_id()),
+                                        &expanded_work_rows,
                                     )
                                 },
                             )
@@ -329,6 +340,7 @@ fn render_row(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscript>,
     work_group_expanded: bool,
+    expanded_work_rows: &BTreeSet<String>,
 ) -> AnyElement {
     match row {
         TranscriptRow::Turn { id, status } => div()
@@ -353,7 +365,15 @@ fn render_row(
             id,
             entries,
             status,
-        } => render_work_group(id, entries, status, theme, emitter, work_group_expanded),
+        } => render_work_group(
+            id,
+            entries,
+            status,
+            theme,
+            emitter,
+            work_group_expanded,
+            expanded_work_rows,
+        ),
         TranscriptRow::Plan { plan, .. } => render_plan(row.stable_id(), plan, theme),
     }
 }
@@ -440,6 +460,7 @@ fn render_work_group(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscript>,
     expanded: bool,
+    expanded_work_rows: &BTreeSet<String>,
 ) -> AnyElement {
     let label = if status.is_terminal() {
         "Completed work"
@@ -486,23 +507,38 @@ fn render_work_group(
             }
         })
         .when(expanded, |view| {
-            view.children(
-                entries
-                    .iter()
-                    .map(|entry| render_work_entry(entry, theme, emitter)),
-            )
+            view.children(entries.iter().map(|entry| {
+                render_work_entry(
+                    entry,
+                    theme,
+                    emitter,
+                    expanded_work_rows.contains(&work_entry_id(entry)),
+                )
+            }))
         })
         .into_any()
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_work_entry(
     entry: &PresentedEntry,
     theme: CodexTheme,
-    _emitter: &WeakEntity<CodexTranscript>,
+    emitter: &WeakEntity<CodexTranscript>,
+    expanded: bool,
 ) -> AnyElement {
-    let (label, status) = match &entry.content {
-        TranscriptEntry::Activity(activity) => (activity.label.clone(), entry.status.clone()),
-        TranscriptEntry::Command { command, .. } => (format!("$ {command}"), entry.status.clone()),
+    let (label, status, detail) = match &entry.content {
+        TranscriptEntry::Activity(activity) => (
+            activity.label.clone(),
+            entry.status.clone(),
+            activity.detail.clone(),
+        ),
+        TranscriptEntry::Command {
+            command, output, ..
+        } => (
+            format!("$ {command}"),
+            entry.status.clone(),
+            output.as_ref().map(|output| output.text.to_string()),
+        ),
         TranscriptEntry::FileChanges { changes } => {
             let paths = changes
                 .iter()
@@ -511,6 +547,14 @@ fn render_work_entry(
                 .collect::<Vec<_>>()
                 .join(" · ");
             let suffix = changes.len().saturating_sub(3);
+            let detail = changes
+                .iter()
+                .flat_map(|change| {
+                    std::iter::once(change.path.clone())
+                        .chain(change.diff.lines().take(16).map(str::to_owned))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
             (
                 if suffix == 0 {
                     format!("Edited {paths}")
@@ -518,19 +562,37 @@ fn render_work_entry(
                     format!("Edited {paths} · +{suffix} more")
                 },
                 entry.status.clone(),
+                (!detail.is_empty()).then_some(detail),
             )
         }
-        TranscriptEntry::ToolCall { server, tool, .. } => (
+        TranscriptEntry::ToolCall {
+            server,
+            tool,
+            arguments,
+            result,
+        } => (
             server.as_ref().map_or_else(
                 || format!("Called {tool}"),
                 |server| format!("Called {server} · {tool}"),
             ),
             entry.status.clone(),
+            Some(result.as_ref().map_or_else(
+                || compact_json(arguments),
+                |result| {
+                    format!(
+                        "Arguments\n{}\n\nResult\n{}",
+                        compact_json(arguments),
+                        compact_json(result)
+                    )
+                },
+            )),
         ),
-        _ => ("Activity".to_owned(), entry.status.clone()),
+        _ => ("Activity".to_owned(), entry.status.clone(), None),
     };
+    let row_id = work_entry_id(entry);
+    let emitter = emitter.clone();
     div()
-        .id(format!("work-entry:{}", entry.key.item_id))
+        .id(format!("work-entry:{row_id}"))
         .role(Role::ListItem)
         .aria_label(label.clone())
         .h(px(28.))
@@ -544,7 +606,37 @@ fn render_work_entry(
         .text_color(theme.muted_text)
         .child(status_glyph(&status, theme))
         .child(div().min_w_0().flex_1().truncate().child(label))
+        .when(detail.is_some(), |view| {
+            view.child(div().text_xs().child(if expanded { "⌄" } else { "›" }))
+        })
+        .on_click(move |_, _, cx| {
+            emitter
+                .update(cx, |transcript, cx| {
+                    transcript.toggle_work_row(row_id.clone(), cx);
+                })
+                .ok();
+        })
+        .when(expanded, |view| {
+            view.child(
+                div()
+                    .pl(px(38.))
+                    .pb_2()
+                    .w_full()
+                    .font_family("monospace")
+                    .text_xs()
+                    .text_color(theme.muted_text)
+                    .whitespace_normal()
+                    .when_some(detail, gpui::ParentElement::child),
+            )
+        })
         .into_any()
+}
+
+fn work_entry_id(entry: &PresentedEntry) -> String {
+    format!(
+        "{}:{}:{}",
+        entry.key.thread_id, entry.key.turn_id, entry.key.item_id
+    )
 }
 
 fn status_glyph(status: &LifecycleStatus, theme: CodexTheme) -> gpui::Div {
