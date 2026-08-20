@@ -48,7 +48,7 @@ continuation pages, bounds concurrent per-turn item requests, stages durable
 pages until complete, installs oldest-first, and marks prior coverage stale
 after a physical connection gap. The ordered actor alone executes its effects.
 
-## Planned crate boundaries
+## Crate boundaries
 
 | Layer | Responsibility |
 | --- | --- |
@@ -81,9 +81,31 @@ workspace crates are not exposed as the SDK contract: the 0.148.0 protocol
 crate depends on workspace-root patches that downstream Cargo dependencies do
 not inherit.
 
-The Rust toolchain is pinned in `rust-toolchain.toml`. GPUI and its companion
-crates will be pinned to one tested upstream Git revision rather than a moving
-branch or an ambiguous pre-1.0 version.
+The Rust toolchain is pinned in `rust-toolchain.toml`. `gpui` and
+`gpui_platform` are pinned to Zed revision
+`8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe`; the public
+`codex_gpui::GPUI_REVISION` constant and Cargo lockfile make that compatibility
+choice inspectable. macOS development without the full Xcode Metal toolchain
+uses GPUI's runtime-shader feature. Linux enables the tested Wayland and X11
+backends.
+
+## Embedding the first GPUI surface
+
+`codex-gpui` exposes `CodexTranscript`, a reusable GPUI entity. The host passes
+it a disposable `TranscriptPresentation` and later calls `set_presentation`
+from a GPUI update context. The component owns only presentation and viewport
+state: it does not start App Server, create a Tokio runtime, or open a window.
+
+The transcript uses GPUI's bottom-aligned variable-height list, stable
+composite row identities, tail following, identity splices, and targeted
+remeasurement for streaming content. Unknown canonical items render as visible
+fallback cards rather than disappearing.
+
+Run the executable embedding example on a graphical machine:
+
+```sh
+cargo run -p codex-gpui --example transcript
+```
 
 ## Verification strategy
 

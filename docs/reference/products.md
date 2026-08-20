@@ -4,8 +4,9 @@
 
 Portable Rust foundations for the App Server SDK and GPUI platform are under
 `rust/`. The protocol, transport, canonical state, and presentation layers stay
-independent of GPUI; the future `codex-gpui` product consumes those layers as a
-controlled native component framework. See the
+independent of GPUI. `codex-gpui` consumes disposable presentation models and
+provides an embeddable virtualized transcript plus a compiling native example;
+it does not own an App Server session or application lifecycle. See the
 [Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
 
 `codex-app-server-client` is the current public runtime slice. It owns one
