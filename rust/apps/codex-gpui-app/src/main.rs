@@ -12,7 +12,7 @@ use codex_app_server_interaction::{
 use codex_app_server_sdk::{Codex, CodexInput, StartThreadOptions, TurnOptions};
 use codex_app_server_state::{ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
-use codex_gpui::{CodexPrompt, CodexTranscript, PromptIntent};
+use codex_gpui::{CodexComposer, CodexPrompt, CodexTranscript, ComposerEvent, PromptIntent};
 use codex_presentation::{
     PromptActionKind, PromptPresentation, StandardItemPolicy, TranscriptPresentation,
     TranscriptProjector, project_prompt,
@@ -47,6 +47,7 @@ fn main() {
 
     application().run(move |cx: &mut App| {
         gpui_tokio::init(cx);
+        codex_gpui::init_composer(cx);
         let bounds = Bounds::centered(None, size(px(1_040.), px(780.)), cx);
         cx.open_window(
             WindowOptions {
@@ -160,12 +161,17 @@ enum AppUpdate {
 #[derive(Clone, Debug)]
 enum HostCommand {
     Prompt(PromptIntent),
+    Submit(String),
+    Shutdown,
 }
 
 struct CodexApp {
     transcript: Entity<CodexTranscript>,
+    composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
+    _composer_subscription: Subscription,
+    _quit_subscription: Subscription,
     status: String,
     command_sender: Sender<HostCommand>,
     _session_task: Task<Result<(), gpui_tokio::JoinError>>,
@@ -180,8 +186,21 @@ impl CodexApp {
             turns: Vec::new(),
         };
         let transcript = cx.new(|_| CodexTranscript::new(&pending));
+        let composer = cx.new(CodexComposer::new);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
+        let composer_sender = command_sender.clone();
+        let composer_subscription =
+            cx.subscribe(&composer, move |_, _, event: &ComposerEvent, _| {
+                let _ = composer_sender.try_send(HostCommand::Submit(event.text.clone()));
+            });
+        let quit_sender = command_sender.clone();
+        let quit_subscription = cx.on_app_quit(move |_, _| {
+            let quit_sender = quit_sender.clone();
+            async move {
+                let _ = quit_sender.send(HostCommand::Shutdown).await;
+            }
+        });
         let session_task = Tokio::spawn(cx, async move {
             if let Err(error) = run_session(config, update_sender.clone(), command_receiver).await {
                 let _ = update_sender.send(AppUpdate::Failed(error)).await;
@@ -200,8 +219,11 @@ impl CodexApp {
 
         Self {
             transcript,
+            composer,
             prompt: None,
             prompt_subscription: None,
+            _composer_subscription: composer_subscription,
+            _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
             command_sender,
             _session_task: session_task,
@@ -271,6 +293,14 @@ impl Render for CodexApp {
             .when_some(self.prompt.clone(), |view, prompt| {
                 view.child(div().flex_shrink_0().w_full().px_5().pb_5().child(prompt))
             })
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w_full()
+                    .px_5()
+                    .pb_5()
+                    .child(self.composer.clone()),
+            )
     }
 }
 
@@ -298,39 +328,64 @@ async fn run_session(
         .observe()
         .await
         .map_err(|error| error.to_string())?;
-    send_status(&updates, "Running turn…").await;
-    let turn = thread
-        .start_turn(
-            vec![CodexInput::text(config.prompt)],
-            TurnOptions::default(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    let turn_key = TurnKey {
-        thread_id: thread_id.clone(),
-        turn_id: turn.id().clone(),
-    };
+    let mut next_input = Some(config.prompt.clone());
+    let mut shutdown = false;
+    while !shutdown {
+        let input = match next_input.take() {
+            Some(input) => input,
+            None => match next_submission(codex.client(), &commands).await? {
+                Some(input) => input,
+                None => break,
+            },
+        };
+        send_status(&updates, "Running turn…").await;
+        let turn = thread
+            .start_turn(vec![CodexInput::text(input)], TurnOptions::default())
+            .await
+            .map_err(|error| error.to_string())?;
+        let turn_key = TurnKey {
+            thread_id: thread_id.clone(),
+            turn_id: turn.id().clone(),
+        };
 
-    loop {
-        let terminal = publish_current(codex.client(), &thread_id, &turn_key, &updates).await?;
-        if terminal {
-            break;
-        }
-        tokio::select! {
-            changed = observation.changed() => {
-                changed.map_err(|error| error.to_string())?;
+        loop {
+            let terminal = publish_current(codex.client(), &thread_id, &turn_key, &updates).await?;
+            if terminal {
+                break;
             }
-            command = commands.recv() => {
-                if let Ok(command) = command {
-                    handle_command(codex.client(), command).await?;
+            tokio::select! {
+                changed = observation.changed() => {
+                    changed.map_err(|error| error.to_string())?;
+                }
+                command = commands.recv() => {
+                    match command {
+                        Ok(HostCommand::Prompt(intent)) => {
+                            handle_prompt(codex.client(), intent).await?;
+                        }
+                        Ok(HostCommand::Submit(text)) => {
+                            turn.steer(vec![CodexInput::text(text)])
+                                .await
+                                .map_err(|error| error.to_string())?;
+                        }
+                        Ok(HostCommand::Shutdown) | Err(_) => {
+                            shutdown = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
+        turn.close().await.map_err(|error| error.to_string())?;
+        if config.headless || shutdown {
+            break;
+        }
+        send_status(&updates, "Ready for another message").await;
     }
 
-    send_status(&updates, "Turn complete").await;
+    if config.headless && !shutdown {
+        send_status(&updates, "Turn complete").await;
+    }
     updates.send(AppUpdate::Prompt(None)).await.ok();
-    turn.close().await.map_err(|error| error.to_string())?;
     thread.close().await.map_err(|error| error.to_string())?;
     codex.close().await.map_err(|error| error.to_string())?;
     Ok(())
@@ -379,8 +434,20 @@ async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_command(client: &AppServerClient, command: HostCommand) -> Result<(), String> {
-    let HostCommand::Prompt(intent) = command;
+async fn next_submission(
+    client: &AppServerClient,
+    commands: &Receiver<HostCommand>,
+) -> Result<Option<String>, String> {
+    loop {
+        match commands.recv().await {
+            Ok(HostCommand::Submit(text)) => return Ok(Some(text)),
+            Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
+            Ok(HostCommand::Shutdown) | Err(_) => return Ok(None),
+        }
+    }
+}
+
+async fn handle_prompt(client: &AppServerClient, intent: PromptIntent) -> Result<(), String> {
     let snapshot = client.snapshot().await.map_err(|error| error.to_string())?;
     let request = parse_pending(&snapshot)
         .map_err(|error| error.to_string())?

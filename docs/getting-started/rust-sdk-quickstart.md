@@ -127,9 +127,10 @@ and meet its patch floor; for this tree that means `0.148.0` or a newer
 
 ## Run the GPUI reference host bootstrap
 
-The native host currently runs one real prompt from start through terminal
-canonical state, displays typed pending approval cards, and preserves exact
-request identity when routing approve/decline intent:
+The native host runs real multi-turn prompts through terminal canonical state,
+supports native composer submissions and active-turn steering, displays typed
+pending approval cards, and preserves exact request identity when routing
+approve/decline intent:
 
 ```bash
 CODEX_BINARY=/absolute/path/to/codex \

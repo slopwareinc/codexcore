@@ -14,6 +14,7 @@ codex-app-server-wire = { path = "../codex-app-server-wire" }
 codex-presentation = { path = "../codex-presentation" }
 gpui.workspace = true
 serde_json.workspace = true
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 gpui_platform.workspace = true

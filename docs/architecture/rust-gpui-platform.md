@@ -91,10 +91,11 @@ backends.
 
 ## Embedding the first GPUI surface
 
-`codex-gpui` exposes `CodexTranscript` and `CodexPrompt` as reusable GPUI
-entities. The host passes disposable presentation models and later updates them
-from a GPUI context. The components own only presentation and viewport state:
-they do not start App Server, create a Tokio runtime, or open a window.
+`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, and `CodexComposer` as
+reusable GPUI entities. The host passes disposable presentation models and
+later updates them from a GPUI context. The components own only presentation,
+draft, focus, and viewport state: they do not start App Server, create a Tokio
+runtime, or open a window.
 
 The transcript uses GPUI's bottom-aligned variable-height list, stable
 composite row identities, tail following, identity splices, and targeted
@@ -108,6 +109,12 @@ required user/MCP form. It never infers approval policy in the render path.
 Transcript rows, prompt dialogs, headings, and controls carry stable AccessKit
 roles and bounded labels.
 
+The composer uses GPUI's native input-handler contract for IME composition,
+UTF-16 platform ranges, grapheme navigation, selection, and clipboard actions.
+Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key
+bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
+steering, queueing, and persistence remain host policy.
+
 Run the executable embedding example on a graphical machine:
 
 ```sh
@@ -119,8 +126,10 @@ bridge to the same Zed revision, retains both executor tasks, drives an actual
 SDK thread, coalesces canonical snapshots into transcript updates, and exposes
 typed pending prompts. Only safe non-user request families use the built-in
 default policy. Approval and decline require an explicit click and are resolved
-against the exact epoch-qualified identity. The same driver has a headless mode
-for authenticated Linux verification.
+against the exact epoch-qualified identity. Composer submissions start another
+turn while idle and steer the exact active turn while running. The same driver
+has a headless mode for authenticated Linux verification and an explicit quit
+command for deterministic App Server and lease teardown.
 
 ## Verification strategy
 

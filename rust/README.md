@@ -29,8 +29,8 @@ Initial crates:
 - `codex-app-server-types`: generated v2 request, response, notification, and
   item types from the exact CLI schema.
 - `codex-app-server-state`: framework-neutral canonical identities.
-- `codex-gpui`: accessible virtual transcript and exact-identity prompt
-  components pinned to one GPUI revision.
+- `codex-gpui`: accessible virtual transcript, exact-identity prompt, and
+  native bounded composer components pinned to one GPUI revision.
 - `codex-gpui-app`: native reference host bootstrap that runs a real SDK turn,
   projects coalesced canonical snapshots, and routes explicit prompt intent.
 

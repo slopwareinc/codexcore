@@ -15,8 +15,10 @@ use gpui::{
     list, prelude::*, px, rgb,
 };
 
+mod composer;
 mod prompt;
 
+pub use composer::{CodexComposer, ComposerEvent, init as init_composer};
 pub use prompt::{CodexPrompt, PromptIntent};
 
 /// Exact Zed revision supplying GPUI for this crate.

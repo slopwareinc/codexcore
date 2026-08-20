@@ -6,14 +6,15 @@ Portable Rust foundations for the App Server SDK and GPUI platform are under
 `rust/`. The protocol, transport, canonical state, and presentation layers stay
 independent of GPUI. `codex-gpui` consumes disposable presentation models and
 provides an accessible virtualized transcript, exact-identity prompt cards,
-and a compiling native example; it does not own an App Server session or
-application lifecycle. See the
+a bounded native IME-aware composer, and a compiling native example; it does
+not own an App Server session or application lifecycle. See the
 [Rust SDK and GPUI platform](../architecture/rust-gpui-platform.md) guide.
 
 `codex-gpui-app` is the native reference-host bootstrap. It currently owns one
 window, one SDK session, a real thread/turn lifecycle, safe default interaction
-policy, approval routing, and the GPUI/Tokio bridge. It is not yet the full
-CodexCore reference-app replacement.
+policy, approval routing, composer-driven turns/steering, deterministic quit,
+and the GPUI/Tokio bridge. It is not yet the full CodexCore reference-app
+replacement.
 
 `codex-app-server-client` is the current public runtime slice. It owns one
 ordered local session, validates initialize metadata, correlates raw requests,
