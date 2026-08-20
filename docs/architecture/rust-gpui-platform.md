@@ -240,8 +240,9 @@ cargo run -p codex-gpui --example transcript
 
 `codex-gpui-app` is the first opinionated host slice. It pins the GPUI/Tokio
 bridge to the same Zed revision, retains both executor tasks, drives an actual
-SDK thread, coalesces canonical snapshots into transcript updates, and exposes
-typed pending prompts. Only safe non-user request families use the built-in
+SDK thread, projects canonical snapshots through `TranscriptV2Projector` into
+`CodexTranscriptV2`, and exposes typed pending prompts. Only safe non-user
+request families use the built-in
 default policy. Approval and decline require an explicit click and are resolved
 against the exact epoch-qualified identity. Composer submissions start another
 turn while idle and steer the exact active turn while running. The same driver

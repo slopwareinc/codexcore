@@ -15,17 +15,17 @@ use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexGoal, CodexModelPicker,
-    CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList, CodexTranscript,
-    ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
-    SubagentSelectionEvent, ThreadListCommand, ThreadSelectionEvent, TranscriptEvent,
+    CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList,
+    CodexTranscriptV2, ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent,
+    QueueEvent, SubagentSelectionEvent, ThreadListCommand, ThreadSelectionEvent, TranscriptEvent,
 };
 use codex_presentation::{
     AuthenticationPresentation, GoalPresentation, ModelPickerPresentation, PromptActionKind,
     PromptPresentation, QueuePresentation, StandardItemPolicy, TaskStatusPresentation,
     ThreadGraphKey, ThreadGraphProjector, ThreadGraphSnapshot, ThreadListPresentation,
-    ThreadListRow, TranscriptPresentation, TranscriptProjector, project_account, project_goal,
-    project_login_challenge, project_model_picker, project_prompt, project_queue,
-    project_thread_list,
+    ThreadListRow, project_account, project_goal, project_login_challenge, project_model_picker,
+    project_prompt, project_queue, project_thread_list,
+    transcript_v2::{TranscriptV2Presentation, TranscriptV2Projector},
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -163,7 +163,7 @@ async fn print_updates(
 enum AppUpdate {
     Status(String),
     Canonical {
-        transcript: TranscriptPresentation,
+        transcript: TranscriptV2Presentation,
         root: ThreadGraphKey,
         graph: ThreadGraphSnapshot,
     },
@@ -196,7 +196,7 @@ enum HostCommand {
 }
 
 struct CodexApp {
-    transcript: Entity<CodexTranscript>,
+    transcript: Entity<CodexTranscriptV2>,
     thread_list: Entity<CodexThreadList>,
     subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
@@ -225,7 +225,7 @@ struct CodexApp {
 }
 
 struct InitialViews {
-    transcript: Entity<CodexTranscript>,
+    transcript: Entity<CodexTranscriptV2>,
     thread_list: Entity<CodexThreadList>,
     subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
@@ -236,13 +236,13 @@ struct InitialViews {
 }
 
 fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialViews {
-    let pending = TranscriptPresentation {
+    let pending = TranscriptV2Presentation {
         revision: codex_app_server_state::StateRevision::ZERO,
         thread_id: ThreadId::from("pending"),
         turns: Vec::new(),
     };
     InitialViews {
-        transcript: cx.new(|_| CodexTranscript::new(&pending)),
+        transcript: cx.new(|_| CodexTranscriptV2::new(&pending)),
         thread_list: cx.new(|_| {
             CodexThreadList::new(ThreadListPresentation {
                 rows: Vec::new(),
@@ -295,7 +295,7 @@ fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialView
 }
 
 fn subscribe_transcript_links(
-    transcript: &Entity<CodexTranscript>,
+    transcript: &Entity<CodexTranscriptV2>,
     cx: &mut Context<CodexApp>,
 ) -> Subscription {
     cx.subscribe(
@@ -1627,7 +1627,7 @@ async fn publish_transcript(
         .canonical_snapshot()
         .await
         .map_err(|error| error.to_string())?;
-    let transcript = TranscriptProjector::project(&state, thread_id, &StandardItemPolicy);
+    let transcript = TranscriptV2Projector::project(&state, thread_id, &StandardItemPolicy);
     let root = ThreadGraphKey::new(LOCAL_HOST_ID, thread_id.clone());
     let graph = ThreadGraphProjector::project(&state, LOCAL_HOST_ID);
     updates
