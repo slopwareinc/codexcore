@@ -1,5 +1,6 @@
 //! Framework-neutral transcript, activity, and prompt presentation.
 
+pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, StateRevision, ThreadId, TurnId,
@@ -315,10 +316,41 @@ fn humanize(value: &str) -> String {
 /// Framework-neutral blocking prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PromptPresentation {
+    /// Exact epoch-qualified request identity.
+    pub key: ServerRequestKey,
     pub title: String,
     pub message: Option<String>,
     pub kind: PromptKind,
     pub is_destructive: bool,
+    /// Ordered host-facing actions appropriate for this request family.
+    pub actions: Vec<PromptActionPresentation>,
+}
+
+/// One action exposed by a blocking prompt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptActionPresentation {
+    /// Stable action identity within the prompt.
+    pub id: String,
+    pub label: String,
+    pub kind: PromptActionKind,
+    pub emphasis: PromptActionEmphasis,
+}
+
+/// Semantic action routed back to the host.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PromptActionKind {
+    Approve,
+    Decline,
+    Respond,
+    OpenUrl,
+}
+
+/// Visual and accessibility emphasis independent of a UI framework.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PromptActionEmphasis {
+    Primary,
+    Secondary,
+    Danger,
 }
 
 /// Prompt family for host routing.
@@ -336,85 +368,213 @@ pub enum PromptKind {
 /// Project one typed server request into host-facing prompt semantics.
 #[must_use]
 pub fn project_prompt(request: &TypedServerRequest) -> PromptPresentation {
+    let mut prompt = prompt_for_request(request);
+    if prompt.is_destructive
+        && let Some(approve) = prompt
+            .actions
+            .iter_mut()
+            .find(|action| action.kind == PromptActionKind::Approve)
+    {
+        approve.emphasis = PromptActionEmphasis::Danger;
+    }
+    prompt
+}
+
+fn prompt_for_request(request: &TypedServerRequest) -> PromptPresentation {
     match &request.body {
         ServerRequestBody::CommandApproval {
             command, reason, ..
-        } => PromptPresentation {
-            title: command.clone().unwrap_or_else(|| "Run command".into()),
-            message: reason.clone(),
-            kind: PromptKind::Command,
-            is_destructive: false,
-        },
-        ServerRequestBody::FileChangeApproval { reason, .. } => PromptPresentation {
-            title: "Apply file changes".into(),
-            message: reason.clone(),
-            kind: PromptKind::FileChange,
-            is_destructive: false,
-        },
-        ServerRequestBody::PermissionsApproval { reason, .. } => PromptPresentation {
-            title: "Grant additional permissions".into(),
-            message: reason.clone(),
-            kind: PromptKind::Permission,
-            is_destructive: true,
-        },
-        ServerRequestBody::UserInput { questions, .. } => PromptPresentation {
-            title: questions
-                .first()
-                .map_or_else(|| "Input required".into(), |q| q.header.clone()),
-            message: questions.first().map(|q| q.question.clone()),
-            kind: PromptKind::UserInput,
-            is_destructive: false,
-        },
+        } => approval_prompt(
+            request,
+            command.clone().unwrap_or_else(|| "Run command".into()),
+            reason.clone(),
+            PromptKind::Command,
+            false,
+        ),
+        ServerRequestBody::FileChangeApproval { reason, .. } => approval_prompt(
+            request,
+            "Apply file changes".into(),
+            reason.clone(),
+            PromptKind::FileChange,
+            false,
+        ),
+        ServerRequestBody::PermissionsApproval { reason, .. } => approval_prompt(
+            request,
+            "Grant additional permissions".into(),
+            reason.clone(),
+            PromptKind::Permission,
+            true,
+        ),
+        ServerRequestBody::UserInput { questions, .. } => user_input_prompt(request, questions),
         ServerRequestBody::McpElicitation {
             server_name,
             message,
             mode,
             ..
-        } => PromptPresentation {
-            title: format!("{server_name} requests input"),
-            message: Some(match mode {
-                McpElicitationMode::Url { url, .. } => format!("{message}\n{url}"),
-                _ => message.clone(),
-            }),
-            kind: PromptKind::Mcp,
-            is_destructive: false,
-        },
+        } => mcp_prompt(request, server_name, message, mode),
         ServerRequestBody::LegacyExecApproval { reason, .. }
-        | ServerRequestBody::LegacyPatchApproval { reason, .. } => PromptPresentation {
-            title: "Legacy approval".into(),
-            message: reason.clone(),
-            kind: PromptKind::Legacy,
-            is_destructive: false,
-        },
-        ServerRequestBody::DynamicToolCall { tool, .. } => PromptPresentation {
-            title: humanize(tool),
-            message: None,
-            kind: PromptKind::Unknown,
-            is_destructive: false,
-        },
+        | ServerRequestBody::LegacyPatchApproval { reason, .. } => approval_prompt(
+            request,
+            "Legacy approval".into(),
+            reason.clone(),
+            PromptKind::Legacy,
+            false,
+        ),
+        ServerRequestBody::DynamicToolCall { tool, .. } => prompt(
+            request,
+            humanize(tool),
+            None,
+            PromptKind::Unknown,
+            false,
+            vec![primary_action(
+                "respond",
+                "Review",
+                PromptActionKind::Respond,
+            )],
+        ),
         ServerRequestBody::TokenRefresh { .. }
         | ServerRequestBody::Attestation
-        | ServerRequestBody::CurrentTime { .. } => PromptPresentation {
-            title: "Host action required".into(),
-            message: None,
-            kind: PromptKind::Unknown,
-            is_destructive: false,
-        },
-        ServerRequestBody::Unknown { method, .. } => PromptPresentation {
-            title: humanize(method),
-            message: None,
-            kind: PromptKind::Unknown,
-            is_destructive: false,
-        },
+        | ServerRequestBody::CurrentTime { .. } => {
+            host_action_prompt(request, "Host action required".into())
+        }
+        ServerRequestBody::Unknown { method, .. } => host_action_prompt(request, humanize(method)),
+    }
+}
+
+fn approval_prompt(
+    request: &TypedServerRequest,
+    title: String,
+    message: Option<String>,
+    kind: PromptKind,
+    is_destructive: bool,
+) -> PromptPresentation {
+    prompt(
+        request,
+        title,
+        message,
+        kind,
+        is_destructive,
+        approval_actions(),
+    )
+}
+
+fn user_input_prompt(
+    request: &TypedServerRequest,
+    questions: &[codex_app_server_interaction::UserQuestion],
+) -> PromptPresentation {
+    prompt(
+        request,
+        questions
+            .first()
+            .map_or_else(|| "Input required".into(), |q| q.header.clone()),
+        questions.first().map(|q| q.question.clone()),
+        PromptKind::UserInput,
+        false,
+        vec![primary_action(
+            "respond",
+            "Respond",
+            PromptActionKind::Respond,
+        )],
+    )
+}
+
+fn mcp_prompt(
+    request: &TypedServerRequest,
+    server_name: &str,
+    message: &str,
+    mode: &McpElicitationMode,
+) -> PromptPresentation {
+    let is_url = matches!(mode, McpElicitationMode::Url { .. });
+    prompt(
+        request,
+        format!("{server_name} requests input"),
+        Some(match mode {
+            McpElicitationMode::Url { url, .. } => format!("{message}\n{url}"),
+            _ => message.to_owned(),
+        }),
+        PromptKind::Mcp,
+        false,
+        vec![
+            primary_action(
+                "respond",
+                if is_url { "Open link" } else { "Respond" },
+                if is_url {
+                    PromptActionKind::OpenUrl
+                } else {
+                    PromptActionKind::Respond
+                },
+            ),
+            secondary_action("decline", "Decline", PromptActionKind::Decline),
+        ],
+    )
+}
+
+fn host_action_prompt(request: &TypedServerRequest, title: String) -> PromptPresentation {
+    prompt(
+        request,
+        title,
+        None,
+        PromptKind::Unknown,
+        false,
+        vec![primary_action(
+            "respond",
+            "Review",
+            PromptActionKind::Respond,
+        )],
+    )
+}
+
+fn prompt(
+    request: &TypedServerRequest,
+    title: String,
+    message: Option<String>,
+    kind: PromptKind,
+    is_destructive: bool,
+    actions: Vec<PromptActionPresentation>,
+) -> PromptPresentation {
+    PromptPresentation {
+        key: request.key.clone(),
+        title,
+        message,
+        kind,
+        is_destructive,
+        actions,
+    }
+}
+
+fn approval_actions() -> Vec<PromptActionPresentation> {
+    vec![
+        primary_action("approve", "Approve", PromptActionKind::Approve),
+        secondary_action("decline", "Decline", PromptActionKind::Decline),
+    ]
+}
+
+fn primary_action(id: &str, label: &str, kind: PromptActionKind) -> PromptActionPresentation {
+    PromptActionPresentation {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        kind,
+        emphasis: PromptActionEmphasis::Primary,
+    }
+}
+
+fn secondary_action(id: &str, label: &str, kind: PromptActionKind) -> PromptActionPresentation {
+    PromptActionPresentation {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        kind,
+        emphasis: PromptActionEmphasis::Secondary,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_app_server_interaction::InteractionScope;
     use codex_app_server_state::{
         CanonicalItem, CanonicalMutation, CanonicalStateReducer, StateCoverage,
     };
+    use codex_app_server_wire::JsonRpcId;
     use std::collections::BTreeMap;
 
     #[test]
@@ -465,5 +625,58 @@ mod tests {
     fn humanizes_tool_names() {
         assert_eq!(humanize("create_issue"), "Create issue");
         assert_eq!(humanize("webSearch"), "Web search");
+    }
+
+    #[test]
+    fn destructive_permission_prompt_preserves_identity_and_marks_approval() {
+        let request = interaction(ServerRequestBody::PermissionsApproval {
+            scope: scope(),
+            cwd: "/workspace".to_owned(),
+            permissions: Value::Object(serde_json::Map::default()),
+            reason: Some("Needs broader access".to_owned()),
+            environment_id: None,
+        });
+        let prompt = project_prompt(&request);
+        assert_eq!(prompt.key, request.key);
+        assert!(prompt.is_destructive);
+        assert_eq!(prompt.actions[0].kind, PromptActionKind::Approve);
+        assert_eq!(prompt.actions[0].emphasis, PromptActionEmphasis::Danger);
+        assert_eq!(prompt.actions[1].kind, PromptActionKind::Decline);
+    }
+
+    #[test]
+    fn mcp_url_prompt_routes_open_link_before_any_reply() {
+        let request = interaction(ServerRequestBody::McpElicitation {
+            scope: scope(),
+            server_name: "docs".to_owned(),
+            message: "Authenticate".to_owned(),
+            mode: McpElicitationMode::Url {
+                elicitation_id: "elicitation".to_owned(),
+                url: "https://example.com/auth".to_owned(),
+            },
+            metadata: None,
+        });
+        let prompt = project_prompt(&request);
+        assert_eq!(prompt.actions[0].kind, PromptActionKind::OpenUrl);
+        assert_eq!(prompt.actions[1].kind, PromptActionKind::Decline);
+    }
+
+    fn interaction(body: ServerRequestBody) -> TypedServerRequest {
+        TypedServerRequest {
+            key: ServerRequestKey {
+                connection_epoch: 9,
+                request_id: JsonRpcId::String("request".to_owned()),
+            },
+            body,
+            raw_params: BTreeMap::new(),
+        }
+    }
+
+    fn scope() -> InteractionScope {
+        InteractionScope {
+            thread_id: ThreadId::from("thread"),
+            turn_id: Some(TurnId::from("turn")),
+            item_id: None,
+        }
     }
 }

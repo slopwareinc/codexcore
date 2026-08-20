@@ -91,15 +91,22 @@ backends.
 
 ## Embedding the first GPUI surface
 
-`codex-gpui` exposes `CodexTranscript`, a reusable GPUI entity. The host passes
-it a disposable `TranscriptPresentation` and later calls `set_presentation`
-from a GPUI update context. The component owns only presentation and viewport
-state: it does not start App Server, create a Tokio runtime, or open a window.
+`codex-gpui` exposes `CodexTranscript` and `CodexPrompt` as reusable GPUI
+entities. The host passes disposable presentation models and later updates them
+from a GPUI context. The components own only presentation and viewport state:
+they do not start App Server, create a Tokio runtime, or open a window.
 
 The transcript uses GPUI's bottom-aligned variable-height list, stable
 composite row identities, tail following, identity splices, and targeted
 remeasurement for streaming content. Unknown canonical items render as visible
 fallback cards rather than disappearing.
+
+Prompt projections preserve the exact connection-epoch/request-ID identity and
+declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host
+still maps that intent to a generated-schema-validated reply or opens the
+required user/MCP form. It never infers approval policy in the render path.
+Transcript rows, prompt dialogs, headings, and controls carry stable AccessKit
+roles and bounded labels.
 
 Run the executable embedding example on a graphical machine:
 

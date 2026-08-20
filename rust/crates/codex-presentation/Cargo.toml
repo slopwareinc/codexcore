@@ -9,9 +9,13 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+codex-app-server-client = { path = "../codex-app-server-client" }
 codex-app-server-interaction = { path = "../codex-app-server-interaction" }
 codex-app-server-state = { path = "../codex-app-server-state" }
 serde_json.workspace = true
+
+[dev-dependencies]
+codex-app-server-wire = { path = "../codex-app-server-wire" }
 
 [lints]
 workspace = true

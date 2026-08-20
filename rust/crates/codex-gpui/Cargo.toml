@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 codex-app-server-state = { path = "../codex-app-server-state" }
+codex-app-server-wire = { path = "../codex-app-server-wire" }
 codex-presentation = { path = "../codex-presentation" }
 gpui.workspace = true
 serde_json.workspace = true

@@ -1083,6 +1083,7 @@ name = "codex-gpui"
 version = "0.1.0-alpha.1"
 dependencies = [
  "codex-app-server-state",
+ "codex-app-server-wire",
  "codex-presentation",
  "gpui",
  "gpui_platform",
@@ -1093,8 +1094,10 @@ dependencies = [
 name = "codex-presentation"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "codex-app-server-client",
  "codex-app-server-interaction",
  "codex-app-server-state",
+ "codex-app-server-wire",
  "serde_json",
 ]
 

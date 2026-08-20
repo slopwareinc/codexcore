@@ -11,9 +11,13 @@ use codex_presentation::{
     ActivityKind, ActivityPresentation, PresentedEntry, TranscriptEntry, TranscriptPresentation,
 };
 use gpui::{
-    AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Window, div, list,
-    prelude::*, px, rgb,
+    AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Role, Window, div,
+    list, prelude::*, px, rgb,
 };
+
+mod prompt;
+
+pub use prompt::{CodexPrompt, PromptIntent};
 
 /// Exact Zed revision supplying GPUI for this crate.
 pub const GPUI_REVISION: &str = "8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe";
@@ -166,6 +170,9 @@ impl Render for CodexTranscript {
         let theme = self.theme;
         let state = self.list_state.clone();
         div()
+            .id("codex-transcript")
+            .role(Role::Log)
+            .aria_label("Codex transcript")
             .size_full()
             .overflow_hidden()
             .bg(theme.background)
@@ -232,6 +239,9 @@ fn render_row(row: &TranscriptRow, theme: CodexTheme) -> AnyElement {
     match row {
         TranscriptRow::Turn { id, status } => div()
             .id(row.stable_id())
+            .role(Role::Heading)
+            .aria_level(2)
+            .aria_label(format!("Turn {id}, {}", status.as_raw()))
             .w_full()
             .px_6()
             .pt_5()
@@ -254,6 +264,8 @@ fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
             "entry:{}:{}:{}",
             entry.key.thread_id, entry.key.turn_id, entry.key.item_id
         ))
+        .role(Role::Article)
+        .aria_label(entry_accessibility_label(entry))
         .w_full()
         .px_6()
         .py_2()
@@ -541,6 +553,60 @@ fn compact_json(value: &serde_json::Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "<invalid JSON>".to_owned())
 }
 
+fn entry_accessibility_label(entry: &PresentedEntry) -> String {
+    let label = match &entry.content {
+        TranscriptEntry::UserMessage { text } => format!("You: {text}"),
+        TranscriptEntry::AssistantMessage { text, phase } => phase.as_ref().map_or_else(
+            || format!("Codex: {text}"),
+            |phase| format!("Codex {phase}: {text}"),
+        ),
+        TranscriptEntry::Reasoning { summary, detail } => detail.as_ref().map_or_else(
+            || format!("Reasoning: {summary}"),
+            |detail| format!("Reasoning: {summary}. {detail}"),
+        ),
+        TranscriptEntry::Activity(activity) => activity.detail.as_ref().map_or_else(
+            || format!("Activity: {}", activity.label),
+            |detail| format!("Activity: {}. {detail}", activity.label),
+        ),
+        TranscriptEntry::Command {
+            command, exit_code, ..
+        } => exit_code.map_or_else(
+            || format!("Command: {command}"),
+            |code| format!("Command: {command}. Exit code {code}"),
+        ),
+        TranscriptEntry::FileChanges { changes } => {
+            format!("File changes: {} change(s)", changes.len())
+        }
+        TranscriptEntry::ToolCall { server, tool, .. } => server.as_ref().map_or_else(
+            || format!("Tool call: {tool}"),
+            |server| format!("Tool call: {server}, {tool}"),
+        ),
+        TranscriptEntry::Plan { .. } => "Plan update".to_owned(),
+        TranscriptEntry::Image { path, url } => format!(
+            "Image: {}",
+            path.as_ref()
+                .or(url.as_ref())
+                .map_or("attachment", String::as_str)
+        ),
+        TranscriptEntry::Notice { text } => format!("Notice: {text}"),
+        TranscriptEntry::Unknown { kind, .. } => format!("Unsupported item: {kind}"),
+    };
+    truncate_accessibility(label, 512)
+}
+
+fn truncate_accessibility(mut label: String, maximum_chars: usize) -> String {
+    let Some(byte_index) = label
+        .char_indices()
+        .nth(maximum_chars)
+        .map(|(index, _)| index)
+    else {
+        return label;
+    };
+    label.truncate(byte_index);
+    label.push('…');
+    label
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +658,13 @@ mod tests {
     #[test]
     fn contiguous_indices_are_coalesced_for_remeasurement() {
         assert_eq!(contiguous_ranges(&[1, 2, 4]), vec![1..3, 4..5]);
+    }
+
+    #[test]
+    fn accessibility_labels_are_bounded_on_character_boundaries() {
+        let projected = entry("item", &"界".repeat(600));
+        let label = entry_accessibility_label(&projected);
+        assert_eq!(label.chars().count(), 513);
+        assert!(label.ends_with('…'));
     }
 }
