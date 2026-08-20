@@ -122,8 +122,10 @@ roles and bounded labels.
 Typed user-input prompts preserve every question, choice, secret marker, and
 custom-response capability. The GPUI card retains one advertised choice per
 question and enables Respond only when every question is answered; the emitted
-intent carries the exact answer map. Questions requiring free-form/custom text
-remain visibly pending until the dedicated form editor lands.
+intent carries the exact answer map. Free-form and custom answers reuse the
+native IME input engine as retained per-question entities. Secret questions use
+password accessibility roles and masked painting while the exact answer stays
+only in prompt-local state until submission.
 
 The composer uses GPUI's native input-handler contract for IME composition,
 UTF-16 platform ranges, grapheme navigation, selection, and clipboard actions.

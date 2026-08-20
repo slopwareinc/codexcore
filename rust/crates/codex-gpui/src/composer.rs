@@ -64,11 +64,12 @@ pub enum ComposerEvent {
     Interrupt,
 }
 
-enum InputEvent {
+pub(crate) enum InputEvent {
     Submit,
+    Changed,
 }
 
-struct ComposerInput {
+pub(crate) struct ComposerInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
@@ -79,10 +80,16 @@ struct ComposerInput {
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     theme: CodexTheme,
+    secret: bool,
 }
 
 impl ComposerInput {
-    fn new(placeholder: SharedString, theme: CodexTheme, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        placeholder: SharedString,
+        theme: CodexTheme,
+        secret: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
             content: SharedString::default(),
@@ -94,11 +101,17 @@ impl ComposerInput {
             last_bounds: None,
             is_selecting: false,
             theme,
+            secret,
         }
     }
 
-    fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.content
+    }
+
+    pub(crate) fn set_theme(&mut self, theme: CodexTheme, cx: &mut Context<Self>) {
+        self.theme = theme;
+        cx.notify();
     }
 
     fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -106,6 +119,7 @@ impl ComposerInput {
         self.content = text.into();
         self.selected_range = self.content.len()..self.content.len();
         self.marked_range = None;
+        cx.emit(InputEvent::Changed);
         cx.notify();
     }
 
@@ -365,6 +379,7 @@ impl EntityInputHandler for ComposerInput {
         self.selected_range = cursor..cursor;
         self.selection_reversed = false;
         self.marked_range = None;
+        cx.emit(InputEvent::Changed);
         cx.notify();
     }
 
@@ -437,10 +452,18 @@ impl Render for ComposerInput {
             .id("codex-composer-input")
             .key_context("CodexComposerInput")
             .track_focus(&self.focus_handle)
-            .role(Role::TextInput)
+            .role(if self.secret {
+                Role::PasswordInput
+            } else {
+                Role::TextInput
+            })
             .aria_label("Message Codex")
             .aria_placeholder(self.placeholder.clone())
-            .aria_value(self.content.clone())
+            .aria_value(if self.secret {
+                SharedString::from("*".repeat(self.content.len()))
+            } else {
+                self.content.clone()
+            })
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
@@ -529,6 +552,11 @@ impl Element for InputTextElement {
         let text_style = window.text_style();
         let (display, color) = if content.is_empty() {
             (input.placeholder.clone(), theme.muted_text.into())
+        } else if input.secret {
+            (
+                SharedString::from("*".repeat(content.len())),
+                text_style.color,
+            )
         } else {
             (content, text_style.color)
         };
@@ -667,8 +695,12 @@ impl CodexComposer {
     #[must_use]
     pub fn new(cx: &mut Context<Self>) -> Self {
         let theme = CodexTheme::default();
-        let input = cx.new(|cx| ComposerInput::new("Message Codex…".into(), theme, cx));
-        let subscription = cx.subscribe(&input, |this, _, _: &InputEvent, cx| this.submit(cx));
+        let input = cx.new(|cx| ComposerInput::new("Message Codex…".into(), theme, false, cx));
+        let subscription = cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Submit) {
+                this.submit(cx);
+            }
+        });
         Self {
             input,
             theme,

@@ -4,9 +4,15 @@ use codex_presentation::{
     PromptActionEmphasis, PromptActionKind, PromptActionPresentation, PromptPresentation,
     ServerRequestKey, UserQuestionPresentation,
 };
-use gpui::{AnyElement, Context, EventEmitter, Render, Role, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, Entity, EventEmitter, Render, Role, SharedString, Subscription, Window,
+    div, prelude::*, px,
+};
 
-use crate::CodexTheme;
+use crate::{
+    CodexTheme,
+    composer::{ComposerInput, InputEvent},
+};
 
 /// User intent emitted by an interactive prompt.
 ///
@@ -25,22 +31,36 @@ pub struct CodexPrompt {
     presentation: PromptPresentation,
     theme: CodexTheme,
     answers: BTreeMap<String, Vec<String>>,
+    custom_inputs: BTreeMap<String, Entity<ComposerInput>>,
+    input_subscriptions: Vec<Subscription>,
 }
 
 impl CodexPrompt {
     #[must_use]
-    pub fn new(presentation: PromptPresentation) -> Self {
-        Self {
+    pub fn new(presentation: PromptPresentation, cx: &mut Context<Self>) -> Self {
+        let mut this = Self {
             presentation,
             theme: CodexTheme::default(),
             answers: BTreeMap::new(),
-        }
+            custom_inputs: BTreeMap::new(),
+            input_subscriptions: Vec::new(),
+        };
+        this.install_custom_inputs(cx);
+        this
     }
 
     #[must_use]
-    pub const fn with_theme(mut self, theme: CodexTheme) -> Self {
-        self.theme = theme;
+    pub fn with_theme(mut self, theme: CodexTheme, cx: &mut Context<Self>) -> Self {
+        self.set_theme(theme, cx);
         self
+    }
+
+    pub fn set_theme(&mut self, theme: CodexTheme, cx: &mut Context<Self>) {
+        self.theme = theme;
+        for input in self.custom_inputs.values() {
+            input.update(cx, |input, cx| input.set_theme(theme, cx));
+        }
+        cx.notify();
     }
 
     #[must_use]
@@ -51,7 +71,48 @@ impl CodexPrompt {
     pub fn set_presentation(&mut self, presentation: PromptPresentation, cx: &mut Context<Self>) {
         self.presentation = presentation;
         self.answers.clear();
+        self.install_custom_inputs(cx);
         cx.notify();
+    }
+
+    fn install_custom_inputs(&mut self, cx: &mut Context<Self>) {
+        self.custom_inputs.clear();
+        self.input_subscriptions.clear();
+        let questions = self
+            .presentation
+            .user_input
+            .as_ref()
+            .map(|form| form.questions.clone())
+            .unwrap_or_default();
+        for question in questions {
+            if !question.options.is_empty() && !question.is_other_allowed {
+                continue;
+            }
+            let placeholder: SharedString = if question.is_other_allowed {
+                "Other response…".into()
+            } else {
+                "Type response…".into()
+            };
+            let input =
+                cx.new(|cx| ComposerInput::new(placeholder, self.theme, question.is_secret, cx));
+            let question_id = question.id.clone();
+            self.input_subscriptions.push(cx.subscribe(
+                &input,
+                move |this, input, event: &InputEvent, cx| {
+                    if !matches!(event, InputEvent::Changed) {
+                        return;
+                    }
+                    let text = input.read(cx).text().trim().to_owned();
+                    if text.is_empty() {
+                        this.answers.remove(&question_id);
+                    } else {
+                        this.answers.insert(question_id.clone(), vec![text]);
+                    }
+                    cx.notify();
+                },
+            ));
+            self.custom_inputs.insert(question.id, input);
+        }
     }
 
     fn select_answer(&mut self, question_id: String, answer: String, cx: &mut Context<Self>) {
@@ -81,7 +142,14 @@ impl Render for CodexPrompt {
             .iter()
             .enumerate()
             .map(|(index, question)| {
-                render_question(question, index, &self.answers, self.theme, cx)
+                render_question(
+                    question,
+                    index,
+                    &self.answers,
+                    self.custom_inputs.get(&question.id).cloned(),
+                    self.theme,
+                    cx,
+                )
             })
             .collect::<Vec<_>>();
         let form_complete = self.form_is_complete();
@@ -217,6 +285,7 @@ fn render_question(
     question: &UserQuestionPresentation,
     index: usize,
     answers: &BTreeMap<String, Vec<String>>,
+    custom_input: Option<Entity<ComposerInput>>,
     theme: CodexTheme,
     cx: &mut Context<CodexPrompt>,
 ) -> AnyElement {
@@ -299,12 +368,14 @@ fn render_question(
                 .gap_2()
                 .children(options),
         )
-        .when(question.is_other_allowed, |view| {
+        .when_some(custom_input, |view, input| {
             view.child(
                 div()
-                    .text_xs()
-                    .text_color(theme.muted_text)
-                    .child("Custom response entry is not available yet."),
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.surface)
+                    .child(input),
             )
         })
         .into_any()

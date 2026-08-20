@@ -270,7 +270,7 @@ impl CodexApp {
     fn install_prompt(&mut self, presentation: Option<PromptPresentation>, cx: &mut Context<Self>) {
         self.prompt_subscription = None;
         self.prompt = presentation.map(|presentation| {
-            let prompt = cx.new(|_| CodexPrompt::new(presentation));
+            let prompt = cx.new(|cx| CodexPrompt::new(presentation, cx));
             let sender = self.command_sender.clone();
             self.prompt_subscription = Some(cx.subscribe(
                 &prompt,

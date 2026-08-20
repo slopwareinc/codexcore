@@ -208,9 +208,9 @@ CODEX_BINARY=/absolute/path/to/codex \
   cargo run -p codex-gpui-app -- --headless
 ```
 
-Advertised-choice user questions can be answered inline. Free-form/custom user
-answers and MCP form editors are still pending; the host never synthesizes
-answers for those requests, so they remain visibly pending.
+Advertised-choice, free-form, custom, and secret user questions can be answered
+inline. MCP schema-driven form editors are still pending; the host never
+synthesizes answers for those requests, so they remain visibly pending.
 
 ## Remote and Unix-socket sessions
 
