@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use codex_app_server_client::LocalSessionConfig;
 use codex_app_server_sdk::{
-    Codex, CodexInput, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
-    SectionAppearance, SectionAppearanceUpdate, StartThreadOptions, TurnOptions,
+    Codex, CodexInput, ForkPoint, ForkThreadOptions, ListModelsOptions, ListThreadsOptions,
+    PaginatedResumeOptions, SectionAppearance, SectionAppearanceUpdate, StartThreadOptions,
+    TurnOptions,
 };
 use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
@@ -44,6 +45,94 @@ async fn read_authenticated_account_through_stable_sdk() {
         .expect("connect SDK");
     let account = codex.account(false).await.expect("read account");
     assert!(account.account.is_some());
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn thread_lifecycle_operations_round_trip() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let source = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(workspace.path().to_owned()),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .expect("start source thread");
+    let source_id = source.id().clone();
+    let turn = source
+        .start_turn(
+            vec![CodexInput::text("Reply with OK.")],
+            TurnOptions::default(),
+        )
+        .await
+        .expect("materialize source thread");
+    let turn_id = turn.id().clone();
+    let turn_key = TurnKey {
+        thread_id: source_id.clone(),
+        turn_id: turn_id.clone(),
+    };
+    let mut terminal = false;
+    for _ in 0..120 {
+        let state = codex
+            .client()
+            .canonical_snapshot()
+            .await
+            .expect("turn snapshot");
+        if state
+            .turns
+            .get(&turn_key)
+            .is_some_and(|turn| turn.status.is_terminal())
+        {
+            terminal = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(terminal, "source turn did not reach terminal state");
+    turn.close().await.expect("release source turn");
+
+    source
+        .rename("Rust lifecycle source")
+        .await
+        .expect("rename");
+    let fork = source
+        .fork(ForkThreadOptions {
+            point: Some(ForkPoint::Through(turn_id.clone())),
+            ..ForkThreadOptions::default()
+        })
+        .await
+        .expect("fork thread");
+    let fork_id = fork.thread.id().clone();
+    assert_ne!(fork_id, source_id);
+    fork.thread
+        .rename("Rust lifecycle fork")
+        .await
+        .expect("rename fork");
+    fork.thread.archive().await.expect("archive fork");
+    fork.thread.close().await.expect("release fork lease");
+    let unarchived = codex
+        .unarchive_thread(&fork_id)
+        .await
+        .expect("unarchive fork");
+    assert_eq!(unarchived.thread_id, fork_id);
+
+    let reverted = source.revert(&turn_id).await.expect("revert source");
+    assert_eq!(reverted.thread_id, source_id);
+    source.close().await.expect("release source lease");
+    for id in [&fork_id, &source_id] {
+        codex
+            .client()
+            .request("thread/delete", json!({"threadId": id.as_str()}))
+            .await
+            .expect("delete lifecycle test thread");
+    }
     codex.close().await.expect("close SDK");
 }
 
