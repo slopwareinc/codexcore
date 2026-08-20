@@ -4,8 +4,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalState, CanonicalThread,
-    CanonicalTurn, ItemKey, LifecycleStatus, ThreadId, TurnKey,
+    CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalPlanStep, CanonicalState,
+    CanonicalThread, CanonicalTurn, ItemKey, LifecycleStatus, ThreadId, TurnKey,
 };
 
 /// Bounded orphan-delta retention policy.
@@ -49,6 +49,12 @@ pub enum CanonicalMutation {
     ThreadRemove(ThreadId),
     /// Merge a turn and establish its thread relationship.
     TurnUpsert(CanonicalTurn),
+    /// Replace the authoritative plan for one turn.
+    TurnPlanReplace {
+        key: TurnKey,
+        steps: Vec<CanonicalPlanStep>,
+        explanation: Option<String>,
+    },
     /// Merge an item and replay retained orphan deltas.
     ItemUpsert(CanonicalItem),
     /// Append text or retain it until the item starts.
@@ -176,6 +182,11 @@ impl CanonicalStateReducer {
             CanonicalMutation::ThreadUpsert(thread) => self.upsert_thread(thread, changes),
             CanonicalMutation::ThreadRemove(thread_id) => self.remove_thread(&thread_id, changes),
             CanonicalMutation::TurnUpsert(turn) => self.upsert_turn(turn, changes),
+            CanonicalMutation::TurnPlanReplace {
+                key,
+                steps,
+                explanation,
+            } => self.replace_plan(key, steps, explanation, changes),
             CanonicalMutation::ItemUpsert(item) => self.upsert_item(item, changes)?,
             CanonicalMutation::ItemDelta(delta) => self.apply_or_buffer_delta(delta, changes)?,
         }
@@ -239,6 +250,10 @@ impl CanonicalStateReducer {
                 existing.status = merge_lifecycle(&existing.status, incoming.status);
                 existing.coverage = existing.coverage.merged(incoming.coverage);
                 append_unique(&mut existing.item_ids, incoming.item_ids);
+                if let Some(plan) = incoming.plan {
+                    existing.plan = Some(plan);
+                    existing.plan_explanation = incoming.plan_explanation;
+                }
                 existing.metadata.extend(incoming.metadata);
                 if *existing != before {
                     changes.insert(CanonicalChange::TurnUpdated(key));
@@ -250,6 +265,26 @@ impl CanonicalStateReducer {
     fn ensure_turn(&mut self, key: &TurnKey, changes: &mut BTreeSet<CanonicalChange>) {
         if !self.state.turns.contains_key(key) {
             self.upsert_turn(CanonicalTurn::partial(key.clone()), changes);
+        }
+    }
+
+    fn replace_plan(
+        &mut self,
+        key: TurnKey,
+        steps: Vec<CanonicalPlanStep>,
+        explanation: Option<String>,
+        changes: &mut BTreeSet<CanonicalChange>,
+    ) {
+        self.ensure_turn(&key, changes);
+        let turn = self
+            .state
+            .turns
+            .get_mut(&key)
+            .expect("turn established above");
+        if turn.plan.as_ref() != Some(&steps) || turn.plan_explanation != explanation {
+            turn.plan = Some(steps);
+            turn.plan_explanation = explanation;
+            changes.insert(CanonicalChange::PlanUpdated(key));
         }
     }
 
@@ -472,6 +507,17 @@ fn validate(mutation: &CanonicalMutation) -> Result<(), ReducerError> {
                 Ok(())
             }
         }
+        CanonicalMutation::TurnPlanReplace { key, steps, .. } => {
+            check_thread(&key.thread_id)?;
+            if key.turn_id.as_str().is_empty() {
+                return Err(ReducerError::EmptyField("turn id"));
+            }
+            if steps.iter().any(|step| step.step.is_empty()) {
+                Err(ReducerError::EmptyField("plan step"))
+            } else {
+                Ok(())
+            }
+        }
         CanonicalMutation::ItemUpsert(item) => {
             check_item_key(&item.key)?;
             if item.kind.is_empty() {
@@ -525,7 +571,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::{ItemId, StateCoverage, ThreadStatus, TurnId};
+    use crate::{ItemId, PlanStepStatus, StateCoverage, ThreadStatus, TurnId};
     use serde_json::json;
 
     fn item_key(item: &str) -> ItemKey {
@@ -695,6 +741,42 @@ mod tests {
         assert_eq!(
             reducer.snapshot().threads[&ThreadId::from("thread")].coverage,
             StateCoverage::Full
+        );
+    }
+
+    #[test]
+    fn plan_replace_is_typed_atomic_and_idempotent() {
+        let mut reducer = CanonicalStateReducer::default();
+        let key = TurnKey {
+            thread_id: ThreadId::from("thread"),
+            turn_id: TurnId::from("turn"),
+        };
+        let mutation = CanonicalMutation::TurnPlanReplace {
+            key: key.clone(),
+            steps: vec![CanonicalPlanStep {
+                step: "Build".to_owned(),
+                status: PlanStepStatus::InProgress,
+            }],
+            explanation: Some("Plan".to_owned()),
+        };
+        let batch = reducer
+            .apply(std::slice::from_ref(&mutation))
+            .expect("plan transaction")
+            .expect("plan changed");
+        assert!(
+            batch
+                .changes
+                .contains(&CanonicalChange::PlanUpdated(key.clone()))
+        );
+        assert_eq!(
+            reducer.snapshot().turns[&key].plan_explanation.as_deref(),
+            Some("Plan")
+        );
+        assert!(
+            reducer
+                .apply(&[mutation])
+                .expect("idempotent plan transaction")
+                .is_none()
         );
     }
 }

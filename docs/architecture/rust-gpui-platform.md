@@ -121,6 +121,12 @@ reports omitted bytes while canonical state retains the source fact. JSON tool
 summaries are capped at 12,000 characters. These are render-projection bounds,
 not protocol truncation or event-loss policies.
 
+`turn/plan/updated` is generated-validated into typed, lossless plan-step
+statuses and an authoritative turn-level replacement. Reducer commits are
+atomic and idempotent; presentation gives the plan its own stable virtual row
+with accessible pending/in-progress/completed markers, independent of item
+ordering.
+
 Prompt projections preserve the exact connection-epoch/request-ID identity and
 declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host
 still maps that intent to a generated-schema-validated reply or opens the

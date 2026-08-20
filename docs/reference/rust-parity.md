@@ -41,7 +41,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | MCP elicitation | Partial | URL opening and primitive JSON Schema forms; unsupported fields block submit | Nested arrays/objects and external URL completion lifecycle |
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |
 | Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan/Goal controls |
-| Plans/goals | Missing | Generic transcript fallback only | Typed projection, panels, composer modes |
+| Plans/goals | Partial | Typed `turn/plan/updated` canonical replacement and accessible stable plan row | Goal state, completed-plan panel, typed Plan/Goal composer modes |
 | Subagents/side chat | Partial | Collaboration activity row only | Child graph projection, leases, task navigation, side transcript |
 | Theming/accessibility | Partial | Semantic dark theme and AccessKit roles/labels | Light/high-contrast themes, keyboard audit, VoiceOver/NVDA/Orca smoke |
 

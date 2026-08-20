@@ -7,8 +7,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codex_app_server_state::{
-    CanonicalItem, CanonicalMutation, CanonicalThread, CanonicalTurn, ItemId, ItemKey,
-    ItemTextDelta, LifecycleStatus, StateCoverage, ThreadId, ThreadStatus, TurnId, TurnKey,
+    CanonicalItem, CanonicalMutation, CanonicalPlanStep, CanonicalThread, CanonicalTurn, ItemId,
+    ItemKey, ItemTextDelta, LifecycleStatus, PlanStepStatus, StateCoverage, ThreadId, ThreadStatus,
+    TurnId, TurnKey,
 };
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -86,6 +87,7 @@ pub fn adapt_notification(
                 method, thread_id, turn,
             )?))
         }
+        "turn/plan/updated" => adapt_plan(method, params, &params_value),
         "item/started" | "item/completed" => {
             validate(method, &params_value)?;
             let thread_id = string_field(method, params, "threadId")?;
@@ -121,6 +123,48 @@ pub fn adapt_notification(
             params: params.clone(),
         }),
     }
+}
+
+fn adapt_plan(
+    method: &str,
+    params: &BTreeMap<String, Value>,
+    params_value: &Value,
+) -> Result<NotificationDisposition, AdapterError> {
+    validate(method, params_value)?;
+    let plan = params
+        .get("plan")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid(method, "plan"))?
+        .iter()
+        .map(|step| {
+            let step = step.as_object().ok_or_else(|| invalid(method, "plan[]"))?;
+            Ok(CanonicalPlanStep {
+                step: step
+                    .get("step")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| invalid(method, "plan[].step"))?
+                    .to_owned(),
+                status: PlanStepStatus::from_raw(
+                    step.get("status")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| invalid(method, "plan[].status"))?,
+                ),
+            })
+        })
+        .collect::<Result<Vec<_>, AdapterError>>()?;
+    Ok(NotificationDisposition::Mutations(vec![
+        CanonicalMutation::TurnPlanReplace {
+            key: TurnKey {
+                thread_id: ThreadId::new(string_field(method, params, "threadId")?),
+                turn_id: TurnId::new(string_field(method, params, "turnId")?),
+            },
+            steps: plan,
+            explanation: params
+                .get("explanation")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        },
+    ]))
 }
 
 /// Validate and map a standalone thread response into canonical mutations.
@@ -299,6 +343,8 @@ fn map_turn_with_items(
             .filter_map(|item| item.get("id").and_then(Value::as_str))
             .map(ItemId::new)
             .collect(),
+        plan: None,
+        plan_explanation: None,
         metadata: metadata_without(value, &["id", "status", "items", "itemsView"]),
     })];
     for item in items {
@@ -446,6 +492,42 @@ mod tests {
                 method: "future/method".to_owned(),
                 params,
             }
+        );
+    }
+
+    #[test]
+    fn plan_update_validates_and_maps_typed_steps() {
+        let params = BTreeMap::from([
+            ("threadId".to_owned(), json!("thread")),
+            ("turnId".to_owned(), json!("turn")),
+            (
+                "plan".to_owned(),
+                json!([
+                    {"step": "Inspect", "status": "completed"},
+                    {"step": "Build", "status": "inProgress"}
+                ]),
+            ),
+            ("explanation".to_owned(), json!("Implementation plan")),
+        ]);
+        assert_eq!(
+            adapt_notification("turn/plan/updated", &params).expect("valid plan"),
+            NotificationDisposition::Mutations(vec![CanonicalMutation::TurnPlanReplace {
+                key: TurnKey {
+                    thread_id: ThreadId::from("thread"),
+                    turn_id: TurnId::from("turn"),
+                },
+                steps: vec![
+                    CanonicalPlanStep {
+                        step: "Inspect".to_owned(),
+                        status: PlanStepStatus::Completed,
+                    },
+                    CanonicalPlanStep {
+                        step: "Build".to_owned(),
+                        status: PlanStepStatus::InProgress,
+                    },
+                ],
+                explanation: Some("Implementation plan".to_owned()),
+            }])
         );
     }
 }

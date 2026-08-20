@@ -6,7 +6,8 @@ pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
 use codex_app_server_sdk::{ModelPage, ThreadPage, ThreadSummary};
 use codex_app_server_state::{
-    CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, StateRevision, ThreadId, TurnId,
+    CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, PlanStepStatus, StateRevision,
+    ThreadId, TurnId,
 };
 use serde_json::Value;
 
@@ -204,6 +205,19 @@ pub struct TurnPresentation {
     pub turn_id: TurnId,
     pub status: LifecycleStatus,
     pub entries: Vec<PresentedEntry>,
+    pub plan: Option<PlanPresentation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanPresentation {
+    pub explanation: Option<String>,
+    pub steps: Vec<PlanStepPresentation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanStepPresentation {
+    pub step: String,
+    pub status: PlanStepStatus,
 }
 
 /// Stable transcript element.
@@ -388,6 +402,16 @@ impl TranscriptProjector {
                             turn_id: turn_id.clone(),
                             status: turn.status.clone(),
                             entries,
+                            plan: turn.plan.as_ref().map(|steps| PlanPresentation {
+                                explanation: turn.plan_explanation.clone(),
+                                steps: steps
+                                    .iter()
+                                    .map(|step| PlanStepPresentation {
+                                        step: step.step.clone(),
+                                        status: step.status.clone(),
+                                    })
+                                    .collect(),
+                            }),
                         })
                     })
                     .collect()
@@ -1039,6 +1063,31 @@ mod tests {
             projected.turns[0].entries[1].content,
             TranscriptEntry::Unknown { .. }
         ));
+    }
+
+    #[test]
+    fn turn_plan_projects_independently_of_item_order() {
+        let thread = ThreadId::from("thread");
+        let turn = TurnId::from("turn");
+        let mut reducer = CanonicalStateReducer::default();
+        reducer
+            .apply(&[CanonicalMutation::TurnPlanReplace {
+                key: codex_app_server_state::TurnKey {
+                    thread_id: thread.clone(),
+                    turn_id: turn.clone(),
+                },
+                steps: vec![codex_app_server_state::CanonicalPlanStep {
+                    step: "Build".to_owned(),
+                    status: PlanStepStatus::InProgress,
+                }],
+                explanation: Some("Current plan".to_owned()),
+            }])
+            .expect("plan commit");
+        let projected =
+            TranscriptProjector::project(reducer.snapshot(), &thread, &StandardItemPolicy);
+        let plan = projected.turns[0].plan.as_ref().expect("projected plan");
+        assert_eq!(plan.explanation.as_deref(), Some("Current plan"));
+        assert_eq!(plan.steps[0].status, PlanStepStatus::InProgress);
     }
 
     #[test]

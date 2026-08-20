@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use codex_app_server_state::{LifecycleStatus, StateRevision};
+use codex_app_server_state::{LifecycleStatus, PlanStepStatus, StateRevision};
 use codex_presentation::{
     ActivityKind, ActivityPresentation, CommandOutputPresentation, FileChangeKind,
-    FileChangePresentation, PresentedEntry, TranscriptEntry, TranscriptPresentation,
+    FileChangePresentation, PlanPresentation, PresentedEntry, TranscriptEntry,
+    TranscriptPresentation,
 };
 use gpui::{
     AnyElement, Context, FollowMode, ListAlignment, ListState, Render, Rgba, Role, Window, div,
@@ -52,8 +53,15 @@ impl Default for CodexTheme {
 /// Stable virtualized row projected from a transcript.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TranscriptRow {
-    Turn { id: String, status: LifecycleStatus },
+    Turn {
+        id: String,
+        status: LifecycleStatus,
+    },
     Entry(Box<PresentedEntry>),
+    Plan {
+        turn_id: String,
+        plan: Box<PlanPresentation>,
+    },
 }
 
 impl TranscriptRow {
@@ -66,6 +74,7 @@ impl TranscriptRow {
                 "item:{}:{}:{}",
                 entry.key.thread_id, entry.key.turn_id, entry.key.item_id
             ),
+            Self::Plan { turn_id, .. } => format!("turn:{turn_id}:plan"),
         }
     }
 }
@@ -88,6 +97,10 @@ pub fn transcript_rows(presentation: &TranscriptPresentation) -> Vec<TranscriptR
                     .map(Box::new)
                     .map(TranscriptRow::Entry),
             )
+            .chain(turn.plan.clone().map(|plan| TranscriptRow::Plan {
+                turn_id: turn.turn_id.as_str().to_owned(),
+                plan: Box::new(plan),
+            }))
         })
         .collect()
 }
@@ -248,6 +261,82 @@ fn render_row(row: &TranscriptRow, theme: CodexTheme) -> AnyElement {
             .child(status_badge(status, theme))
             .into_any(),
         TranscriptRow::Entry(entry) => render_entry(entry, theme),
+        TranscriptRow::Plan { plan, .. } => render_plan(row.stable_id(), plan, theme),
+    }
+}
+
+fn render_plan(id: String, plan: &PlanPresentation, theme: CodexTheme) -> AnyElement {
+    let steps = plan
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let (marker, color) = match &step.status {
+                PlanStepStatus::Pending => ("○", theme.muted_text),
+                PlanStepStatus::InProgress => ("◉", theme.accent),
+                PlanStepStatus::Completed => ("●", theme.success),
+                PlanStepStatus::Unknown(_) => ("?", theme.warning),
+            };
+            div()
+                .id(("plan-step", index))
+                .role(Role::ListItem)
+                .aria_label(format!(
+                    "{}: {}",
+                    plan_status_label(&step.status),
+                    step.step
+                ))
+                .flex()
+                .gap_2()
+                .child(div().text_color(color).child(marker))
+                .child(div().flex_1().whitespace_normal().child(step.step.clone()))
+        })
+        .collect::<Vec<_>>();
+    div()
+        .id(id)
+        .role(Role::Region)
+        .aria_label("Turn plan")
+        .w_full()
+        .px_6()
+        .py_2()
+        .child(
+            div()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .p_3()
+                .child(div().text_sm().child("Plan"))
+                .when_some(plan.explanation.clone(), |view, explanation| {
+                    view.child(
+                        div()
+                            .mt_1()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .whitespace_normal()
+                            .child(explanation),
+                    )
+                })
+                .child(
+                    div()
+                        .id("plan-steps")
+                        .role(Role::List)
+                        .aria_label("Plan steps")
+                        .mt_2()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .children(steps),
+                ),
+        )
+        .into_any()
+}
+
+fn plan_status_label(status: &PlanStepStatus) -> &'static str {
+    match status {
+        PlanStepStatus::Pending => "Pending",
+        PlanStepStatus::InProgress => "In progress",
+        PlanStepStatus::Completed => "Completed",
+        PlanStepStatus::Unknown(_) => "Unknown",
     }
 }
 
@@ -756,7 +845,7 @@ fn truncate_accessibility(mut label: String, maximum_chars: usize) -> String {
 mod tests {
     use super::*;
     use codex_app_server_state::{ItemId, ItemKey, ThreadId, TurnId};
-    use codex_presentation::TurnPresentation;
+    use codex_presentation::{PlanPresentation, PlanStepPresentation, TurnPresentation};
 
     fn presentation(entries: Vec<PresentedEntry>) -> TranscriptPresentation {
         TranscriptPresentation {
@@ -766,6 +855,7 @@ mod tests {
                 turn_id: TurnId::from("turn"),
                 status: LifecycleStatus::InProgress,
                 entries,
+                plan: None,
             }],
         }
     }
@@ -811,5 +901,19 @@ mod tests {
         let label = entry_accessibility_label(&projected);
         assert_eq!(label.chars().count(), 513);
         assert!(label.ends_with('…'));
+    }
+
+    #[test]
+    fn plan_row_has_turn_scoped_stable_identity() {
+        let mut presentation = presentation(Vec::new());
+        presentation.turns[0].plan = Some(PlanPresentation {
+            explanation: None,
+            steps: vec![PlanStepPresentation {
+                step: "Build".to_owned(),
+                status: PlanStepStatus::Pending,
+            }],
+        });
+        let rows = transcript_rows(&presentation);
+        assert_eq!(rows[1].stable_id(), "turn:turn:plan");
     }
 }

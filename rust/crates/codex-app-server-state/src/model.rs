@@ -137,6 +137,8 @@ pub struct CanonicalTurn {
     pub coverage: StateCoverage,
     /// Stable item display order.
     pub item_ids: Vec<ItemId>,
+    pub plan: Option<Vec<CanonicalPlanStep>>,
+    pub plan_explanation: Option<String>,
     /// Lossless metadata not yet promoted to stable fields.
     pub metadata: BTreeMap<String, Value>,
 }
@@ -148,7 +150,36 @@ impl CanonicalTurn {
             status: LifecycleStatus::Unknown("notLoaded".to_owned()),
             coverage: StateCoverage::NotLoaded,
             item_ids: Vec::new(),
+            plan: None,
+            plan_explanation: None,
             metadata: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CanonicalPlanStep {
+    pub step: String,
+    pub status: PlanStepStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PlanStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Unknown(String),
+}
+
+impl PlanStepStatus {
+    #[must_use]
+    pub fn from_raw(value: impl Into<String>) -> Self {
+        let value = value.into();
+        match value.as_str() {
+            "pending" => Self::Pending,
+            "inProgress" => Self::InProgress,
+            "completed" => Self::Completed,
+            _ => Self::Unknown(value),
         }
     }
 }
@@ -198,6 +229,7 @@ pub enum CanonicalChange {
     TurnInserted(TurnKey),
     /// Existing turn facts changed.
     TurnUpdated(TurnKey),
+    PlanUpdated(TurnKey),
     /// Item first appeared.
     ItemInserted(ItemKey),
     /// Existing item facts changed.
@@ -232,6 +264,7 @@ impl StateFieldMask {
     pub const ITEM_LIFECYCLE: Self = Self(1 << 3);
     pub const ITEM_CONTENT: Self = Self(1 << 4);
     pub const DIAGNOSTICS: Self = Self(1 << 5);
+    pub const PLAN: Self = Self(1 << 6);
     pub const ALL: Self = Self(u32::MAX);
 
     #[must_use]
@@ -331,6 +364,11 @@ impl StateInvalidation {
             }
             CanonicalChange::TurnInserted(key) | CanonicalChange::TurnUpdated(key) => {
                 self.fields |= StateFieldMask::TURN;
+                self.thread_ids.insert(key.thread_id.clone());
+                self.turn_keys.insert(key.clone());
+            }
+            CanonicalChange::PlanUpdated(key) => {
+                self.fields |= StateFieldMask::PLAN;
                 self.thread_ids.insert(key.thread_id.clone());
                 self.turn_keys.insert(key.clone());
             }

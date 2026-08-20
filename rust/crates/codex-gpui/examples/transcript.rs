@@ -64,6 +64,7 @@ fn sample_transcript() -> TranscriptPresentation {
             turn_id,
             status: LifecycleStatus::InProgress,
             entries,
+            plan: None,
         }],
     }
 }
