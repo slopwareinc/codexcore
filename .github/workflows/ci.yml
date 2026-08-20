@@ -33,6 +33,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install GPUI Linux development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libfontconfig-dev \
+            libglib2.0-dev \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libvulkan1
+
       - name: Verify pinned Rust toolchain
         run: |
           rustc --version

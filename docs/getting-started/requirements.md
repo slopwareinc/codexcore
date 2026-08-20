@@ -10,6 +10,18 @@
 - `codex-cli 0.148.0` or a newer patch (types generated from stable `0.148.0`)
 - `just` is optional
 
+The experimental Rust workspace pins Rust 1.97.1 in `rust-toolchain.toml`.
+Building `codex-gpui` on Ubuntu also requires GPUI's native font and windowing
+development libraries:
+
+```bash
+sudo apt-get install libfontconfig-dev libglib2.0-dev libwayland-dev \
+  libx11-xcb-dev libxkbcommon-x11-dev libvulkan1
+```
+
+macOS GPUI development uses runtime shader compilation and therefore does not
+require the standalone Metal compiler from a full Xcode installation.
+
 The package declares the authoritative platform and language versions in `Package.swift`. Runtime identity is pinned in `Tools/UPSTREAM_VERSION` and validated before the SDK launches app-server.
 
 ## Verify your environment
