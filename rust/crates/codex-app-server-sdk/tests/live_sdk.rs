@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use codex_app_server_client::LocalSessionConfig;
 use codex_app_server_sdk::{
     Codex, CodexInput, ForkPoint, ForkThreadOptions, ListModelsOptions, ListThreadsOptions,
-    PaginatedResumeOptions, SectionAppearance, SectionAppearanceUpdate, StartThreadOptions,
-    TurnOptions,
+    PaginatedResumeOptions, SectionAppearance, SectionAppearanceUpdate, SetGoalOptions,
+    StartThreadOptions, ThreadGoalStatus, TurnOptions,
 };
 use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
@@ -133,6 +133,65 @@ async fn thread_lifecycle_operations_round_trip() {
             .await
             .expect("delete lifecycle test thread");
     }
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn thread_goal_lifecycle_round_trip() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let thread = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(workspace.path().to_owned()),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .expect("start goal thread");
+    let thread_id = thread.id().clone();
+    let goal = thread
+        .set_goal(SetGoalOptions {
+            objective: Some("Verify the Rust goal lifecycle".to_owned()),
+            status: Some(ThreadGoalStatus::Active),
+            token_budget: Some(4_096),
+        })
+        .await
+        .expect("set goal");
+    assert_eq!(goal.thread_id, thread_id);
+    assert_eq!(goal.status, ThreadGoalStatus::Active);
+    let read = thread
+        .get_goal()
+        .await
+        .expect("get goal")
+        .expect("goal exists");
+    assert_eq!(read.objective, "Verify the Rust goal lifecycle");
+    let paused = thread
+        .set_goal(SetGoalOptions {
+            status: Some(ThreadGoalStatus::Paused),
+            ..SetGoalOptions::default()
+        })
+        .await
+        .expect("pause goal");
+    assert_eq!(paused.status, ThreadGoalStatus::Paused);
+    assert!(thread.clear_goal().await.expect("clear goal"));
+    assert!(
+        thread
+            .get_goal()
+            .await
+            .expect("read cleared goal")
+            .is_none()
+    );
+    thread.close().await.expect("release goal thread");
+    codex
+        .client()
+        .request("thread/delete", json!({"threadId": thread_id.as_str()}))
+        .await
+        .expect("delete goal test thread");
     codex.close().await.expect("close SDK");
 }
 
