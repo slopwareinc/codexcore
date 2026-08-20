@@ -830,7 +830,11 @@ fn make_work_rows(item: &CanonicalItem, completed: bool) -> Vec<WorkRowV2> {
                         cwd: string(item, "cwd"),
                         exit_code: integer(&item.payload, "exitCode"),
                         duration_ms: item_duration_ms(item),
-                        output: output.clone(),
+                        // `aggregatedOutput` belongs to the parent shell
+                        // execution, not to each parsed action. Show it once
+                        // on the first stable row rather than duplicating the
+                        // same output across split action rows.
+                        output: (index == 0).then(|| output.clone()).flatten(),
                     })
                 })
                 .collect()
@@ -873,6 +877,9 @@ fn make_work_rows(item: &CanonicalItem, completed: bool) -> Vec<WorkRowV2> {
                     .then(|| mcp_error(item))
                     .flatten(),
                 status,
+                progress: (!completed)
+                    .then(|| item.live_overlay.mcp_progress.joined())
+                    .filter(|progress| !progress.is_empty()),
                 duration_ms: item_duration_ms(item),
                 arguments: item.payload.get("arguments").cloned(),
                 result: item.payload.get("result").cloned(),
@@ -1048,10 +1055,7 @@ fn short_command(command: &str) -> String {
     let command = command.find("-lc ").map_or(command, |index| {
         command[index + 4..].trim_matches([' ', '\'', '"'])
     });
-    let Some((end, _)) = command
-        .char_indices()
-        .nth(MAXIMUM_COMMAND_LABEL_CHARS)
-    else {
+    let Some((end, _)) = command.char_indices().nth(MAXIMUM_COMMAND_LABEL_CHARS) else {
         return command.to_owned();
     };
     format!("{}…", &command[..end])
@@ -1665,7 +1669,11 @@ fn canonical_completed_at(turn: &CanonicalTurn) -> Option<i64> {
 }
 
 fn item_timestamp(item: &CanonicalItem, key: &str) -> Option<i64> {
-    integer(&item.payload, key)
+    match key {
+        "startedAtMs" => item.started_at_ms.or_else(|| integer(&item.payload, key)),
+        "completedAtMs" => item.completed_at_ms.or_else(|| integer(&item.payload, key)),
+        _ => integer(&item.payload, key),
+    }
 }
 
 fn turn_error_message(turn: &CanonicalTurn) -> Option<String> {

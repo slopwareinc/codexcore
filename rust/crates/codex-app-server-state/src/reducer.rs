@@ -717,8 +717,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        ItemId, PlanStepStatus, StateCoverage, StateEntityScope, StateFieldMask, StateInvalidation,
-        StateObservationScope, ThreadGoalStatus, ThreadStatus, TurnId,
+        CanonicalTerminalInteraction, ItemId, PlanStepStatus, StateCoverage, StateEntityScope,
+        StateFieldMask, StateInvalidation, StateObservationScope, ThreadGoalStatus, ThreadStatus,
+        TurnId,
     };
     use serde_json::json;
 
@@ -785,6 +786,54 @@ mod tests {
             reducer.snapshot().items[&key].status,
             LifecycleStatus::Completed
         );
+    }
+
+    #[test]
+    fn terminal_interactions_and_item_timing_follow_lifecycle_authority() {
+        let mut reducer = CanonicalStateReducer::default();
+        let key = item_key("item");
+        let mut started = item(key.clone(), LifecycleStatus::InProgress);
+        started.started_at_ms = Some(100);
+        reducer
+            .apply(&[CanonicalMutation::ItemUpsert(started)])
+            .expect("start item");
+        reducer
+            .apply(&[CanonicalMutation::ItemDelta {
+                key: key.clone(),
+                delta: ItemDelta::TerminalInteraction {
+                    process_id: "process".to_owned(),
+                    stdin: "yes\n".to_owned(),
+                },
+            }])
+            .expect("terminal input");
+        assert_eq!(
+            reducer.snapshot().items[&key]
+                .live_overlay
+                .terminal_interactions,
+            [CanonicalTerminalInteraction {
+                process_id: "process".to_owned(),
+                stdin: "yes\n".to_owned(),
+            }]
+        );
+
+        let mut completed = item(key.clone(), LifecycleStatus::Completed);
+        completed.completed_at_ms = Some(250);
+        reducer
+            .apply(&[CanonicalMutation::ItemUpsert(completed)])
+            .expect("complete item");
+        let completed_item = &reducer.snapshot().items[&key];
+        assert_eq!(completed_item.started_at_ms, Some(100));
+        assert_eq!(completed_item.completed_at_ms, Some(250));
+        assert!(completed_item.live_overlay.is_empty());
+
+        let mut late_start = item(key.clone(), LifecycleStatus::InProgress);
+        late_start.started_at_ms = Some(90);
+        reducer
+            .apply(&[CanonicalMutation::ItemUpsert(late_start)])
+            .expect("late start metadata");
+        let completed_item = &reducer.snapshot().items[&key];
+        assert_eq!(completed_item.status, LifecycleStatus::Completed);
+        assert_eq!(completed_item.started_at_ms, Some(100));
     }
 
     #[test]

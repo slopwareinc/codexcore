@@ -50,6 +50,14 @@ fn pinned_notifications_reduce_live_deltas_in_wire_order() {
         ["alpha", "-beta"]
     );
     assert_eq!(command.live_overlay.command_output.joined(), "alpha-beta");
+    assert_eq!(command.started_at_ms, Some(1));
+    assert_eq!(
+        command.live_overlay.terminal_interactions,
+        [codex_app_server_state::CanonicalTerminalInteraction {
+            process_id: "process-live".to_owned(),
+            stdin: "yes\n".to_owned(),
+        }]
+    );
 
     let reasoning = &reducer.snapshot().items[&key("reasoning-live")];
     assert_eq!(
@@ -92,6 +100,7 @@ fn pinned_notifications_reduce_live_deltas_in_wire_order() {
     let completed = &reducer.snapshot().items[&key("command-final")];
     assert_eq!(completed.status, LifecycleStatus::Failed);
     assert_eq!(completed.duration_ms, Some(37));
+    assert_eq!(completed.completed_at_ms, Some(42));
     assert_eq!(
         completed
             .error

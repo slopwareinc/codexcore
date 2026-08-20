@@ -277,6 +277,8 @@ pub struct McpToolCallRowV2 {
     pub server: String,
     pub tool: String,
     pub status: WorkItemStatusV2,
+    /// Ordered live progress text, when the MCP call is still running.
+    pub progress: Option<String>,
     pub duration_ms: Option<u64>,
     pub error_first_line: Option<String>,
     pub arguments: Option<Value>,

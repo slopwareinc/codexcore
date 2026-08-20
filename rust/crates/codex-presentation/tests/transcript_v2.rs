@@ -239,7 +239,10 @@ fn running_commands_show_bounded_actual_text_and_keep_full_command() {
         panic!("expected command row");
     };
     assert_eq!(row.command, command);
-    assert_eq!(row.label, "Running cargo test --workspace --all-targets --locked");
+    assert_eq!(
+        row.label,
+        "Running cargo test --workspace --all-targets --locked"
+    );
 }
 
 #[test]
@@ -269,6 +272,96 @@ fn malformed_nonempty_command_actions_use_one_raw_command_fallback() {
     };
     assert_eq!(row.command, "swift test");
     assert_eq!(row.label, "Ran swift test");
+}
+
+#[test]
+fn split_command_actions_show_aggregate_output_once() {
+    let state = one_turn_state(
+        LifecycleStatus::Completed,
+        vec![item(
+            "command",
+            "commandExecution",
+            LifecycleStatus::Completed,
+            json!({
+                "command": "sed A.swift && sed B.swift",
+                "commandActions": [
+                    {"type": "read", "command": "sed A.swift", "name": "A.swift"},
+                    {"type": "read", "command": "sed B.swift", "name": "B.swift"}
+                ],
+                "status": "completed",
+                "aggregatedOutput": "shared output"
+            }),
+        )],
+        json!({}),
+    );
+
+    let projected = TranscriptV2Projector::project(&state, &thread_id(), &StandardItemPolicy);
+    let NarrativeEntryV2::WorkGroup(group) = &projected.turns[0].narrative[0] else {
+        panic!("expected work group");
+    };
+    let outputs = group
+        .rows
+        .iter()
+        .map(|row| match row {
+            WorkRowV2::Command(command) => {
+                command.output.as_ref().map(|output| output.text.as_ref())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(outputs, [Some("shared output"), None]);
+}
+
+#[test]
+fn mcp_progress_projects_in_progress_chunks() {
+    let mut mcp = item(
+        "mcp",
+        "mcpToolCall",
+        LifecycleStatus::InProgress,
+        json!({
+            "server": "fixture-server",
+            "tool": "fixture-tool",
+            "arguments": {},
+            "status": "inProgress"
+        }),
+    );
+    mcp.live_overlay = overlay(json!({"mcp_progress": ["phase one", " then two"]}));
+    let state = one_turn_state(LifecycleStatus::InProgress, vec![mcp], json!({}));
+
+    let projected = TranscriptV2Projector::project(&state, &thread_id(), &StandardItemPolicy);
+    let NarrativeEntryV2::WorkGroup(group) = &projected.turns[0].narrative[0] else {
+        panic!("expected work group");
+    };
+    let WorkRowV2::McpToolCall(row) = &group.rows[0] else {
+        panic!("expected MCP row");
+    };
+    assert_eq!(row.progress.as_deref(), Some("phase one then two"));
+}
+
+#[test]
+fn promoted_item_timestamps_supply_row_duration() {
+    let mut command = item(
+        "command",
+        "commandExecution",
+        LifecycleStatus::Completed,
+        json!({
+            "command": "swift test",
+            "commandActions": [],
+            "status": "completed"
+        }),
+    );
+    command.started_at_ms = Some(100);
+    command.completed_at_ms = Some(1_350);
+    let state = one_turn_state(LifecycleStatus::Completed, vec![command], json!({}));
+
+    let projected = TranscriptV2Projector::project(&state, &thread_id(), &StandardItemPolicy);
+    let NarrativeEntryV2::WorkGroup(group) = &projected.turns[0].narrative[0] else {
+        panic!("expected work group");
+    };
+    let WorkRowV2::Command(row) = &group.rows[0] else {
+        panic!("expected command row");
+    };
+    assert_eq!(row.duration_ms, Some(1_250));
 }
 
 #[test]
