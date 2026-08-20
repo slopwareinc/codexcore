@@ -10,6 +10,7 @@ mod markdown;
 mod model_picker;
 mod prompt;
 mod queue;
+mod subagent_navigator;
 mod thread_list;
 mod transcript;
 
@@ -18,6 +19,7 @@ pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as i
 pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use queue::{CodexQueue, QueueEvent};
+pub use subagent_navigator::{CodexSubagentNavigator, SubagentSelectionEvent};
 pub use thread_list::{CodexThreadList, ThreadSelectionEvent};
 pub use transcript::{
     CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptRow, transcript_rows,

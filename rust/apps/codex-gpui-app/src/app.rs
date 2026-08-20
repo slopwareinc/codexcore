@@ -15,15 +15,16 @@ use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexModelPicker, CodexPrompt,
-    CodexQueue, CodexThreadList, CodexTranscript, ComposerEvent, LoginEvent, ModelSelectionEvent,
-    PromptIntent, QueueEvent, ThreadSelectionEvent, TranscriptEvent,
+    CodexQueue, CodexSubagentNavigator, CodexThreadList, CodexTranscript, ComposerEvent,
+    LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent, SubagentSelectionEvent,
+    ThreadSelectionEvent, TranscriptEvent,
 };
 use codex_presentation::{
     AuthenticationPresentation, ModelPickerPresentation, PromptActionKind, PromptPresentation,
-    QueuePresentation, StandardItemPolicy, TaskStatusPresentation, ThreadListPresentation,
-    ThreadListRow, TranscriptPresentation, TranscriptProjector, project_account,
-    project_login_challenge, project_model_picker, project_prompt, project_queue,
-    project_thread_list,
+    QueuePresentation, StandardItemPolicy, TaskStatusPresentation, ThreadGraphKey,
+    ThreadGraphProjector, ThreadGraphSnapshot, ThreadListPresentation, ThreadListRow,
+    TranscriptPresentation, TranscriptProjector, project_account, project_login_challenge,
+    project_model_picker, project_prompt, project_queue, project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -37,6 +38,7 @@ use crate::config::RunConfiguration;
 
 const UPDATE_CAPACITY: usize = 32;
 const COMMAND_CAPACITY: usize = 16;
+const LOCAL_HOST_ID: &str = "local";
 
 pub fn run() {
     let config = match RunConfiguration::parse(std::env::args().skip(1)) {
@@ -98,11 +100,18 @@ async fn print_updates(
     while let Ok(update) = receiver.recv().await {
         match update {
             AppUpdate::Status(status) => println!("status: {status}"),
-            AppUpdate::Transcript(presentation) => println!(
-                "transcript: revision={} turns={}",
-                presentation.revision.get(),
-                presentation.turns.len()
-            ),
+            AppUpdate::Canonical {
+                transcript,
+                root,
+                graph,
+            } => {
+                println!(
+                    "transcript: revision={} turns={}",
+                    transcript.revision.get(),
+                    transcript.turns.len()
+                );
+                println!("subagents: {}", graph.descendants(&root).len());
+            }
             AppUpdate::Prompt(Some(prompt)) => println!("prompt: {}", prompt.title),
             AppUpdate::Prompt(None) => {}
             AppUpdate::ModelPicker(presentation) => println!(
@@ -146,7 +155,11 @@ async fn print_updates(
 
 enum AppUpdate {
     Status(String),
-    Transcript(TranscriptPresentation),
+    Canonical {
+        transcript: TranscriptPresentation,
+        root: ThreadGraphKey,
+        graph: ThreadGraphSnapshot,
+    },
     Prompt(Option<PromptPresentation>),
     ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
@@ -174,6 +187,7 @@ enum HostCommand {
 struct CodexApp {
     transcript: Entity<CodexTranscript>,
     thread_list: Entity<CodexThreadList>,
+    subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
     authentication: Entity<CodexAuthentication>,
@@ -184,6 +198,7 @@ struct CodexApp {
     _composer_subscription: Subscription,
     _transcript_subscription: Subscription,
     _thread_list_subscription: Subscription,
+    _subagent_subscription: Subscription,
     _model_picker_subscription: Subscription,
     _queue_subscription: Subscription,
     _authentication_subscription: Subscription,
@@ -197,6 +212,7 @@ struct CodexApp {
 struct InitialViews {
     transcript: Entity<CodexTranscript>,
     thread_list: Entity<CodexThreadList>,
+    subagent_navigator: Entity<CodexSubagentNavigator>,
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
     composer: Entity<CodexComposer>,
@@ -217,6 +233,20 @@ fn initial_views(queue_enabled: bool, cx: &mut Context<CodexApp>) -> InitialView
                 next_cursor: None,
                 backwards_cursor: None,
             })
+        }),
+        subagent_navigator: cx.new(|_| {
+            let snapshot = ThreadGraphSnapshot {
+                revision: codex_app_server_state::StateRevision::ZERO,
+                nodes: std::collections::BTreeMap::new(),
+                edges: Vec::new(),
+                actions: Vec::new(),
+                roots: Vec::new(),
+                cycle_edges: Vec::new(),
+            };
+            CodexSubagentNavigator::new(
+                ThreadGraphKey::new(LOCAL_HOST_ID, ThreadId::from("pending")),
+                &snapshot,
+            )
         }),
         model_picker: cx.new(|_| {
             CodexModelPicker::new(ModelPickerPresentation {
@@ -264,11 +294,40 @@ fn subscribe_transcript_links(
     )
 }
 
+fn subscribe_subagent_selection(
+    navigator: &Entity<CodexSubagentNavigator>,
+    sender: &Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    let sender = sender.clone();
+    cx.subscribe(navigator, move |_, _, event: &SubagentSelectionEvent, _| {
+        if let Some(thread_id) = selected_subagent_thread(event) {
+            let _ = sender.try_send(HostCommand::SelectThread(thread_id));
+        }
+    })
+}
+
+fn selected_subagent_thread(event: &SubagentSelectionEvent) -> Option<ThreadId> {
+    (event.key.host_id == LOCAL_HOST_ID).then(|| event.key.thread_id.clone())
+}
+
+fn subscribe_thread_selection(
+    thread_list: &Entity<CodexThreadList>,
+    sender: &Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    let sender = sender.clone();
+    cx.subscribe(thread_list, move |_, _, event: &ThreadSelectionEvent, _| {
+        let _ = sender.try_send(HostCommand::SelectThread(event.thread_id.clone()));
+    })
+}
+
 impl CodexApp {
     fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
         let InitialViews {
             transcript,
             thread_list,
+            subagent_navigator,
             model_picker,
             queue,
             composer,
@@ -292,14 +351,10 @@ impl CodexApp {
                 let _ = composer_sender.try_send(command);
             });
         let transcript_subscription = subscribe_transcript_links(&transcript, cx);
-        let selection_sender = command_sender.clone();
-        let thread_list_subscription = cx.subscribe(
-            &thread_list,
-            move |_, _, event: &ThreadSelectionEvent, _| {
-                let _ =
-                    selection_sender.try_send(HostCommand::SelectThread(event.thread_id.clone()));
-            },
-        );
+        let thread_list_subscription =
+            subscribe_thread_selection(&thread_list, &command_sender, cx);
+        let subagent_subscription =
+            subscribe_subagent_selection(&subagent_navigator, &command_sender, cx);
         let model_sender = command_sender.clone();
         let model_picker_subscription = cx.subscribe(
             &model_picker,
@@ -346,6 +401,7 @@ impl CodexApp {
         Self {
             transcript,
             thread_list,
+            subagent_navigator,
             model_picker,
             queue,
             authentication,
@@ -356,6 +412,7 @@ impl CodexApp {
             _composer_subscription: composer_subscription,
             _transcript_subscription: transcript_subscription,
             _thread_list_subscription: thread_list_subscription,
+            _subagent_subscription: subagent_subscription,
             _model_picker_subscription: model_picker_subscription,
             _queue_subscription: queue_subscription,
             _authentication_subscription: authentication_subscription,
@@ -370,9 +427,16 @@ impl CodexApp {
     fn apply_update(&mut self, update: AppUpdate, cx: &mut Context<Self>) {
         match update {
             AppUpdate::Status(status) => self.status = status,
-            AppUpdate::Transcript(presentation) => {
+            AppUpdate::Canonical {
+                transcript: presentation,
+                root,
+                graph,
+            } => {
                 self.transcript.update(cx, |transcript, cx| {
                     transcript.set_presentation(&presentation, cx);
+                });
+                self.subagent_navigator.update(cx, |navigator, cx| {
+                    navigator.set_snapshot(root, &graph, cx);
                 });
             }
             AppUpdate::Prompt(presentation) => self.install_prompt(presentation, cx),
@@ -483,9 +547,19 @@ impl Render for CodexApp {
                             .w(px(260.))
                             .h_full()
                             .flex_shrink_0()
+                            .flex()
+                            .flex_col()
                             .border_l_1()
                             .border_color(rgb(0x003a_3a3a))
-                            .child(self.model_picker.clone()),
+                            .child(div().flex_1().min_h_0().child(self.model_picker.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .border_t_1()
+                                    .border_color(rgb(0x003a_3a3a))
+                                    .child(self.subagent_navigator.clone()),
+                            ),
                     ),
             )
             .when_some(self.prompt.clone(), |view, prompt| {
@@ -1260,9 +1334,15 @@ async fn publish_transcript(
         .canonical_snapshot()
         .await
         .map_err(|error| error.to_string())?;
-    let projection = TranscriptProjector::project(&state, thread_id, &StandardItemPolicy);
+    let transcript = TranscriptProjector::project(&state, thread_id, &StandardItemPolicy);
+    let root = ThreadGraphKey::new(LOCAL_HOST_ID, thread_id.clone());
+    let graph = ThreadGraphProjector::project(&state, LOCAL_HOST_ID);
     updates
-        .send(AppUpdate::Transcript(projection))
+        .send(AppUpdate::Canonical {
+            transcript,
+            root,
+            graph,
+        })
         .await
         .map_err(|_| "GPUI update receiver closed".to_owned())?;
     let terminal = turn_key.is_some_and(|turn_key| {
@@ -1531,6 +1611,23 @@ mod tests {
         );
         assert_eq!(options.model.as_deref(), Some("model"));
         assert_eq!(options.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn subagent_selection_accepts_only_the_local_host() {
+        let local = SubagentSelectionEvent {
+            key: ThreadGraphKey::new(LOCAL_HOST_ID, ThreadId::from("child")),
+        };
+        let remote = SubagentSelectionEvent {
+            key: ThreadGraphKey::new("remote", ThreadId::from("child")),
+        };
+        assert_eq!(
+            selected_subagent_thread(&local)
+                .as_ref()
+                .map(ThreadId::as_str),
+            Some("child")
+        );
+        assert_eq!(selected_subagent_thread(&remote), None);
     }
 
     #[test]

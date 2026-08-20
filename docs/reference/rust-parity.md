@@ -42,7 +42,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |
 | Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan/Goal controls |
 | Plans/goals | Partial | Typed `turn/plan/updated` replacement and accessible stable plan row; ordered, lossless canonical Goal lifecycle plus SDK methods | Goal/completed-plan panels and typed Plan/Goal composer modes |
-| Subagents/side chat | Partial | Framework-neutral recursive child graph projection plus collaboration activity rows | Child leases, native task navigation, side transcript |
+| Subagents/side chat | Partial | Framework-neutral child graph projection, accessible recursive virtual navigator, collaboration activity rows, and host-owned hydrated child lease transfer | Concurrent parent/child panes, side-chat creation, graph actions |
 | Theming/accessibility | Partial | Semantic dark theme and AccessKit roles/labels | Light/high-contrast themes, keyboard audit, VoiceOver/NVDA/Orca smoke |
 
 ## Reference host and platform ecosystem

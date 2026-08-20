@@ -100,11 +100,11 @@ backends.
 
 ## Embedding the first GPUI surface
 
-`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, and `CodexComposer` as
-reusable GPUI entities. The host passes disposable presentation models and
-later updates them from a GPUI context. The components own only presentation,
-draft, focus, and viewport state: they do not start App Server, create a Tokio
-runtime, or open a window.
+`codex-gpui` exposes `CodexTranscript`, `CodexPrompt`, `CodexComposer`, and
+`CodexSubagentNavigator` as reusable GPUI entities. The host passes disposable
+presentation models and later updates them from a GPUI context. The components
+own only presentation, draft, focus, and viewport state: they do not start App
+Server, create a Tokio runtime, or open a window.
 
 The transcript uses GPUI's bottom-aligned variable-height list, stable
 composite row identities, tail following, identity splices, and targeted
@@ -197,6 +197,14 @@ Model controls also consume a generated-schema-validated stable catalog.
 `CodexModelPicker` keeps model and advertised reasoning effort as one selection
 event. The host applies idle changes to the next turn and queues changes made
 during an active turn; it never mutates the model of an already-running turn.
+
+Recursive child navigation consumes `ThreadGraphSnapshot` plus a host-qualified
+root. `CodexSubagentNavigator` virtualizes the root's descendants, exposes
+nickname, logical agent path, lifecycle, hydration state, and accessible tree
+depth, and emits only a typed `SubagentSelectionEvent`. The reference host maps
+that event to its existing task-switch command, so hydrated resume succeeds
+before the old lease closes and an active turn still defers the switch. The
+component never resumes threads or stores protocol state.
 
 Run the executable embedding example on a graphical machine:
 
