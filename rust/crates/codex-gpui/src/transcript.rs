@@ -13,6 +13,44 @@ use gpui::{
     WeakEntity, Window, div, list, prelude::*, px, rgb,
 };
 
+/// Swift Transcript V2 column geometry shared by every native transcript row.
+///
+/// The outer column remains centered and responsive below its maximum width.
+/// Cards and user bubbles use narrower policies within that column.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TranscriptLayoutMetrics;
+
+impl TranscriptLayoutMetrics {
+    pub const HORIZONTAL_MARGIN: f32 = 24.;
+    pub const OUTER_MAX_WIDTH: f32 = 768.;
+    pub const CARD_MAX_WIDTH: f32 = 640.;
+    pub const USER_MAX_WIDTH: f32 = 560.;
+    pub const TURN_GAP: f32 = 16.;
+    pub const ITEM_GAP: f32 = 4.;
+    pub const WORK_HEADER_HEIGHT: f32 = 22.;
+    pub const WORK_ROW_HEIGHT: f32 = 28.;
+
+    /// Responsive outer-column width for a transcript viewport.
+    #[must_use]
+    pub fn outer_width(viewport_width: f32) -> f32 {
+        (viewport_width - Self::HORIZONTAL_MARGIN * 2.).clamp(1., Self::OUTER_MAX_WIDTH)
+    }
+
+    /// Responsive card width within a transcript viewport.
+    #[must_use]
+    pub fn card_width(viewport_width: f32) -> f32 {
+        Self::outer_width(viewport_width).min(Self::CARD_MAX_WIDTH)
+    }
+
+    /// Responsive user-bubble width within a transcript viewport.
+    #[must_use]
+    pub fn user_width(viewport_width: f32) -> f32 {
+        Self::outer_width(viewport_width)
+            .mul_add(0.77, 0.)
+            .min(Self::USER_MAX_WIDTH)
+    }
+}
+
 /// Exact Zed revision supplying GPUI for this crate.
 pub const GPUI_REVISION: &str = "8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe";
 
@@ -86,10 +124,14 @@ impl TranscriptRow {
                 "item:{}:{}:{}",
                 entry.key.thread_id, entry.key.turn_id, entry.key.item_id
             ),
-            Self::WorkGroup { id, .. } => format!("work-group:{id}"),
+            Self::WorkGroup { id, .. } => work_group_stable_id(id),
             Self::Plan { turn_id, .. } => format!("turn:{turn_id}:plan"),
         }
     }
+}
+
+fn work_group_stable_id(id: &str) -> String {
+    format!("work-group:{id}")
 }
 
 /// Flatten a semantic transcript into stable virtualized rows.
@@ -178,8 +220,11 @@ impl CodexTranscript {
     pub fn new(presentation: &TranscriptPresentation) -> Self {
         let revision = presentation.revision;
         let rows: Arc<[TranscriptRow]> = transcript_rows(presentation).into();
-        let list_state = ListState::new(rows.len(), ListAlignment::Bottom, px(800.))
-            .with_uniform_item_height(px(76.));
+        // Transcript rows range from compact 22pt lifecycle chrome to long
+        // Markdown, command output, and expanded work details. GPUI measures
+        // each rendered row independently; a uniform hint makes bottom
+        // alignment and expansion use the wrong scroll geometry.
+        let list_state = ListState::new(rows.len(), ListAlignment::Bottom, px(800.));
         list_state.set_follow_mode(FollowMode::Tail);
         Self {
             revision,
@@ -210,16 +255,24 @@ impl CodexTranscript {
         self.list_state.clone()
     }
 
-    fn toggle_work_group(&mut self, id: String, cx: &mut Context<Self>) {
-        if !self.expanded_work_groups.remove(&id) {
-            self.expanded_work_groups.insert(id);
+    fn toggle_work_group(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.expanded_work_groups.remove(id) {
+            self.expanded_work_groups.insert(id.to_owned());
+        }
+        if let Some(index) = self.rows.iter().position(|row| row.stable_id() == id) {
+            self.list_state.remeasure_items(index..index + 1);
         }
         cx.notify();
     }
 
-    fn toggle_work_row(&mut self, id: String, cx: &mut Context<Self>) {
-        if !self.expanded_work_rows.remove(&id) {
-            self.expanded_work_rows.insert(id);
+    fn toggle_work_row(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.expanded_work_rows.remove(id) {
+            self.expanded_work_rows.insert(id.to_owned());
+        }
+        if let Some(index) = self.rows.iter().position(|row| {
+            matches!(row, TranscriptRow::WorkGroup { entries, .. } if entries.iter().any(|entry| work_entry_id(entry) == id))
+        }) {
+            self.list_state.remeasure_items(index..index + 1);
         }
         cx.notify();
     }
@@ -264,25 +317,34 @@ impl Render for CodexTranscript {
             .bg(theme.background)
             .text_color(theme.text)
             .child(
-                div().flex().justify_center().size_full().child(
-                    div().w_full().max_w(px(920.)).h_full().child(
-                        list(state, move |index, _window, _cx| {
-                            rows.get(index).map_or_else(
-                                || div().into_any(),
-                                |row| {
-                                    render_row(
-                                        row,
-                                        theme,
-                                        &emitter,
-                                        expanded_work_groups.contains(&row.stable_id()),
-                                        &expanded_work_rows,
+                div()
+                    .flex()
+                    .justify_center()
+                    .size_full()
+                    .px(px(TranscriptLayoutMetrics::HORIZONTAL_MARGIN))
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(TranscriptLayoutMetrics::OUTER_MAX_WIDTH))
+                            .h_full()
+                            .child(
+                                list(state, move |index, _window, _cx| {
+                                    rows.get(index).map_or_else(
+                                        || div().into_any(),
+                                        |row| {
+                                            render_row(
+                                                row,
+                                                theme,
+                                                &emitter,
+                                                expanded_work_groups.contains(&row.stable_id()),
+                                                &expanded_work_rows,
+                                            )
+                                        },
                                     )
-                                },
-                            )
-                        })
-                        .size_full(),
+                                })
+                                .size_full(),
+                            ),
                     ),
-                ),
             )
     }
 }
@@ -349,9 +411,8 @@ fn render_row(
             .aria_level(2)
             .aria_label(format!("Turn {id}, {}", status.as_raw()))
             .w_full()
-            .px_6()
-            .pt_3()
-            .pb_2()
+            .h(px(TranscriptLayoutMetrics::WORK_HEADER_HEIGHT))
+            .mb(px(TranscriptLayoutMetrics::TURN_GAP))
             .justify_end()
             .flex()
             .items_center()
@@ -409,8 +470,8 @@ fn render_plan(id: String, plan: &PlanPresentation, theme: CodexTheme) -> AnyEle
         .role(Role::Region)
         .aria_label("Turn plan")
         .w_full()
-        .px_6()
-        .py_2()
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
+        .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
         .child(
             div()
                 .rounded_lg()
@@ -467,23 +528,35 @@ fn render_work_group(
     } else {
         "Working"
     };
-    let group_id = format!("work-group:{id}");
-    let toggle_id = id.to_owned();
+    let group_id = work_group_stable_id(id);
+    let toggle_id = group_id.clone();
     div()
-        .id(group_id)
+        .id(group_id.clone())
         .role(Role::Group)
         .aria_label(format!("{label}, {} activity item(s)", entries.len()))
         .w_full()
-        .px_6()
-        .py_1()
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
+        .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
         .child(
             div()
-                .h(px(22.))
+                .id(format!("{group_id}:disclosure"))
+                .role(Role::Button)
+                .aria_label(format!(
+                    "{label}, {} activity item(s), {}",
+                    entries.len(),
+                    if expanded { "expanded" } else { "collapsed" }
+                ))
+                .aria_expanded(expanded)
+                .focusable()
+                .tab_stop(true)
+                .h(px(TranscriptLayoutMetrics::WORK_HEADER_HEIGHT))
+                .w_full()
                 .flex()
                 .items_center()
                 .gap_2()
                 .text_sm()
                 .text_color(theme.muted_text)
+                .cursor_pointer()
                 .child(if expanded { "⌄" } else { "›" })
                 .child(label)
                 .child(
@@ -494,27 +567,36 @@ fn render_work_group(
                         .px_2()
                         .text_xs()
                         .child(entries.len().to_string()),
-                ),
-        )
-        .on_click({
-            let emitter = emitter.clone();
-            move |_, _, cx| {
-                emitter
-                    .update(cx, |transcript, cx| {
-                        transcript.toggle_work_group(toggle_id.clone(), cx);
-                    })
-                    .ok();
-            }
-        })
-        .when(expanded, |view| {
-            view.children(entries.iter().map(|entry| {
-                render_work_entry(
-                    entry,
-                    theme,
-                    emitter,
-                    expanded_work_rows.contains(&work_entry_id(entry)),
                 )
-            }))
+                .on_click({
+                    let emitter = emitter.clone();
+                    move |_, _, cx| {
+                        emitter
+                            .update(cx, |transcript, cx| {
+                                transcript.toggle_work_group(&toggle_id, cx);
+                            })
+                            .ok();
+                    }
+                }),
+        )
+        .when(expanded, |view| {
+            view.child(
+                div()
+                    .id(format!("{group_id}:rows"))
+                    .role(Role::List)
+                    .aria_label(format!("{label} details"))
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .children(entries.iter().map(|entry| {
+                        render_work_entry(
+                            entry,
+                            theme,
+                            emitter,
+                            expanded_work_rows.contains(&work_entry_id(entry)),
+                        )
+                    })),
+            )
         })
         .into_any()
 }
@@ -590,12 +672,36 @@ fn render_work_entry(
         _ => ("Activity".to_owned(), entry.status.clone(), None),
     };
     let row_id = work_entry_id(entry);
-    let emitter = emitter.clone();
-    div()
-        .id(format!("work-entry:{row_id}"))
-        .role(Role::ListItem)
-        .aria_label(label.clone())
-        .h(px(28.))
+    let container_id = format!("work-entry:{row_id}");
+    let disclosure_id = format!("{container_id}:disclosure");
+    let has_detail = detail.is_some();
+    let header = div()
+        .id(disclosure_id)
+        .aria_label(if has_detail {
+            format!(
+                "{label}, {}",
+                if expanded { "expanded" } else { "collapsed" }
+            )
+        } else {
+            label.clone()
+        })
+        .when(has_detail, |view| {
+            let emitter = emitter.clone();
+            let toggle_id = row_id.clone();
+            view.role(Role::Button)
+                .aria_expanded(expanded)
+                .focusable()
+                .tab_stop(true)
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    emitter
+                        .update(cx, |transcript, cx| {
+                            transcript.toggle_work_row(&toggle_id, cx);
+                        })
+                        .ok();
+                })
+        })
+        .h(px(TranscriptLayoutMetrics::WORK_ROW_HEIGHT))
         .w_full()
         .pl(px(22.))
         .pr_2()
@@ -606,19 +712,23 @@ fn render_work_entry(
         .text_color(theme.muted_text)
         .child(status_glyph(&status, theme))
         .child(div().min_w_0().flex_1().truncate().child(label))
-        .when(detail.is_some(), |view| {
+        .when(has_detail, |view| {
             view.child(div().text_xs().child(if expanded { "⌄" } else { "›" }))
-        })
-        .on_click(move |_, _, cx| {
-            emitter
-                .update(cx, |transcript, cx| {
-                    transcript.toggle_work_row(row_id.clone(), cx);
-                })
-                .ok();
-        })
-        .when(expanded, |view| {
+        });
+    div()
+        .id(container_id)
+        .role(Role::ListItem)
+        .aria_label("Work activity row")
+        .w_full()
+        .flex()
+        .flex_col()
+        .child(header)
+        .when(expanded && has_detail, |view| {
             view.child(
                 div()
+                    .id(format!("work-entry:{row_id}:detail"))
+                    .role(Role::Region)
+                    .aria_label("Work activity detail")
                     .pl(px(38.))
                     .pb_2()
                     .w_full()
@@ -664,8 +774,7 @@ fn render_entry(
         .role(Role::Article)
         .aria_label(entry_accessibility_label(entry))
         .w_full()
-        .px_6()
-        .py_2()
+        .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
         .flex()
         .flex_col();
 
@@ -737,13 +846,13 @@ fn render_user(shell: RowShell, text: &str, theme: CodexTheme) -> AnyElement {
         .items_end()
         .child(
             div()
-                .max_w(px(720.))
+                .max_w(px(TranscriptLayoutMetrics::USER_MAX_WIDTH))
                 .rounded_xl()
                 .bg(theme.user_message)
                 .border_1()
                 .border_color(theme.border)
-                .px_4()
-                .py_3()
+                .px_3()
+                .py_2()
                 .whitespace_normal()
                 .child(text.to_owned()),
         )
@@ -764,7 +873,7 @@ fn render_assistant(
         })
         .child(
             div()
-                .max_w(px(840.))
+                .w_full()
                 .child(crate::markdown::render_markdown(markdown, theme, emitter)),
         )
         .into_any()
@@ -792,6 +901,7 @@ fn render_activity(
     theme: CodexTheme,
 ) -> AnyElement {
     shell
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .child(
             div()
                 .flex()
@@ -821,6 +931,7 @@ fn render_command(
         .filter(|output| output.truncated)
         .map(|output| output.total_bytes - output.text.len());
     shell
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .child(
             div()
                 .rounded_lg()
@@ -888,6 +999,7 @@ fn render_command(
 
 fn render_notice(shell: RowShell, text: &str, theme: CodexTheme) -> AnyElement {
     shell
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .child(
             div()
                 .rounded_md()
@@ -915,6 +1027,7 @@ fn render_file_changes(
         .map(|(index, change)| render_file_change(change, index, theme))
         .collect::<Vec<_>>();
     shell
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .child(
             div()
                 .rounded_lg()
@@ -1044,6 +1157,7 @@ fn file_change_kind(kind: &FileChangeKind, theme: CodexTheme) -> (String, Rgba) 
 
 fn card(shell: RowShell, title: &str, detail: String, theme: CodexTheme) -> AnyElement {
     shell
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
         .child(
             div()
                 .rounded_lg()

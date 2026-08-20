@@ -14,6 +14,7 @@ mod queue;
 mod subagent_navigator;
 mod thread_list;
 mod transcript;
+mod transcript_v2;
 
 pub use auth::{CodexAuthentication, LoginEvent};
 pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as init_composer};
@@ -24,5 +25,7 @@ pub use queue::{CodexQueue, QueueEvent};
 pub use subagent_navigator::{CodexSubagentNavigator, SubagentSelectionEvent};
 pub use thread_list::{CodexThreadList, ThreadListCommand, ThreadSelectionEvent};
 pub use transcript::{
-    CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptRow, transcript_rows,
+    CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptLayoutMetrics,
+    TranscriptRow, transcript_rows,
 };
+pub use transcript_v2::{CodexTranscriptV2, TranscriptV2Row, transcript_v2_rows};

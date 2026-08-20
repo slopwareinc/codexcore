@@ -4,17 +4,20 @@ use std::ops::Range;
 
 use codex_presentation::{MarkdownAlignment, MarkdownDocument, MarkdownNode, MarkdownQuoteKind};
 use gpui::{
-    AnyElement, FontStyle, FontWeight, HighlightStyle, Role, StrikethroughStyle, StyledText,
-    TextAlign, UnderlineStyle, WeakEntity, div, prelude::*, px,
+    AnyElement, EventEmitter, FontStyle, FontWeight, HighlightStyle, Role, StrikethroughStyle,
+    StyledText, TextAlign, UnderlineStyle, WeakEntity, div, prelude::*, px,
 };
 
-use crate::transcript::{CodexTheme, CodexTranscript, TranscriptEvent};
+use crate::transcript::{CodexTheme, TranscriptEvent};
 
-pub(crate) fn render_markdown(
+pub(crate) fn render_markdown<E>(
     document: &MarkdownDocument,
     theme: CodexTheme,
-    emitter: &WeakEntity<CodexTranscript>,
-) -> AnyElement {
+    emitter: &WeakEntity<E>,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
     let links = document.links();
     div()
         .id("assistant-markdown")
