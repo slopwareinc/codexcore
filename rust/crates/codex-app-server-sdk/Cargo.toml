@@ -12,15 +12,18 @@ authors.workspace = true
 codex-app-server-adapter = { path = "../codex-app-server-adapter" }
 codex-app-server-client = { path = "../codex-app-server-client" }
 codex-app-server-history = { path = "../codex-app-server-history" }
+codex-app-server-interaction = { path = "../codex-app-server-interaction" }
 codex-app-server-lease = { path = "../codex-app-server-lease" }
 codex-app-server-state = { path = "../codex-app-server-state" }
 codex-app-server-types = { path = "../codex-app-server-types" }
+jsonschema.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 codex-app-server-transport = { path = "../codex-app-server-transport" }
+codex-app-server-wire = { path = "../codex-app-server-wire" }
 tempfile.workspace = true
 tokio.workspace = true
 

@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 mod auth;
+mod dynamic_tools;
 mod goals;
 mod history;
 mod models;
@@ -24,6 +25,12 @@ pub use auth::{
 };
 pub use codex_app_server_history::HistoryPolicy;
 pub use codex_app_server_state::{CanonicalThreadGoal as ThreadGoal, ThreadGoalStatus};
+pub use dynamic_tools::{
+    BoxedDynamicToolHandler, DynamicToolCall, DynamicToolContent, DynamicToolDeclaration,
+    DynamicToolDeclarationError, DynamicToolDispatchError, DynamicToolFunction, DynamicToolHandler,
+    DynamicToolHandlerError, DynamicToolHandlerFuture, DynamicToolInputSchema, DynamicToolKey,
+    DynamicToolNamespace, DynamicToolRegistry, DynamicToolRegistryError, DynamicToolResult,
+};
 pub use goals::SetGoalOptions;
 pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
@@ -179,6 +186,8 @@ pub struct StartThreadOptions {
     pub service_tier: Option<String>,
     /// Create an in-memory/non-persisted thread.
     pub ephemeral: Option<bool>,
+    /// Typed host tools advertised for this thread.
+    pub dynamic_tools: Vec<DynamicToolDeclaration>,
     /// Additional exact protocol fields.
     pub extra: BTreeMap<String, Value>,
 }
@@ -422,7 +431,7 @@ impl Codex {
     pub async fn start_thread(&self, options: StartThreadOptions) -> Result<CodexThread, SdkError> {
         let result = self
             .client
-            .request("thread/start", start_params(options))
+            .request("thread/start", start_params(options)?)
             .await?;
         self.adopt_thread_result("thread/start", result).await
     }
@@ -948,7 +957,7 @@ impl CodexTurn {
     }
 }
 
-fn start_params(options: StartThreadOptions) -> Value {
+fn start_params(options: StartThreadOptions) -> Result<Value, SdkError> {
     let mut params = options.extra;
     insert_option(
         &mut params,
@@ -961,7 +970,26 @@ fn start_params(options: StartThreadOptions) -> Value {
     insert_option(&mut params, "permissions", options.permissions);
     insert_option(&mut params, "serviceTier", options.service_tier);
     insert_option(&mut params, "ephemeral", options.ephemeral);
-    Value::Object(params.into_iter().collect())
+    if !options.dynamic_tools.is_empty() {
+        let dynamic_tools = options
+            .dynamic_tools
+            .iter()
+            .map(DynamicToolDeclaration::to_wire_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| SdkError::RequestValidation {
+                method: "thread/start",
+                message: error.to_string(),
+            })?;
+        params.insert("dynamicTools".to_owned(), Value::Array(dynamic_tools));
+    }
+    let value = Value::Object(params.into_iter().collect());
+    serde_json::from_value::<codex_app_server_types::ThreadStartParams>(value.clone())
+        .map(drop)
+        .map_err(|error| SdkError::RequestValidation {
+            method: "thread/start",
+            message: error.to_string(),
+        })?;
+    Ok(value)
 }
 
 fn turn_params(thread_id: &ThreadId, input: Vec<CodexInput>, options: TurnOptions) -> Value {
@@ -1015,6 +1043,44 @@ mod tests {
             }
             .into_value(),
             json!({"type":"localImage","path":"/tmp/image.png","detail":"high"})
+        );
+    }
+
+    #[test]
+    fn thread_start_attaches_typed_dynamic_tool_declarations() {
+        let input_schema = DynamicToolInputSchema::new(json!({
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "required": ["id"],
+            "additionalProperties": false
+        }))
+        .expect("input schema");
+        let params = start_params(StartThreadOptions {
+            dynamic_tools: vec![
+                DynamicToolFunction::new(
+                    "record_lookup",
+                    "Look up a local project record",
+                    input_schema,
+                )
+                .into(),
+            ],
+            ..StartThreadOptions::default()
+        })
+        .expect("thread start params");
+
+        assert_eq!(
+            params["dynamicTools"],
+            json!([{
+                "type": "function",
+                "name": "record_lookup",
+                "description": "Look up a local project record",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "id": { "type": "string" } },
+                    "required": ["id"],
+                    "additionalProperties": false
+                }
+            }])
         );
     }
 

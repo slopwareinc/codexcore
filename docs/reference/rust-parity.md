@@ -23,7 +23,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Thread/turn SDK facade | Partial | Start/resume/fork, hydrated resume, rename, archive/unarchive, revert and deprecated rollback, turn start/steer/interrupt, typed Goal set/get/clear, durable queue add/list/update/delete/reorder/start, input builders | Delete wrapper, operation streams |
 | Stored threads and models | Complete | Generated validation, stable pages, GCP live catalog tests | Pagination/search UI and cache invalidation |
 | Thread sections | Partial | Stable list/create/update/delete/move SDK with explicit appearance tri-state | Grouped GPUI navigation and section ordering controls |
-| Dynamic-tool declaration/handlers | Partial | Request/reply types and safe unknown failure | Typed declaration builder and handler registry |
+| Dynamic-tool declaration/handlers | Complete | Exact function/namespace declarations, JSON Schema argument validation, deterministic async handler registry, generated result validation, and cancellation tests | Broader reference-host tool inventory |
 | Authentication/config/home isolation | Partial | Stable account/login/cancel/logout SDK; native masked API-key, browser, device-code and cancellation UI; account read live-tested | Isolated-home hardening, logout/account menu, signed-out visual automation |
 | Realtime Voice | Missing | Generated wire types only | SDK stream, audio platform adapter, host UI |
 
