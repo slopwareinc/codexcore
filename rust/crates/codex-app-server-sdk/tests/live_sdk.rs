@@ -46,11 +46,11 @@ async fn durable_queue_add_list_update_reorder_delete() {
     let thread = codex
         .start_thread(StartThreadOptions {
             cwd: Some(workspace.path().to_owned()),
-            ephemeral: Some(true),
             ..StartThreadOptions::default()
         })
         .await
         .expect("start queue thread");
+    let thread_id = thread.id().clone();
     let queued = thread
         .queue_add(
             vec![CodexInput::text("first")],
@@ -71,6 +71,11 @@ async fn durable_queue_add_list_update_reorder_delete() {
         .expect("reorder queue");
     assert!(thread.queue_delete(&queued.id).await.expect("delete queue"));
     thread.close().await.expect("release thread");
+    codex
+        .client()
+        .request("thread/delete", json!({"threadId": thread_id.as_str()}))
+        .await
+        .expect("delete queue test thread");
     codex.close().await.expect("close SDK");
 }
 
