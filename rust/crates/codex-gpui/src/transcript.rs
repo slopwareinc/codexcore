@@ -99,10 +99,7 @@ pub fn transcript_rows(presentation: &TranscriptPresentation) -> Vec<TranscriptR
         .turns
         .iter()
         .flat_map(|turn| {
-            let mut rows = vec![TranscriptRow::Turn {
-                id: turn.turn_id.as_str().to_owned(),
-                status: turn.status.clone(),
-            }];
+            let mut rows = Vec::new();
             let mut work_entries: Vec<PresentedEntry> = Vec::new();
             for entry in &turn.entries {
                 if is_work_entry(entry) {
@@ -119,6 +116,12 @@ pub fn transcript_rows(presentation: &TranscriptPresentation) -> Vec<TranscriptR
                     plan: Box::new(plan),
                 });
             }
+            // Swift's V2 transcript keeps lifecycle chrome at the end of a
+            // turn; the conversation itself begins with the user's bubble.
+            rows.push(TranscriptRow::Turn {
+                id: turn.turn_id.as_str().to_owned(),
+                status: turn.status.clone(),
+            });
             rows.into_iter()
         })
         .collect()
@@ -335,8 +338,9 @@ fn render_row(
             .aria_label(format!("Turn {id}, {}", status.as_raw()))
             .w_full()
             .px_6()
-            .pt_2()
-            .pb_1()
+            .pt_3()
+            .pb_2()
+            .justify_end()
             .flex()
             .items_center()
             .gap_2()
@@ -1038,16 +1042,16 @@ mod tests {
     #[test]
     fn rows_have_stable_composite_identities() {
         let rows = transcript_rows(&presentation(vec![entry("same", "hello")]));
-        assert_eq!(rows[0].stable_id(), "turn:turn");
-        assert_eq!(rows[1].stable_id(), "item:thread:turn:same");
+        assert_eq!(rows[0].stable_id(), "item:thread:turn:same");
+        assert_eq!(rows[1].stable_id(), "turn:turn");
     }
 
     #[test]
     fn content_changes_do_not_change_row_identity() {
         let first = transcript_rows(&presentation(vec![entry("item", "one")]));
         let second = transcript_rows(&presentation(vec![entry("item", "two")]));
-        assert_eq!(first[1].stable_id(), second[1].stable_id());
-        assert_ne!(first[1], second[1]);
+        assert_eq!(first[0].stable_id(), second[0].stable_id());
+        assert_ne!(first[0], second[0]);
     }
 
     #[test]
@@ -1067,8 +1071,8 @@ mod tests {
             detail: None,
         });
         let rows = transcript_rows(&presentation(vec![first, second]));
-        assert!(matches!(rows[1], TranscriptRow::WorkGroup { .. }));
-        assert_eq!(rows[1].stable_id(), "work-group:thread:turn:read");
+        assert!(matches!(rows[0], TranscriptRow::WorkGroup { .. }));
+        assert_eq!(rows[0].stable_id(), "work-group:thread:turn:read");
     }
 
     #[test]
@@ -1095,6 +1099,6 @@ mod tests {
             }],
         });
         let rows = transcript_rows(&presentation);
-        assert_eq!(rows[1].stable_id(), "turn:turn:plan");
+        assert_eq!(rows[0].stable_id(), "turn:turn:plan");
     }
 }
