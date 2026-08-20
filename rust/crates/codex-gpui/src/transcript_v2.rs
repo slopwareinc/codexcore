@@ -990,6 +990,7 @@ fn render_row(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_non_message_row(
     row: &TranscriptV2Row,
     theme: CodexTheme,
