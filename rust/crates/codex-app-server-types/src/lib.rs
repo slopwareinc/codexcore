@@ -83,6 +83,15 @@ pub fn validate_thread_read_response(value: &serde_json::Value) -> Result<(), se
     serde_json::from_value::<ThreadReadResponse>(value.clone()).map(drop)
 }
 
+/// Validate a `model/list` result.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_model_list_response(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ModelListResponse>(value.clone()).map(drop)
+}
+
 /// Validate a `thread/turns/list` result.
 ///
 /// # Errors

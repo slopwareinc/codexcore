@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use codex_app_server_client::LocalSessionConfig;
 use codex_app_server_sdk::{
-    Codex, CodexInput, ListThreadsOptions, PaginatedResumeOptions, StartThreadOptions, TurnOptions,
+    Codex, CodexInput, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
+    StartThreadOptions, TurnOptions,
 };
 use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
@@ -54,6 +55,27 @@ async fn list_stored_threads_through_stable_sdk_page() {
             .iter()
             .all(|thread| !thread.id.as_str().is_empty())
     );
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn list_models_through_stable_sdk_page() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let page = codex
+        .list_models(ListModelsOptions {
+            limit: Some(20),
+            ..ListModelsOptions::default()
+        })
+        .await
+        .expect("list stable model page");
+    assert!(!page.data.is_empty());
+    assert!(page.data.iter().all(|model| !model.model.is_empty()));
     codex.close().await.expect("close SDK");
 }
 

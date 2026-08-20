@@ -138,6 +138,11 @@ installs its canonical snapshot, transfers the selected lease, and republishes
 the sidebar selection. The old lease remains live until the replacement resume
 succeeds.
 
+Model controls also consume a generated-schema-validated stable catalog.
+`CodexModelPicker` keeps model and advertised reasoning effort as one selection
+event. The host applies idle changes to the next turn and queues changes made
+during an active turn; it never mutates the model of an already-running turn.
+
 Run the executable embedding example on a graphical machine:
 
 ```sh

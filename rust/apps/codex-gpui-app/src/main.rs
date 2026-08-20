@@ -10,19 +10,19 @@ use codex_app_server_interaction::{
     ServerRequestBody, ServerRequestReply, TypedServerRequest, default_resolution, parse_pending,
 };
 use codex_app_server_sdk::{
-    Codex, CodexInput, CodexThread, ListThreadsOptions, PaginatedResumeOptions, StartThreadOptions,
-    TurnOptions,
+    Codex, CodexInput, CodexThread, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
+    StartThreadOptions, TurnOptions,
 };
 use codex_app_server_state::{ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
-    CodexComposer, CodexPrompt, CodexThreadList, CodexTranscript, ComposerEvent, PromptIntent,
-    ThreadSelectionEvent,
+    CodexComposer, CodexModelPicker, CodexPrompt, CodexThreadList, CodexTranscript, ComposerEvent,
+    ModelSelectionEvent, PromptIntent, ThreadSelectionEvent,
 };
 use codex_presentation::{
-    PromptActionKind, PromptPresentation, StandardItemPolicy, TaskStatusPresentation,
-    ThreadListPresentation, ThreadListRow, TranscriptPresentation, TranscriptProjector,
-    project_prompt, project_thread_list,
+    ModelPickerPresentation, PromptActionKind, PromptPresentation, StandardItemPolicy,
+    TaskStatusPresentation, ThreadListPresentation, ThreadListRow, TranscriptPresentation,
+    TranscriptProjector, project_model_picker, project_prompt, project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -153,6 +153,11 @@ async fn print_updates(receiver: Receiver<AppUpdate>) {
             ),
             AppUpdate::Prompt(Some(prompt)) => println!("prompt: {}", prompt.title),
             AppUpdate::Prompt(None) => {}
+            AppUpdate::ModelPicker(presentation) => println!(
+                "models: {} selected={}",
+                presentation.models.len(),
+                presentation.selected_model
+            ),
             AppUpdate::ThreadList(presentation) => {
                 println!("tasks: {}", presentation.rows.len());
             }
@@ -165,6 +170,7 @@ enum AppUpdate {
     Status(String),
     Transcript(TranscriptPresentation),
     Prompt(Option<PromptPresentation>),
+    ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
     Failed(String),
 }
@@ -174,17 +180,20 @@ enum HostCommand {
     Prompt(PromptIntent),
     Submit(String),
     SelectThread(ThreadId),
+    SelectModel(ModelSelectionEvent),
     Shutdown,
 }
 
 struct CodexApp {
     transcript: Entity<CodexTranscript>,
     thread_list: Entity<CodexThreadList>,
+    model_picker: Entity<CodexModelPicker>,
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
     _composer_subscription: Subscription,
     _thread_list_subscription: Subscription,
+    _model_picker_subscription: Subscription,
     _quit_subscription: Subscription,
     status: String,
     command_sender: Sender<HostCommand>,
@@ -207,6 +216,13 @@ impl CodexApp {
                 backwards_cursor: None,
             })
         });
+        let model_picker = cx.new(|_| {
+            CodexModelPicker::new(ModelPickerPresentation {
+                models: Vec::new(),
+                selected_model: String::new(),
+                selected_effort: String::new(),
+            })
+        });
         let composer = cx.new(CodexComposer::new);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
@@ -221,6 +237,13 @@ impl CodexApp {
             move |_, _, event: &ThreadSelectionEvent, _| {
                 let _ =
                     selection_sender.try_send(HostCommand::SelectThread(event.thread_id.clone()));
+            },
+        );
+        let model_sender = command_sender.clone();
+        let model_picker_subscription = cx.subscribe(
+            &model_picker,
+            move |_, _, event: &ModelSelectionEvent, _| {
+                let _ = model_sender.try_send(HostCommand::SelectModel(event.clone()));
             },
         );
         let quit_sender = command_sender.clone();
@@ -249,11 +272,13 @@ impl CodexApp {
         Self {
             transcript,
             thread_list,
+            model_picker,
             composer,
             prompt: None,
             prompt_subscription: None,
             _composer_subscription: composer_subscription,
             _thread_list_subscription: thread_list_subscription,
+            _model_picker_subscription: model_picker_subscription,
             _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
             command_sender,
@@ -271,6 +296,11 @@ impl CodexApp {
                 });
             }
             AppUpdate::Prompt(presentation) => self.install_prompt(presentation, cx),
+            AppUpdate::ModelPicker(presentation) => {
+                self.model_picker.update(cx, |picker, cx| {
+                    picker.set_presentation(presentation, cx);
+                });
+            }
             AppUpdate::ThreadList(presentation) => {
                 self.thread_list.update(cx, |thread_list, cx| {
                     thread_list.set_presentation(presentation, cx);
@@ -341,6 +371,15 @@ impl Render for CodexApp {
                             .h_full()
                             .overflow_hidden()
                             .child(self.transcript.clone()),
+                    )
+                    .child(
+                        div()
+                            .w(px(260.))
+                            .h_full()
+                            .flex_shrink_0()
+                            .border_l_1()
+                            .border_color(rgb(0x003a_3a3a))
+                            .child(self.model_picker.clone()),
                     ),
             )
             .when_some(self.prompt.clone(), |view, prompt| {
@@ -363,29 +402,13 @@ async fn run_session(
     commands: Receiver<HostCommand>,
 ) -> Result<(), String> {
     send_status(&updates, "Connecting to Codex App Server…").await;
-    let codex = Codex::connect_local(LocalSessionConfig::app_server(config.codex_binary))
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(config.codex_binary.clone()))
         .await
         .map_err(|error| error.to_string())?;
-    send_status(&updates, "Starting thread…").await;
-    let initial_cwd = config.cwd.clone();
-    let started_thread = codex
-        .start_thread(StartThreadOptions {
-            cwd: Some(config.cwd),
-            ephemeral: Some(config.ephemeral),
-            ..StartThreadOptions::default()
-        })
-        .await
-        .map_err(|error| error.to_string())?;
-    let mut thread_id = started_thread.id().clone();
+    let mut turn_options = load_model_catalog(&codex, &updates).await?;
+    let (started_thread, mut thread_id) =
+        start_initial_thread(&codex, &config, &turn_options, &updates).await?;
     let mut thread = Some(started_thread);
-    refresh_thread_list(
-        &codex,
-        &thread_id,
-        Some(&initial_cwd),
-        TaskStatusPresentation::Running,
-        &updates,
-    )
-    .await?;
     let mut observation = codex
         .client()
         .observe()
@@ -407,6 +430,11 @@ async fn run_session(
                     }
                     continue;
                 }
+                IdleAction::SelectModel(selection) => {
+                    apply_model_selection(&mut turn_options, &selection);
+                    send_status(&updates, "Model selection updated for the next turn").await;
+                    continue;
+                }
                 IdleAction::Shutdown => break,
             },
         };
@@ -417,12 +445,18 @@ async fn run_session(
                 .ok_or_else(|| "selected thread lease is missing".to_owned())?,
             &thread_id,
             input,
-            &mut observation,
-            &commands,
-            &updates,
+            &turn_options,
+            TurnDriver {
+                observation: &mut observation,
+                commands: &commands,
+                updates: &updates,
+            },
         )
         .await?;
         shutdown = outcome.shutdown;
+        if let Some(selection) = outcome.pending_model {
+            apply_model_selection(&mut turn_options, &selection);
+        }
         if config.headless || shutdown {
             break;
         }
@@ -456,9 +490,44 @@ async fn run_session(
     Ok(())
 }
 
+async fn start_initial_thread(
+    codex: &Codex,
+    config: &RunConfiguration,
+    turn_options: &TurnOptions,
+    updates: &Sender<AppUpdate>,
+) -> Result<(CodexThread, ThreadId), String> {
+    send_status(updates, "Starting thread…").await;
+    let thread = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(config.cwd.clone()),
+            model: turn_options.model.clone(),
+            ephemeral: Some(config.ephemeral),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let thread_id = thread.id().clone();
+    refresh_thread_list(
+        codex,
+        &thread_id,
+        Some(&config.cwd),
+        TaskStatusPresentation::Running,
+        updates,
+    )
+    .await?;
+    Ok((thread, thread_id))
+}
+
 struct TurnOutcome {
     shutdown: bool,
     pending_selection: Option<ThreadId>,
+    pending_model: Option<ModelSelectionEvent>,
+}
+
+struct TurnDriver<'a> {
+    observation: &'a mut SessionObservation,
+    commands: &'a Receiver<HostCommand>,
+    updates: &'a Sender<AppUpdate>,
 }
 
 async fn drive_turn(
@@ -466,13 +535,12 @@ async fn drive_turn(
     thread: &CodexThread,
     thread_id: &ThreadId,
     input: String,
-    observation: &mut SessionObservation,
-    commands: &Receiver<HostCommand>,
-    updates: &Sender<AppUpdate>,
+    options: &TurnOptions,
+    driver: TurnDriver<'_>,
 ) -> Result<TurnOutcome, String> {
-    send_status(updates, "Running turn…").await;
+    send_status(driver.updates, "Running turn…").await;
     let turn = thread
-        .start_turn(vec![CodexInput::text(input)], TurnOptions::default())
+        .start_turn(vec![CodexInput::text(input)], options.clone())
         .await
         .map_err(|error| error.to_string())?;
     let turn_key = TurnKey {
@@ -482,16 +550,17 @@ async fn drive_turn(
     let mut outcome = TurnOutcome {
         shutdown: false,
         pending_selection: None,
+        pending_model: None,
     };
     loop {
-        if publish_current(codex.client(), thread_id, &turn_key, updates).await? {
+        if publish_current(codex.client(), thread_id, &turn_key, driver.updates).await? {
             break;
         }
         tokio::select! {
-            changed = observation.changed() => {
+            changed = driver.observation.changed() => {
                 changed.map_err(|error| error.to_string())?;
             }
-            command = commands.recv() => {
+            command = driver.commands.recv() => {
                 match command {
                     Ok(HostCommand::Prompt(intent)) => {
                         handle_prompt(codex.client(), intent).await?;
@@ -503,7 +572,11 @@ async fn drive_turn(
                     }
                     Ok(HostCommand::SelectThread(selected)) => {
                         outcome.pending_selection = Some(selected);
-                        send_status(updates, "Task switch queued until the active turn completes…").await;
+                        send_status(driver.updates, "Task switch queued until the active turn completes…").await;
+                    }
+                    Ok(HostCommand::SelectModel(selection)) => {
+                        outcome.pending_model = Some(selection);
+                        send_status(driver.updates, "Model change queued for the next turn…").await;
                     }
                     Ok(HostCommand::Shutdown) | Err(_) => {
                         outcome.shutdown = true;
@@ -584,6 +657,37 @@ async fn refresh_thread_list(
         .map_err(|_| "GPUI update receiver closed".to_owned())
 }
 
+async fn load_model_catalog(
+    codex: &Codex,
+    updates: &Sender<AppUpdate>,
+) -> Result<TurnOptions, String> {
+    let page = codex
+        .list_models(ListModelsOptions {
+            limit: Some(100),
+            ..ListModelsOptions::default()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let presentation = project_model_picker(&page, None, None);
+    let options = TurnOptions {
+        model: (!presentation.selected_model.is_empty())
+            .then(|| presentation.selected_model.clone()),
+        effort: (!presentation.selected_effort.is_empty())
+            .then(|| presentation.selected_effort.clone()),
+        ..TurnOptions::default()
+    };
+    updates
+        .send(AppUpdate::ModelPicker(presentation))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())?;
+    Ok(options)
+}
+
+fn apply_model_selection(options: &mut TurnOptions, selection: &ModelSelectionEvent) {
+    options.model = Some(selection.model.clone());
+    options.effort = Some(selection.effort.clone());
+}
+
 async fn publish_current(
     client: &AppServerClient,
     thread_id: &ThreadId,
@@ -638,6 +742,7 @@ async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
 enum IdleAction {
     Submit(String),
     Select(ThreadId),
+    SelectModel(ModelSelectionEvent),
     Shutdown,
 }
 
@@ -650,6 +755,9 @@ async fn next_idle_action(
             Ok(HostCommand::Submit(text)) => return Ok(IdleAction::Submit(text)),
             Ok(HostCommand::SelectThread(thread_id)) => {
                 return Ok(IdleAction::Select(thread_id));
+            }
+            Ok(HostCommand::SelectModel(selection)) => {
+                return Ok(IdleAction::SelectModel(selection));
             }
             Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
             Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
@@ -841,5 +949,19 @@ mod tests {
             reply_for_intent(&request, PromptActionKind::Respond, Some(&answers)),
             Some(ServerRequestReply::UserInput { answers })
         );
+    }
+
+    #[test]
+    fn model_selection_updates_next_turn_as_one_pair() {
+        let mut options = TurnOptions::default();
+        apply_model_selection(
+            &mut options,
+            &ModelSelectionEvent {
+                model: "model".to_owned(),
+                effort: "high".to_owned(),
+            },
+        );
+        assert_eq!(options.model.as_deref(), Some("model"));
+        assert_eq!(options.effort.as_deref(), Some("high"));
     }
 }

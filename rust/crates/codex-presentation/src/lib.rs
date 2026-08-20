@@ -4,11 +4,83 @@ use std::sync::Arc;
 
 pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
-use codex_app_server_sdk::{ThreadPage, ThreadSummary};
+use codex_app_server_sdk::{ModelPage, ThreadPage, ThreadSummary};
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, StateRevision, ThreadId, TurnId,
 };
 use serde_json::Value;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelPickerPresentation {
+    pub models: Vec<ModelChoicePresentation>,
+    pub selected_model: String,
+    pub selected_effort: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelChoicePresentation {
+    pub model: String,
+    pub display_name: String,
+    pub description: String,
+    pub is_default: bool,
+    pub default_effort: String,
+    pub efforts: Vec<ReasoningEffortPresentation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReasoningEffortPresentation {
+    pub value: String,
+    pub description: String,
+}
+
+#[must_use]
+pub fn project_model_picker(
+    page: &ModelPage,
+    selected_model: Option<&str>,
+    selected_effort: Option<&str>,
+) -> ModelPickerPresentation {
+    let selected = selected_model
+        .and_then(|selected| page.data.iter().find(|model| model.model == selected))
+        .or_else(|| page.data.iter().find(|model| model.is_default))
+        .or_else(|| page.data.first());
+    let selected_model = selected.map_or_else(String::new, |model| model.model.clone());
+    let selected_effort = selected_effort
+        .filter(|effort| {
+            selected.is_some_and(|model| {
+                model
+                    .supported_reasoning_efforts
+                    .iter()
+                    .any(|option| option.value == *effort)
+            })
+        })
+        .map(str::to_owned)
+        .or_else(|| selected.map(|model| model.default_reasoning_effort.clone()))
+        .unwrap_or_default();
+    ModelPickerPresentation {
+        models: page
+            .data
+            .iter()
+            .filter(|model| !model.hidden)
+            .map(|model| ModelChoicePresentation {
+                model: model.model.clone(),
+                display_name: model.display_name.clone(),
+                description: model.description.clone(),
+                is_default: model.is_default,
+                default_effort: model.default_reasoning_effort.clone(),
+                efforts: model
+                    .supported_reasoning_efforts
+                    .iter()
+                    .map(|effort| ReasoningEffortPresentation {
+                        value: effort.value.clone(),
+                        description: effort.description.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        selected_model,
+        selected_effort,
+    }
+}
 
 /// Disposable stored-thread list projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -792,6 +864,7 @@ mod tests {
 
     use super::*;
     use codex_app_server_interaction::{InteractionScope, QuestionOption, UserQuestion};
+    use codex_app_server_sdk::{ModelSummary, ReasoningEffortSummary};
     use codex_app_server_state::{
         CanonicalItem, CanonicalMutation, CanonicalStateReducer, StateCoverage,
     };
@@ -984,5 +1057,30 @@ mod tests {
         );
         assert!(projected.rows[0].is_selected);
         assert_eq!(projected.next_cursor.as_deref(), Some("next"));
+    }
+
+    #[test]
+    fn model_picker_uses_catalog_default_and_validates_effort_selection() {
+        let page = ModelPage {
+            data: vec![ModelSummary {
+                id: "model".to_owned(),
+                model: "model".to_owned(),
+                display_name: "Model".to_owned(),
+                description: "Description".to_owned(),
+                is_default: true,
+                hidden: false,
+                default_reasoning_effort: "medium".to_owned(),
+                supported_reasoning_efforts: vec![ReasoningEffortSummary {
+                    value: "medium".to_owned(),
+                    description: "Balanced".to_owned(),
+                }],
+                raw: Value::Null,
+            }],
+            next_cursor: None,
+        };
+        let projected = project_model_picker(&page, None, Some("unsupported"));
+        assert_eq!(projected.selected_model, "model");
+        assert_eq!(projected.selected_effort, "medium");
+        assert_eq!(projected.models[0].efforts[0].description, "Balanced");
     }
 }

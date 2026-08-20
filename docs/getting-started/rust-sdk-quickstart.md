@@ -50,6 +50,22 @@ for thread in page.data {
 Pagination cursors stay opaque. `ThreadSummary::raw` preserves additional
 schema-valid fields without making generated wire structs the SDK contract.
 
+The model catalog follows the same stable-page boundary:
+
+```rust
+use codex_app_server_sdk::ListModelsOptions;
+
+# async fn models(codex: &codex_app_server_sdk::Codex) -> Result<(), Box<dyn std::error::Error>> {
+let models = codex
+    .list_models(ListModelsOptions::default())
+    .await?;
+for model in models.data {
+    println!("{} ({})", model.display_name, model.default_reasoning_effort);
+}
+# Ok(())
+# }
+```
+
 ```rust
 use codex_app_server_client::{AppServerClient, LocalSessionConfig};
 use serde_json::json;

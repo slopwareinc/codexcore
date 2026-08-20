@@ -11,10 +11,12 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 mod history;
+mod models;
 mod threads;
 
 pub use codex_app_server_history::HistoryPolicy;
 pub use history::PaginatedResumeOptions;
+pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
 pub use threads::{ListThreadsOptions, SortDirection, ThreadPage, ThreadSortKey, ThreadSummary};
 
 /// SDK facade or response-shape failure.
@@ -236,6 +238,15 @@ impl Codex {
     /// Returns [`SdkError`] for request, schema, or stable projection failure.
     pub async fn list_threads(&self, options: ListThreadsOptions) -> Result<ThreadPage, SdkError> {
         threads::list_threads(&self.client, options).await
+    }
+
+    /// List generated-schema-validated model catalog entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or stable projection failure.
+    pub async fn list_models(&self, options: ListModelsOptions) -> Result<ModelPage, SdkError> {
+        models::list_models(&self.client, options).await
     }
 
     /// Start and retain a new thread.

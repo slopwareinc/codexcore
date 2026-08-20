@@ -17,10 +17,12 @@ use gpui::{
 };
 
 mod composer;
+mod model_picker;
 mod prompt;
 mod thread_list;
 
 pub use composer::{CodexComposer, ComposerEvent, init as init_composer};
+pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use thread_list::{CodexThreadList, ThreadSelectionEvent};
 
