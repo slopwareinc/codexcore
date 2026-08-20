@@ -387,6 +387,7 @@ fn thread(id: &str, parent: Option<&str>, loaded: bool) -> CanonicalThread {
             StateCoverage::NotLoaded
         },
         turn_ids: Vec::new(),
+        goal: None,
         metadata,
     }
 }
