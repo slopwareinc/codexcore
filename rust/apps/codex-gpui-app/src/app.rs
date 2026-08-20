@@ -1,7 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_channel::{Receiver, Sender};
-use codex_app_server_client::{AppServerClient, LocalSessionConfig, SessionObservation};
+use codex_app_server_client::{
+    AppServerClient, CanonicalObservation, LocalSessionConfig, SessionObservation,
+};
 use codex_app_server_interaction::{
     ServerRequestBody, ServerRequestReply, TypedServerRequest, default_resolution, parse_pending,
 };
@@ -9,7 +11,7 @@ use codex_app_server_sdk::{
     Codex, CodexInput, CodexThread, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
     StartThreadOptions, TurnOptions,
 };
-use codex_app_server_state::{ThreadId, TurnKey};
+use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     CodexComposer, CodexModelPicker, CodexPrompt, CodexThreadList, CodexTranscript, ComposerEvent,
@@ -368,11 +370,12 @@ async fn run_session(
     let (started_thread, mut thread_id) =
         start_initial_thread(&codex, &config, &turn_options, &updates).await?;
     let mut thread = Some(started_thread);
-    let mut observation = codex
+    let mut session_observation = codex
         .client()
         .observe()
         .await
         .map_err(|error| error.to_string())?;
+    let mut canonical_observation = observe_thread(&codex, &thread_id).await?;
     let mut next_input = Some(config.prompt.clone());
     let mut shutdown = false;
     while !shutdown {
@@ -386,6 +389,7 @@ async fn run_session(
                             switch_thread(&codex, &mut thread, selected, &updates).await?;
                         thread_id = replacement.id().clone();
                         thread = Some(replacement);
+                        canonical_observation = observe_thread(&codex, &thread_id).await?;
                     }
                     continue;
                 }
@@ -406,7 +410,8 @@ async fn run_session(
             input,
             &turn_options,
             TurnDriver {
-                observation: &mut observation,
+                session_observation: &mut session_observation,
+                canonical_observation: &mut canonical_observation,
                 commands: &commands,
                 updates: &updates,
             },
@@ -425,6 +430,7 @@ async fn run_session(
             let replacement = switch_thread(&codex, &mut thread, selected, &updates).await?;
             thread_id = replacement.id().clone();
             thread = Some(replacement);
+            canonical_observation = observe_thread(&codex, &thread_id).await?;
             continue;
         }
         refresh_thread_list(
@@ -447,6 +453,17 @@ async fn run_session(
     }
     codex.close().await.map_err(|error| error.to_string())?;
     Ok(())
+}
+
+async fn observe_thread(
+    codex: &Codex,
+    thread_id: &ThreadId,
+) -> Result<CanonicalObservation, String> {
+    codex
+        .client()
+        .observe_canonical(StateObservationScope::thread(thread_id.clone()))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn start_initial_thread(
@@ -484,7 +501,8 @@ struct TurnOutcome {
 }
 
 struct TurnDriver<'a> {
-    observation: &'a mut SessionObservation,
+    session_observation: &'a mut SessionObservation,
+    canonical_observation: &'a mut CanonicalObservation,
     commands: &'a Receiver<HostCommand>,
     updates: &'a Sender<AppUpdate>,
 }
@@ -512,13 +530,19 @@ async fn drive_turn(
         pending_selection: None,
         pending_model: None,
     };
-    loop {
-        if publish_current(codex.client(), thread_id, &turn_key, driver.updates).await? {
-            break;
-        }
+    let mut terminal =
+        publish_current(codex.client(), thread_id, &turn_key, driver.updates).await?;
+    while !terminal {
         tokio::select! {
-            changed = driver.observation.changed() => {
+            changed = driver.canonical_observation.changed() => {
                 changed.map_err(|error| error.to_string())?;
+                terminal = publish_transcript(
+                    codex.client(), thread_id, Some(&turn_key), driver.updates
+                ).await?.1;
+            }
+            changed = driver.session_observation.changed() => {
+                changed.map_err(|error| error.to_string())?;
+                publish_pending(codex.client(), driver.updates).await?;
             }
             command = driver.commands.recv() => {
                 match command {
@@ -658,11 +682,12 @@ async fn publish_current(
     turn_key: &TurnKey,
     updates: &Sender<AppUpdate>,
 ) -> Result<bool, String> {
-    let state = publish_selected(client, thread_id, updates).await?;
-    Ok(state
-        .turns
-        .get(turn_key)
-        .is_some_and(|turn| turn.status.is_terminal()))
+    publish_pending(client, updates).await?;
+    Ok(
+        publish_transcript(client, thread_id, Some(turn_key), updates)
+            .await?
+            .1,
+    )
 }
 
 async fn publish_selected(
@@ -670,13 +695,31 @@ async fn publish_selected(
     thread_id: &ThreadId,
     updates: &Sender<AppUpdate>,
 ) -> Result<codex_app_server_state::CanonicalState, String> {
+    publish_pending(client, updates).await?;
+    Ok(publish_transcript(client, thread_id, None, updates)
+        .await?
+        .0)
+}
+
+async fn publish_pending(
+    client: &AppServerClient,
+    updates: &Sender<AppUpdate>,
+) -> Result<(), String> {
     resolve_defaults(client).await?;
     let session = client.snapshot().await.map_err(|error| error.to_string())?;
     let pending = parse_pending(&session).map_err(|error| error.to_string())?;
     updates
         .send(AppUpdate::Prompt(pending.first().map(project_prompt)))
         .await
-        .map_err(|_| "GPUI update receiver closed".to_owned())?;
+        .map_err(|_| "GPUI update receiver closed".to_owned())
+}
+
+async fn publish_transcript(
+    client: &AppServerClient,
+    thread_id: &ThreadId,
+    turn_key: Option<&TurnKey>,
+    updates: &Sender<AppUpdate>,
+) -> Result<(codex_app_server_state::CanonicalState, bool), String> {
     let state = client
         .canonical_snapshot()
         .await
@@ -686,7 +729,13 @@ async fn publish_selected(
         .send(AppUpdate::Transcript(projection))
         .await
         .map_err(|_| "GPUI update receiver closed".to_owned())?;
-    Ok(state)
+    let terminal = turn_key.is_some_and(|turn_key| {
+        state
+            .turns
+            .get(turn_key)
+            .is_some_and(|turn| turn.status.is_terminal())
+    });
+    Ok((state, terminal))
 }
 
 async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {

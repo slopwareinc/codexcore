@@ -12,7 +12,8 @@ mod reducer;
 
 pub use model::{
     CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalState, CanonicalThread,
-    CanonicalTurn, LifecycleStatus, ThreadStatus,
+    CanonicalTurn, LifecycleStatus, StateEntityScope, StateFieldMask, StateInvalidation,
+    StateObservationScope, ThreadStatus,
 };
 pub use reducer::{
     CanonicalMutation, CanonicalStateReducer, ItemTextDelta, ReducerConfiguration, ReducerError,
@@ -203,5 +204,42 @@ mod tests {
     fn revision_never_wraps() {
         assert_eq!(StateRevision::ZERO.successor(), Some(StateRevision::new(1)));
         assert_eq!(StateRevision::new(u64::MAX).successor(), None);
+    }
+
+    #[test]
+    fn thread_scope_includes_item_descendants_but_excludes_siblings() {
+        let item = ItemKey {
+            thread_id: ThreadId::from("thread-a"),
+            turn_id: TurnId::from("turn"),
+            item_id: ItemId::from("item"),
+        };
+        let invalidation = StateInvalidation::from_batch(&CanonicalChangeBatch {
+            base_revision: StateRevision::ZERO,
+            revision: StateRevision::new(1),
+            changes: vec![CanonicalChange::ItemDeltaAppended(item)],
+        });
+        assert!(invalidation.affects(&StateObservationScope::thread(ThreadId::from("thread-a"))));
+        assert!(!invalidation.affects(&StateObservationScope::thread(ThreadId::from("thread-b"))));
+    }
+
+    #[test]
+    fn field_mask_filters_wakeups_without_changing_entity_scope() {
+        let invalidation = StateInvalidation::from_batch(&CanonicalChangeBatch {
+            base_revision: StateRevision::ZERO,
+            revision: StateRevision::new(1),
+            changes: vec![CanonicalChange::ThreadUpdated(ThreadId::from("thread"))],
+        });
+        assert!(
+            invalidation.affects(
+                &StateObservationScope::thread(ThreadId::from("thread"))
+                    .with_fields(StateFieldMask::THREAD)
+            )
+        );
+        assert!(
+            !invalidation.affects(
+                &StateObservationScope::thread(ThreadId::from("thread"))
+                    .with_fields(StateFieldMask::ITEM_CONTENT)
+            )
+        );
     }
 }

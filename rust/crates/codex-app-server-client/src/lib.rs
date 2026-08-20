@@ -15,7 +15,8 @@ use codex_app_server_lease::{
 };
 use codex_app_server_state::ThreadId;
 use codex_app_server_state::{
-    CanonicalChangeBatch, CanonicalMutation, CanonicalState, CanonicalStateReducer, StateRevision,
+    CanonicalChangeBatch, CanonicalMutation, CanonicalState, CanonicalStateReducer,
+    StateInvalidation, StateObservationScope, StateRevision,
 };
 use codex_app_server_transport::{FrameConnection, FrameConnectionConfig, TransportError};
 use codex_app_server_wire::{
@@ -318,6 +319,38 @@ pub struct SessionObservation {
     revisions: watch::Receiver<StateRevision>,
 }
 
+/// Atomic canonical seed plus newest-one scoped revision invalidations.
+pub struct CanonicalObservation {
+    seed: CanonicalState,
+    scope: StateObservationScope,
+    revisions: watch::Receiver<StateRevision>,
+}
+
+impl CanonicalObservation {
+    #[must_use]
+    pub const fn seed(&self) -> &CanonicalState {
+        &self.seed
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> &StateObservationScope {
+        &self.scope
+    }
+
+    /// Wait for the newest relevant canonical revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Closed`] when the actor closes.
+    pub async fn changed(&mut self) -> Result<StateRevision, SessionError> {
+        self.revisions
+            .changed()
+            .await
+            .map_err(|_| SessionError::Closed)?;
+        Ok(*self.revisions.borrow_and_update())
+    }
+}
+
 impl SessionObservation {
     /// Initial snapshot captured atomically with observation registration.
     #[must_use]
@@ -503,6 +536,21 @@ impl AppServerClient {
         })
     }
 
+    /// Atomically register a field/entity-filtered canonical observation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Closed`] when the actor is gone.
+    pub async fn observe_canonical(
+        &self,
+        scope: StateObservationScope,
+    ) -> Result<CanonicalObservation, SessionError> {
+        let (reply, response) = oneshot::channel();
+        self.send_command(Command::ObserveCanonical { scope, reply })
+            .await?;
+        response.await.map_err(|_| SessionError::Closed)?
+    }
+
     /// Resolve one exact pending server request once.
     ///
     /// # Errors
@@ -660,6 +708,10 @@ enum Command {
     CanonicalSnapshot {
         reply: oneshot::Sender<CanonicalState>,
     },
+    ObserveCanonical {
+        scope: StateObservationScope,
+        reply: oneshot::Sender<Result<CanonicalObservation, SessionError>>,
+    },
     ApplyCanonical {
         mutations: Vec<CanonicalMutation>,
         reply: oneshot::Sender<Result<Option<CanonicalChangeBatch>, SessionError>>,
@@ -723,6 +775,13 @@ struct ActorState {
     pending_client_requests: HashMap<JsonRpcId, PendingClientRequest>,
     pending_server_requests: BTreeMap<ServerRequestKey, PendingServerRequest>,
     next_request_id: i64,
+    canonical_observers: BTreeMap<u64, CanonicalObserver>,
+    next_observer_id: u64,
+}
+
+struct CanonicalObserver {
+    scope: StateObservationScope,
+    revisions: watch::Sender<StateRevision>,
 }
 
 impl ActorState {
@@ -751,6 +810,43 @@ impl ActorState {
     fn enqueue_lease_actions(&mut self, actions: Vec<LeaseAction>) {
         self.queued_lease_actions.extend(actions);
         self.snapshot.retained_thread_count = self.leases.retained_thread_count();
+    }
+
+    fn observe_canonical(
+        &mut self,
+        scope: StateObservationScope,
+    ) -> Result<CanonicalObservation, SessionError> {
+        let id = self.next_observer_id;
+        self.next_observer_id = self
+            .next_observer_id
+            .checked_add(1)
+            .ok_or(SessionError::RevisionExhausted)?;
+        let (revisions, receiver) = watch::channel(self.canonical.snapshot().revision);
+        self.canonical_observers.insert(
+            id,
+            CanonicalObserver {
+                scope: scope.clone(),
+                revisions,
+            },
+        );
+        Ok(CanonicalObservation {
+            seed: self.canonical.snapshot().clone(),
+            scope,
+            revisions: receiver,
+        })
+    }
+
+    fn publish_canonical(&mut self, batch: &CanonicalChangeBatch) {
+        let invalidation = StateInvalidation::from_batch(batch);
+        self.canonical_observers.retain(|_, observer| {
+            if observer.revisions.is_closed() {
+                return false;
+            }
+            if invalidation.affects(&observer.scope) {
+                let _ = observer.revisions.send(invalidation.revision);
+            }
+            true
+        });
     }
 }
 
@@ -888,6 +984,8 @@ async fn run_actor(
         pending_client_requests: HashMap::new(),
         pending_server_requests: BTreeMap::new(),
         next_request_id: 1,
+        canonical_observers: BTreeMap::new(),
+        next_observer_id: 1,
     };
 
     if drain_buffered(&mut state, &mut buffered).is_err() {
@@ -1126,6 +1224,10 @@ async fn handle_command(
             let _ = reply.send(state.canonical.snapshot().clone());
             CommandOutcome::Continue
         }
+        Command::ObserveCanonical { scope, reply } => {
+            let _ = reply.send(state.observe_canonical(scope));
+            CommandOutcome::Continue
+        }
         Command::ApplyCanonical { mutations, reply } => {
             let result = state
                 .canonical
@@ -1135,6 +1237,7 @@ async fn handle_command(
                 Ok(batch) => {
                     if let Some(batch) = &batch {
                         state.snapshot.canonical_revision = batch.revision;
+                        state.publish_canonical(batch);
                         if let Err(error) = state.commit(None) {
                             let _ = reply.send(Err(error.clone()));
                             return CommandOutcome::Fatal(error);
@@ -1433,6 +1536,7 @@ fn apply_envelope(
                         .map_err(|error| SessionError::Canonical(error.to_string()))?
                     {
                         state.snapshot.canonical_revision = batch.revision;
+                        state.publish_canonical(&batch);
                     }
                 }
                 NotificationDisposition::Unhandled { .. } => {
@@ -1532,6 +1636,64 @@ mod tests {
     #[test]
     fn nonofficial_app_server_user_agent_remains_supported() {
         assert_eq!(validate_runtime_user_agent("test-server"), Ok(()));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canonical_observation_filters_sibling_threads_and_coalesces_revision() {
+        let script = format!(
+            r"
+read init
+printf '%s\n' '{INITIALIZE_RESPONSE}'
+read initialized
+sleep 2
+",
+        );
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("connect session");
+        let observed_id = ThreadId::from("observed");
+        let mut observation = client
+            .observe_canonical(StateObservationScope::thread(observed_id.clone()))
+            .await
+            .expect("register scoped observation");
+        assert_eq!(observation.seed().revision, StateRevision::ZERO);
+
+        client
+            .apply_canonical(vec![CanonicalMutation::ThreadUpsert(
+                codex_app_server_state::CanonicalThread {
+                    id: ThreadId::from("sibling"),
+                    status: codex_app_server_state::ThreadStatus::Idle,
+                    coverage: codex_app_server_state::StateCoverage::Full,
+                    turn_ids: Vec::new(),
+                    metadata: BTreeMap::new(),
+                },
+            )])
+            .await
+            .expect("apply sibling");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), observation.changed())
+                .await
+                .is_err()
+        );
+
+        client
+            .apply_canonical(vec![CanonicalMutation::ThreadUpsert(
+                codex_app_server_state::CanonicalThread {
+                    id: observed_id,
+                    status: codex_app_server_state::ThreadStatus::Idle,
+                    coverage: codex_app_server_state::StateCoverage::Full,
+                    turn_ids: Vec::new(),
+                    metadata: BTreeMap::new(),
+                },
+            )])
+            .await
+            .expect("apply observed thread");
+        assert_eq!(
+            observation.changed().await.expect("relevant invalidation"),
+            StateRevision::new(2)
+        );
+        client.close().await.expect("close session");
     }
 
     fn shell_config(script: &str) -> LocalSessionConfig {

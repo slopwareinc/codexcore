@@ -66,6 +66,13 @@ after a physical connection gap. The ordered actor alone executes its effects.
 GPUI entities receive bounded/coalesced presentation changes. They never read
 global runtime singletons or reduce raw protocol notifications.
 
+Canonical observers register entity and field scopes atomically with their
+seed. Thread and turn scopes include descendants, sibling changes do not wake
+them, and each watch channel retains only the newest relevant revision. The
+reference host uses a selected-thread canonical observer for transcript work
+and a separate session observer for pending requests, avoiding transcript
+rebuilds on unrelated RPC completions.
+
 WebSocket transport accepts `ws://`/`wss://` with an optional upgrade-only
 bearer credential, plus WebSocket-over-Unix-socket endpoints. It enforces text
 messages and frame bounds and never logs the credential. Remote exposure still

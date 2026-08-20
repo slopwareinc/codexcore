@@ -40,6 +40,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Configuration reference](reference/configuration.md)
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)
+- [Rust parity ledger](reference/rust-parity.md)
 - [Support status](reference/support-status.md)
 - [Development](contributing/development.md)
 - [Protocol upgrades](contributing/protocol-upgrades.md)
