@@ -600,9 +600,13 @@ fn append_agent_message(
     sent_at: Option<i64>,
     turn: &mut TurnV2Presentation,
 ) {
+    let mut text = string(item, "text").unwrap_or_default();
+    if !completed {
+        text.push_str(&item.live_overlay.agent_message.joined());
+    }
     let message = AssistantTextV2::new(
         item.key.item_id.as_str().to_owned(),
-        string(item, "text").unwrap_or_default(),
+        text,
         !completed,
         sent_at,
     );
@@ -624,7 +628,10 @@ fn append_agent_message(
 }
 
 fn append_plan_item(item: &CanonicalItem, completed: bool, turn: &mut TurnV2Presentation) {
-    let text = string(item, "text").unwrap_or_default();
+    let mut text = string(item, "text").unwrap_or_default();
+    if !completed {
+        text.push_str(&item.live_overlay.plan.joined());
+    }
     if text.is_empty() {
         return;
     }
@@ -641,7 +648,11 @@ fn append_plan_item(item: &CanonicalItem, completed: bool, turn: &mut TurnV2Pres
 }
 
 fn reasoning_text(item: &CanonicalItem) -> String {
-    text_value(item.payload.get("summary")).trim().to_owned()
+    let mut text = text_value(item.payload.get("summary"));
+    for buffer in item.live_overlay.reasoning_summary.values() {
+        text.push_str(&buffer.joined());
+    }
+    text.trim().to_owned()
 }
 
 fn text_value(value: Option<&Value>) -> String {
@@ -788,18 +799,24 @@ fn make_work_rows(item: &CanonicalItem, completed: bool) -> Vec<WorkRowV2> {
         "commandExecution" => {
             let fallback = string(item, "command").unwrap_or_else(|| "Command".to_owned());
             let actions = command_actions(item, &fallback);
-            let output = item
+            let mut output = item
                 .payload
                 .get("aggregatedOutput")
                 .or_else(|| item.payload.get("output"))
                 .and_then(Value::as_str)
-                .filter(|output| !output.is_empty())
-                .map(project_command_output);
+                .unwrap_or_default()
+                .to_owned();
+            if !completed {
+                output.push_str(&item.live_overlay.command_output.joined());
+            }
+            let output = (!output.is_empty()).then(|| project_command_output(&output));
             let action_count = actions.len();
             actions
                 .into_iter()
                 .enumerate()
                 .map(|(index, action)| {
+                    let label = command_action_label(&action, status.is_in_progress());
+                    let category = command_action_category(&action.kind);
                     WorkRowV2::Command(CommandRowV2 {
                         id: if action_count > 1 {
                             format!("{id}:{index}")
@@ -807,8 +824,8 @@ fn make_work_rows(item: &CanonicalItem, completed: bool) -> Vec<WorkRowV2> {
                             id.to_owned()
                         },
                         command: action.command,
-                        label: command_action_label(&action.kind, status.is_in_progress()),
-                        category: command_action_category(&action.kind),
+                        label,
+                        category,
                         status: status.clone(),
                         cwd: string(item, "cwd"),
                         exit_code: integer(&item.payload, "exitCode"),
@@ -820,8 +837,9 @@ fn make_work_rows(item: &CanonicalItem, completed: bool) -> Vec<WorkRowV2> {
         }
         "fileChange" => {
             let changes = item
-                .payload
+                .live_fields
                 .get("fileChanges")
+                .or_else(|| item.payload.get("fileChanges"))
                 .or_else(|| item.payload.get("changes"))
                 .and_then(Value::as_array)
                 .into_iter()
@@ -970,8 +988,8 @@ fn command_action_category(kind: &CommandActionKind) -> WorkCategoryV2 {
     }
 }
 
-fn command_action_label(kind: &CommandActionKind, in_progress: bool) -> String {
-    match kind {
+fn command_action_label(action: &CommandAction, in_progress: bool) -> String {
+    match &action.kind {
         CommandActionKind::Read { target, .. } => {
             format!("{} {target}", if in_progress { "Reading" } else { "Read" })
         }
@@ -1008,10 +1026,16 @@ fn command_action_label(kind: &CommandActionKind, in_progress: bool) -> String {
             if in_progress {
                 "Running command".to_owned()
             } else {
-                "Ran command".to_owned()
+                format!("Ran {}", short_command(&action.command))
             }
         }
     }
+}
+
+fn short_command(command: &str) -> &str {
+    command.find("-lc ").map_or(command, |index| {
+        command[index + 4..].trim_matches([' ', '\'', '"'])
+    })
 }
 
 fn skill_display_name(name: &str, path: Option<&str>) -> Option<String> {
@@ -1040,7 +1064,7 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 }
 
 fn mcp_error(item: &CanonicalItem) -> Option<String> {
-    let error = item.payload.get("error");
+    let error = item.error.as_ref().or_else(|| item.payload.get("error"));
     if let Some(message) = error
         .and_then(Value::as_str)
         .or_else(|| error.and_then(Value::as_object)?.get("message")?.as_str())
@@ -1604,11 +1628,13 @@ fn turn_duration_ms(turn: &CanonicalTurn) -> Option<u64> {
 }
 
 fn item_duration_ms(item: &CanonicalItem) -> Option<u64> {
-    nonnegative_u64(integer(&item.payload, "durationMs")).or_else(|| {
-        let start = item_timestamp(item, "startedAtMs")?;
-        let end = item_timestamp(item, "completedAtMs")?;
-        nonnegative_u64(end.checked_sub(start))
-    })
+    nonnegative_u64(item.duration_ms)
+        .or_else(|| nonnegative_u64(integer(&item.payload, "durationMs")))
+        .or_else(|| {
+            let start = item_timestamp(item, "startedAtMs")?;
+            let end = item_timestamp(item, "completedAtMs")?;
+            nonnegative_u64(end.checked_sub(start))
+        })
 }
 
 fn canonical_started_at(turn: &CanonicalTurn) -> Option<i64> {
