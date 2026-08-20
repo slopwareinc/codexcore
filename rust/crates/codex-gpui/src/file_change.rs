@@ -741,8 +741,8 @@ mod tests {
         assert!(narrow.file_list_width >= 140.);
         assert!(narrow.diff_width > 0.);
         assert!(wide.card_width <= TranscriptLayoutMetrics::OUTER_MAX_WIDTH);
-        assert_eq!(wide.diff_max_height, MAX_DIFF_HEIGHT);
-        assert_eq!(wide.gutter_width, DIFF_GUTTER_WIDTH);
+        assert!((wide.diff_max_height - MAX_DIFF_HEIGHT).abs() < f32::EPSILON);
+        assert!((wide.gutter_width - DIFF_GUTTER_WIDTH).abs() < f32::EPSILON);
     }
 
     #[test]
