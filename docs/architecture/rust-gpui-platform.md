@@ -138,6 +138,12 @@ atomic and idempotent; presentation gives the plan its own stable virtual row
 with accessible pending/in-progress/completed markers, independent of item
 ordering.
 
+Thread Goal responses and `thread/goal/updated`/`cleared` notifications follow
+the same ordered path. Generated validation checks the pinned response shape,
+while stable goal status and extension fields remain open for future values.
+Set, get, and clear replace canonical thread goal state before callers resume;
+goal-only observations are field- and thread-scoped.
+
 Prompt projections preserve the exact connection-epoch/request-ID identity and
 declare semantic host actions. `CodexPrompt` emits `PromptIntent`; the host
 still maps that intent to a generated-schema-validated reply or opens the

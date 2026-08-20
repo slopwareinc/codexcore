@@ -15,12 +15,12 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | TCP/TLS WebSocket and Unix WebSocket | Complete | Bounded text frames, credential redaction, actor round-trip tests | Remote deployment soak test |
 | Ordered actor/correlation | Complete | Epoch-qualified IDs, handshake buffering, response-before-resume tests | Cross-language golden replay |
 | Disconnect/no-replay semantics | Complete | Write-attempt tracking and reconnect tests | Larger permutation/property suite |
-| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, orphan replay, unknown fallback | Full item/notification inventory and Swift-normalized fixtures |
+| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, orphan replay, typed Plan and Goal replacements, unknown fallback | Full item/notification inventory and Swift-normalized fixtures |
 | Coalesced observation | Complete | Atomic scoped seed, descendant matching, field filters, newest-one actor tests | Expand coarse Rust masks as canonical field inventory grows |
 | Thread leases | Complete | Semantic priorities, stale completion suppression, reconnect tests | Turn-operation lease inventory audit |
 | Legacy/paginated hydration | Complete | Mode-aware read, cut coordinator, live materialized legacy/paginated tests | Reconnect-during-page live stress |
 | Approvals/questions/MCP/dynamic-tool/auth/time requests | Complete | All request schemas, typed inbox/replies, safe defaults, GPUI routing | Pluggable token/attestation providers |
-| Thread/turn SDK facade | Partial | Start/resume/fork, hydrated resume, rename, archive/unarchive, revert and deprecated rollback, turn start/steer/interrupt, durable queue add/list/update/delete/reorder/start, input builders | Delete wrapper, operation streams |
+| Thread/turn SDK facade | Partial | Start/resume/fork, hydrated resume, rename, archive/unarchive, revert and deprecated rollback, turn start/steer/interrupt, typed Goal set/get/clear, durable queue add/list/update/delete/reorder/start, input builders | Delete wrapper, operation streams |
 | Stored threads and models | Complete | Generated validation, stable pages, GCP live catalog tests | Pagination/search UI and cache invalidation |
 | Thread sections | Partial | Stable list/create/update/delete/move SDK with explicit appearance tri-state | Grouped GPUI navigation and section ordering controls |
 | Dynamic-tool declaration/handlers | Partial | Request/reply types and safe unknown failure | Typed declaration builder and handler registry |
@@ -41,8 +41,8 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | MCP elicitation | Partial | URL opening and primitive JSON Schema forms; unsupported fields block submit | Nested arrays/objects and external URL completion lifecycle |
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |
 | Model/reasoning controls | Complete | Validated catalog, accessible picker, safe turn-boundary host policy | Service-tier/permission/Plan/Goal controls |
-| Plans/goals | Partial | Typed `turn/plan/updated` canonical replacement and accessible stable plan row | Goal state, completed-plan panel, typed Plan/Goal composer modes |
-| Subagents/side chat | Partial | Framework-neutral child graph projection plus collaboration activity rows | Child leases, task navigation, side transcript |
+| Plans/goals | Partial | Typed `turn/plan/updated` replacement and accessible stable plan row; ordered, lossless canonical Goal lifecycle plus SDK methods | Goal/completed-plan panels and typed Plan/Goal composer modes |
+| Subagents/side chat | Partial | Framework-neutral recursive child graph projection plus collaboration activity rows | Child leases, native task navigation, side transcript |
 | Theming/accessibility | Partial | Semantic dark theme and AccessKit roles/labels | Light/high-contrast themes, keyboard audit, VoiceOver/NVDA/Orca smoke |
 
 ## Reference host and platform ecosystem

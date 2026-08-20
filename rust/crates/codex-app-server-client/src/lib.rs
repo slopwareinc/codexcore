@@ -9,7 +9,10 @@ use std::{
     time::Duration,
 };
 
-use codex_app_server_adapter::{NotificationDisposition, adapt_notification};
+use codex_app_server_adapter::{
+    NotificationDisposition, ResponseDisposition, adapt_notification, adapt_response,
+    response_has_canonical_projection,
+};
 use codex_app_server_lease::{
     LeaseAction, LeaseId, LeaseOperationId, LeaseReason, ThreadLeaseRegistry,
 };
@@ -742,6 +745,7 @@ enum Command {
 
 struct PendingClientRequest {
     method: String,
+    response_context: Option<Value>,
     id: JsonRpcId,
     write_attempted: bool,
     completion: PendingCompletion,
@@ -1367,6 +1371,7 @@ async fn handle_request_command(
             return CommandOutcome::Continue;
         }
     };
+    let response_context = response_has_canonical_projection(&method).then(|| params.clone());
     let frame = match encode_request(id.clone(), &method, Some(params)) {
         Ok(frame) => frame,
         Err(error) => {
@@ -1378,6 +1383,7 @@ async fn handle_request_command(
         id.clone(),
         PendingClientRequest {
             method: method.clone(),
+            response_context,
             id: id.clone(),
             write_attempted: true,
             completion: PendingCompletion::Public(reply),
@@ -1460,6 +1466,7 @@ async fn flush_lease_actions(
             id.clone(),
             PendingClientRequest {
                 method: method.to_owned(),
+                response_context: None,
                 id,
                 write_attempted: true,
                 completion: PendingCompletion::Lease {
@@ -1490,40 +1497,7 @@ fn apply_envelope(
 ) -> Result<(), SessionError> {
     match envelope {
         Envelope::Response(response) => {
-            let pending = state.pending_client_requests.remove(&response.id);
-            let revision = state.commit(Some(cursor))?;
-            if let Some(pending) = pending {
-                match pending.completion {
-                    PendingCompletion::Public(reply) => {
-                        let result = match response.outcome {
-                            ResponseOutcome::Result(value) => Ok(RequestResult {
-                                value,
-                                committed_revision: revision,
-                            }),
-                            ResponseOutcome::Error(error) => Err(SessionError::Rpc(error)),
-                        };
-                        let _ = reply.send(result);
-                    }
-                    PendingCompletion::Lease {
-                        thread_id,
-                        operation_id,
-                        subscribing,
-                    } => {
-                        let succeeded = matches!(response.outcome, ResponseOutcome::Result(_));
-                        let actions = if subscribing {
-                            state
-                                .leases
-                                .complete_subscribe(&thread_id, operation_id, succeeded)
-                        } else {
-                            state
-                                .leases
-                                .complete_unsubscribe(&thread_id, operation_id, succeeded)
-                        }
-                        .map_err(|error| SessionError::Lease(error.to_string()))?;
-                        state.enqueue_lease_actions(actions);
-                    }
-                }
-            }
+            apply_response_envelope(state, cursor, &response.id, response.outcome)?;
         }
         Envelope::Notification(NotificationEnvelope { method, params }) => {
             match adapt_notification(&method, &params)
@@ -1582,6 +1556,85 @@ fn apply_envelope(
             state.rebuild_pending_projection();
             state.commit(Some(cursor))?;
         }
+    }
+    Ok(())
+}
+
+fn apply_response_envelope(
+    state: &mut ActorState,
+    cursor: WireCursor,
+    id: &JsonRpcId,
+    outcome: ResponseOutcome,
+) -> Result<(), SessionError> {
+    let Some(pending) = state.pending_client_requests.remove(id) else {
+        state.commit(Some(cursor))?;
+        return Ok(());
+    };
+    if let Err(error) = apply_correlated_response(state, &pending, &outcome) {
+        if let PendingCompletion::Public(reply) = pending.completion {
+            let _ = reply.send(Err(error.clone()));
+        }
+        return Err(error);
+    }
+    let revision = state.commit(Some(cursor))?;
+    match pending.completion {
+        PendingCompletion::Public(reply) => {
+            let result = match outcome {
+                ResponseOutcome::Result(value) => Ok(RequestResult {
+                    value,
+                    committed_revision: revision,
+                }),
+                ResponseOutcome::Error(error) => Err(SessionError::Rpc(error)),
+            };
+            let _ = reply.send(result);
+        }
+        PendingCompletion::Lease {
+            thread_id,
+            operation_id,
+            subscribing,
+        } => {
+            let succeeded = matches!(outcome, ResponseOutcome::Result(_));
+            let actions = if subscribing {
+                state
+                    .leases
+                    .complete_subscribe(&thread_id, operation_id, succeeded)
+            } else {
+                state
+                    .leases
+                    .complete_unsubscribe(&thread_id, operation_id, succeeded)
+            }
+            .map_err(|error| SessionError::Lease(error.to_string()))?;
+            state.enqueue_lease_actions(actions);
+        }
+    }
+    Ok(())
+}
+
+fn apply_correlated_response(
+    state: &mut ActorState,
+    pending: &PendingClientRequest,
+    outcome: &ResponseOutcome,
+) -> Result<(), SessionError> {
+    let ResponseOutcome::Result(result) = outcome else {
+        return Ok(());
+    };
+    let Some(request_params) = &pending.response_context else {
+        return Ok(());
+    };
+    match adapt_response(&pending.method, request_params, result)
+        .map_err(|error| SessionError::Adapter(error.to_string()))?
+    {
+        ResponseDisposition::Mutations(mutations) => {
+            if let Some(batch) = state
+                .canonical
+                .apply(&mutations)
+                .map_err(|error| SessionError::Canonical(error.to_string()))?
+            {
+                state.snapshot.canonical_revision = batch.revision;
+                state.publish_canonical(&batch);
+            }
+        }
+        ResponseDisposition::Unhandled => {}
     }
     Ok(())
 }
@@ -1666,6 +1719,7 @@ sleep 2
                     status: codex_app_server_state::ThreadStatus::Idle,
                     coverage: codex_app_server_state::StateCoverage::Full,
                     turn_ids: Vec::new(),
+                    goal: None,
                     metadata: BTreeMap::new(),
                 },
             )])
@@ -1684,6 +1738,7 @@ sleep 2
                     status: codex_app_server_state::ThreadStatus::Idle,
                     coverage: codex_app_server_state::StateCoverage::Full,
                     turn_ids: Vec::new(),
+                    goal: None,
                     metadata: BTreeMap::new(),
                 },
             )])
@@ -1844,6 +1899,37 @@ sleep 2
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn goal_response_reduces_before_request_resumes() {
+        let script = format!(
+            "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; read goal; case \"$goal\" in *'thread/goal/get'*) ;; *) exit 41 ;; esac; printf '%s\\n' '{{\"id\":1,\"result\":{{\"goal\":{{\"threadId\":\"thread\",\"objective\":\"Ship parity\",\"status\":\"futureStatus\",\"tokensUsed\":4,\"timeUsedSeconds\":5,\"createdAt\":6,\"updatedAt\":7,\"futureGoalField\":true}}}}}}'; sleep 1"
+        );
+        let client = AppServerClient::connect_local(shell_config(&script))
+            .await
+            .expect("connect session");
+        let result = client
+            .request("thread/goal/get", json!({"threadId": "thread"}))
+            .await
+            .expect("goal request succeeds");
+        let canonical = client
+            .canonical_snapshot()
+            .await
+            .expect("read canonical state after response");
+        let goal = canonical.threads[&ThreadId::from("thread")]
+            .goal
+            .as_ref()
+            .expect("goal committed before resume");
+        assert_eq!(
+            goal.status,
+            codex_app_server_state::ThreadGoalStatus::Unknown("futureStatus".to_owned())
+        );
+        assert_eq!(goal.extensions["futureGoalField"], Value::Bool(true));
+        assert_eq!(canonical.revision, StateRevision::new(1));
+        assert!(result.committed_revision > StateRevision::new(1));
+        client.close().await.expect("close session");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn adapted_history_batch_installs_through_actor() {
         let script =
             format!("read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; sleep 1");
@@ -1858,6 +1944,7 @@ sleep 2
                     status: codex_app_server_state::ThreadStatus::Idle,
                     coverage: codex_app_server_state::StateCoverage::Full,
                     turn_ids: Vec::new(),
+                    goal: None,
                     metadata: BTreeMap::new(),
                 },
             )])

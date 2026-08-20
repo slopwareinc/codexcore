@@ -110,6 +110,9 @@ pub struct CanonicalThread {
     pub coverage: StateCoverage,
     /// Stable turn display order.
     pub turn_ids: Vec<TurnId>,
+    /// Current server-owned thread goal, when one exists.
+    #[serde(default)]
+    pub goal: Option<CanonicalThreadGoal>,
     /// Lossless metadata not yet promoted to stable fields.
     pub metadata: BTreeMap<String, Value>,
 }
@@ -121,9 +124,95 @@ impl CanonicalThread {
             status: ThreadStatus::NotLoaded,
             coverage: StateCoverage::NotLoaded,
             turn_ids: Vec::new(),
+            goal: None,
             metadata: BTreeMap::new(),
         }
     }
+}
+
+/// Lossless thread-goal lifecycle value.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ThreadGoalStatus {
+    Active,
+    Paused,
+    Blocked,
+    UsageLimited,
+    BudgetLimited,
+    Complete,
+    /// Future protocol value retained exactly.
+    Unknown(String),
+}
+
+impl ThreadGoalStatus {
+    /// Decode without discarding future values.
+    #[must_use]
+    pub fn from_raw(value: impl Into<String>) -> Self {
+        let value = value.into();
+        match value.as_str() {
+            "active" => Self::Active,
+            "paused" => Self::Paused,
+            "blocked" => Self::Blocked,
+            "usageLimited" => Self::UsageLimited,
+            "budgetLimited" => Self::BudgetLimited,
+            "complete" => Self::Complete,
+            _ => Self::Unknown(value),
+        }
+    }
+
+    /// Exact protocol spelling.
+    #[must_use]
+    pub fn as_raw(&self) -> &str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Blocked => "blocked",
+            Self::UsageLimited => "usageLimited",
+            Self::BudgetLimited => "budgetLimited",
+            Self::Complete => "complete",
+            Self::Unknown(value) => value,
+        }
+    }
+}
+
+impl Serialize for ThreadGoalStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_raw())
+    }
+}
+
+impl<'de> Deserialize<'de> for ThreadGoalStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(Self::from_raw)
+    }
+}
+
+/// One authoritative goal attached to a thread.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CanonicalThreadGoal {
+    /// Owning thread identity.
+    pub thread_id: ThreadId,
+    /// User-authored objective.
+    pub objective: String,
+    /// Current server lifecycle, including future values.
+    pub status: ThreadGoalStatus,
+    /// Optional token limit selected for this goal.
+    pub token_budget: Option<i64>,
+    /// Server-reported tokens consumed so far.
+    pub tokens_used: i64,
+    /// Server-reported wall-clock seconds consumed so far.
+    pub time_used_seconds: i64,
+    /// Protocol Unix timestamp in seconds.
+    pub created_at: i64,
+    /// Protocol Unix timestamp in seconds.
+    pub updated_at: i64,
+    /// Future goal fields retained without interpretation.
+    pub extensions: BTreeMap<String, Value>,
 }
 
 /// One normalized turn record.
@@ -223,6 +312,8 @@ pub enum CanonicalChange {
     ThreadInserted(ThreadId),
     /// Existing thread facts changed.
     ThreadUpdated(ThreadId),
+    /// A thread goal was replaced or cleared.
+    ThreadGoalUpdated(ThreadId),
     /// Thread and all descendants were removed.
     ThreadRemoved(ThreadId),
     /// Turn first appeared.
@@ -265,6 +356,7 @@ impl StateFieldMask {
     pub const ITEM_CONTENT: Self = Self(1 << 4);
     pub const DIAGNOSTICS: Self = Self(1 << 5);
     pub const PLAN: Self = Self(1 << 6);
+    pub const THREAD_GOAL: Self = Self(1 << 7);
     pub const ALL: Self = Self(u32::MAX);
 
     #[must_use]
@@ -356,10 +448,16 @@ impl StateInvalidation {
 
     fn record(&mut self, change: &CanonicalChange) {
         match change {
-            CanonicalChange::ThreadInserted(id)
-            | CanonicalChange::ThreadUpdated(id)
-            | CanonicalChange::ThreadRemoved(id) => {
+            CanonicalChange::ThreadInserted(id) | CanonicalChange::ThreadUpdated(id) => {
                 self.fields |= StateFieldMask::THREAD;
+                self.thread_ids.insert(id.clone());
+            }
+            CanonicalChange::ThreadGoalUpdated(id) => {
+                self.fields |= StateFieldMask::THREAD_GOAL;
+                self.thread_ids.insert(id.clone());
+            }
+            CanonicalChange::ThreadRemoved(id) => {
+                self.fields |= StateFieldMask::THREAD | StateFieldMask::THREAD_GOAL;
                 self.thread_ids.insert(id.clone());
             }
             CanonicalChange::TurnInserted(key) | CanonicalChange::TurnUpdated(key) => {

@@ -5,7 +5,8 @@ use thiserror::Error;
 
 use crate::{
     CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalPlanStep, CanonicalState,
-    CanonicalThread, CanonicalTurn, ItemKey, LifecycleStatus, ThreadId, TurnKey,
+    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemKey, LifecycleStatus, ThreadId,
+    TurnKey,
 };
 
 /// Bounded orphan-delta retention policy.
@@ -47,6 +48,11 @@ pub enum CanonicalMutation {
     ThreadUpsert(CanonicalThread),
     /// Remove a thread and every normalized descendant.
     ThreadRemove(ThreadId),
+    /// Replace or clear the authoritative goal for one thread.
+    ThreadGoalReplace {
+        thread_id: ThreadId,
+        goal: Option<CanonicalThreadGoal>,
+    },
     /// Merge a turn and establish its thread relationship.
     TurnUpsert(CanonicalTurn),
     /// Replace the authoritative plan for one turn.
@@ -73,6 +79,9 @@ pub enum ReducerError {
     /// Item content revision cannot advance without wrapping.
     #[error("item content revision exhausted")]
     ContentRevisionExhausted,
+    /// A goal payload named a different owner from its mutation.
+    #[error("canonical thread goal identity does not match its mutation thread")]
+    GoalThreadMismatch,
 }
 
 #[derive(Clone, Debug)]
@@ -181,6 +190,9 @@ impl CanonicalStateReducer {
         match mutation {
             CanonicalMutation::ThreadUpsert(thread) => self.upsert_thread(thread, changes),
             CanonicalMutation::ThreadRemove(thread_id) => self.remove_thread(&thread_id, changes),
+            CanonicalMutation::ThreadGoalReplace { thread_id, goal } => {
+                self.replace_thread_goal(thread_id, goal, changes);
+            }
             CanonicalMutation::TurnUpsert(turn) => self.upsert_turn(turn, changes),
             CanonicalMutation::TurnPlanReplace {
                 key,
@@ -201,6 +213,9 @@ impl CanonicalStateReducer {
         let id = incoming.id.clone();
         match self.state.threads.get_mut(&id) {
             None => {
+                if incoming.goal.is_some() {
+                    changes.insert(CanonicalChange::ThreadGoalUpdated(id.clone()));
+                }
                 self.state.thread_order.push(id.clone());
                 self.state.threads.insert(id.clone(), incoming);
                 changes.insert(CanonicalChange::ThreadInserted(id));
@@ -210,11 +225,38 @@ impl CanonicalStateReducer {
                 existing.status = incoming.status;
                 existing.coverage = existing.coverage.merged(incoming.coverage);
                 append_unique(&mut existing.turn_ids, incoming.turn_ids);
+                if incoming.goal.is_some() && existing.goal != incoming.goal {
+                    existing.goal = incoming.goal;
+                    changes.insert(CanonicalChange::ThreadGoalUpdated(id.clone()));
+                }
                 existing.metadata.extend(incoming.metadata);
                 if *existing != before {
                     changes.insert(CanonicalChange::ThreadUpdated(id));
                 }
             }
+        }
+    }
+
+    fn replace_thread_goal(
+        &mut self,
+        thread_id: ThreadId,
+        goal: Option<CanonicalThreadGoal>,
+        changes: &mut BTreeSet<CanonicalChange>,
+    ) {
+        let inserted = !self.state.threads.contains_key(&thread_id);
+        self.ensure_thread(&thread_id, changes);
+        let thread = self
+            .state
+            .threads
+            .get_mut(&thread_id)
+            .expect("thread established above");
+        if thread.goal != goal {
+            thread.goal = goal;
+            changes.insert(CanonicalChange::ThreadGoalUpdated(thread_id));
+        } else if inserted {
+            // An authoritative empty get/clear still resolves previously
+            // unknown goal state for a newly materialized thread.
+            changes.insert(CanonicalChange::ThreadGoalUpdated(thread_id));
         }
     }
 
@@ -497,8 +539,27 @@ fn validate(mutation: &CanonicalMutation) -> Result<(), ReducerError> {
         }
     };
     match mutation {
-        CanonicalMutation::ThreadUpsert(thread) => check_thread(&thread.id),
+        CanonicalMutation::ThreadUpsert(thread) => {
+            check_thread(&thread.id)?;
+            if let Some(goal) = &thread.goal {
+                check_thread(&goal.thread_id)?;
+                if goal.thread_id != thread.id {
+                    return Err(ReducerError::GoalThreadMismatch);
+                }
+            }
+            Ok(())
+        }
         CanonicalMutation::ThreadRemove(id) => check_thread(id),
+        CanonicalMutation::ThreadGoalReplace { thread_id, goal } => {
+            check_thread(thread_id)?;
+            if let Some(goal) = goal {
+                check_thread(&goal.thread_id)?;
+                if &goal.thread_id != thread_id {
+                    return Err(ReducerError::GoalThreadMismatch);
+                }
+            }
+            Ok(())
+        }
         CanonicalMutation::TurnUpsert(turn) => {
             check_thread(&turn.key.thread_id)?;
             if turn.key.turn_id.as_str().is_empty() {
@@ -571,7 +632,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::{ItemId, PlanStepStatus, StateCoverage, ThreadStatus, TurnId};
+    use crate::{
+        ItemId, PlanStepStatus, StateCoverage, StateEntityScope, StateFieldMask, StateInvalidation,
+        StateObservationScope, ThreadGoalStatus, ThreadStatus, TurnId,
+    };
     use serde_json::json;
 
     fn item_key(item: &str) -> ItemKey {
@@ -728,6 +792,7 @@ mod tests {
             status: ThreadStatus::Idle,
             coverage,
             turn_ids: Vec::new(),
+            goal: None,
             metadata: BTreeMap::new(),
         };
         reducer
@@ -741,6 +806,33 @@ mod tests {
         assert_eq!(
             reducer.snapshot().threads[&ThreadId::from("thread")].coverage,
             StateCoverage::Full
+        );
+    }
+
+    #[test]
+    fn unrelated_thread_upsert_does_not_clear_goal() {
+        let mut reducer = CanonicalStateReducer::default();
+        let thread_id = ThreadId::from("thread");
+        let goal = goal("thread", ThreadGoalStatus::Active);
+        reducer
+            .apply(&[CanonicalMutation::ThreadGoalReplace {
+                thread_id: thread_id.clone(),
+                goal: Some(goal.clone()),
+            }])
+            .expect("set goal");
+        reducer
+            .apply(&[CanonicalMutation::ThreadUpsert(CanonicalThread {
+                id: thread_id.clone(),
+                status: ThreadStatus::Idle,
+                coverage: StateCoverage::Full,
+                turn_ids: Vec::new(),
+                goal: None,
+                metadata: BTreeMap::new(),
+            })])
+            .expect("unrelated thread update");
+        assert_eq!(
+            reducer.snapshot().threads[&thread_id].goal.as_ref(),
+            Some(&goal)
         );
     }
 
@@ -778,5 +870,127 @@ mod tests {
                 .expect("idempotent plan transaction")
                 .is_none()
         );
+    }
+
+    fn goal(thread_id: &str, status: ThreadGoalStatus) -> CanonicalThreadGoal {
+        CanonicalThreadGoal {
+            thread_id: ThreadId::from(thread_id),
+            objective: "Ship parity".to_owned(),
+            status,
+            token_budget: Some(4_096),
+            tokens_used: 512,
+            time_used_seconds: 45,
+            created_at: 10,
+            updated_at: 20,
+            extensions: BTreeMap::from([("futureField".to_owned(), json!(true))]),
+        }
+    }
+
+    #[test]
+    fn goal_replace_is_atomic_idempotent_and_lossless() {
+        let mut reducer = CanonicalStateReducer::default();
+        let thread_id = ThreadId::from("thread");
+        let goal = goal(
+            thread_id.as_str(),
+            ThreadGoalStatus::Unknown("futureStatus".to_owned()),
+        );
+        let mutation = CanonicalMutation::ThreadGoalReplace {
+            thread_id: thread_id.clone(),
+            goal: Some(goal.clone()),
+        };
+        let batch = reducer
+            .apply(std::slice::from_ref(&mutation))
+            .expect("goal transaction")
+            .expect("goal changed");
+        assert!(
+            batch
+                .changes
+                .contains(&CanonicalChange::ThreadGoalUpdated(thread_id.clone()))
+        );
+        assert_eq!(reducer.snapshot().threads[&thread_id].goal, Some(goal));
+        assert!(
+            reducer
+                .apply(std::slice::from_ref(&mutation))
+                .expect("idempotent goal transaction")
+                .is_none()
+        );
+
+        reducer
+            .apply(&[CanonicalMutation::ThreadGoalReplace {
+                thread_id: thread_id.clone(),
+                goal: None,
+            }])
+            .expect("clear goal");
+        assert_eq!(reducer.snapshot().threads[&thread_id].goal, None);
+    }
+
+    #[test]
+    fn authoritative_empty_goal_materializes_one_goal_invalidation() {
+        let mut reducer = CanonicalStateReducer::default();
+        let thread_id = ThreadId::from("thread");
+        let mutation = CanonicalMutation::ThreadGoalReplace {
+            thread_id: thread_id.clone(),
+            goal: None,
+        };
+        let batch = reducer
+            .apply(std::slice::from_ref(&mutation))
+            .expect("empty goal transaction")
+            .expect("unknown goal became authoritatively empty");
+        assert!(
+            batch
+                .changes
+                .contains(&CanonicalChange::ThreadGoalUpdated(thread_id))
+        );
+        assert!(
+            reducer
+                .apply(&[mutation])
+                .expect("second empty goal is idempotent")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn goal_invalidation_is_field_and_thread_scoped() {
+        let observed_id = ThreadId::from("observed");
+        let sibling_id = ThreadId::from("sibling");
+        let batch = CanonicalChangeBatch {
+            base_revision: crate::StateRevision::ZERO,
+            revision: crate::StateRevision::new(1),
+            changes: vec![CanonicalChange::ThreadGoalUpdated(observed_id.clone())],
+        };
+        let invalidation = StateInvalidation::from_batch(&batch);
+        assert!(invalidation.affects(
+            &StateObservationScope::thread(observed_id).with_fields(StateFieldMask::THREAD_GOAL)
+        ));
+        assert!(!invalidation.affects(
+            &StateObservationScope::thread(sibling_id).with_fields(StateFieldMask::THREAD_GOAL)
+        ));
+        assert!(!invalidation.affects(&StateObservationScope {
+            entities: StateEntityScope::All,
+            fields: StateFieldMask::PLAN,
+        }));
+    }
+
+    #[test]
+    fn mismatched_goal_owner_rejects_the_whole_batch() {
+        let mut reducer = CanonicalStateReducer::default();
+        let before = reducer.snapshot().clone();
+        let error = reducer
+            .apply(&[CanonicalMutation::ThreadGoalReplace {
+                thread_id: ThreadId::from("thread"),
+                goal: Some(goal("other", ThreadGoalStatus::Active)),
+            }])
+            .expect_err("mismatched owner must fail");
+        assert_eq!(error, ReducerError::GoalThreadMismatch);
+        assert_eq!(reducer.snapshot(), &before);
+    }
+
+    #[test]
+    fn unknown_goal_status_round_trips_losslessly() {
+        let status = ThreadGoalStatus::from_raw("futureStatus");
+        let encoded = serde_json::to_string(&status).expect("encode");
+        let decoded: ThreadGoalStatus = serde_json::from_str(&encoded).expect("decode");
+        assert_eq!(decoded, status);
+        assert_eq!(decoded.as_raw(), "futureStatus");
     }
 }

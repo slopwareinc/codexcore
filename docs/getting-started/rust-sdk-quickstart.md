@@ -166,6 +166,30 @@ thread
 The SDK also exposes `queue_delete` and `queue_start`. Queue identities and
 input arrays are generated-schema validated on every response.
 
+Thread goals use stable SDK-owned types and are committed into canonical state
+before the typed method returns. Future status strings and goal fields remain
+available losslessly:
+
+```rust
+use codex_app_server_sdk::{CodexThread, SetGoalOptions, ThreadGoalStatus};
+
+# async fn goals(thread: &CodexThread) -> Result<(), Box<dyn std::error::Error>> {
+let goal = thread
+    .set_goal(SetGoalOptions {
+        objective: Some("Ship the Rust parity slice".to_owned()),
+        status: Some(ThreadGoalStatus::Active),
+        token_budget: Some(32_000),
+    })
+    .await?;
+println!("{}: {}", goal.status.as_raw(), goal.objective);
+
+let current = thread.get_goal().await?;
+assert!(current.is_some());
+thread.clear_goal().await?;
+# Ok(())
+# }
+```
+
 Every pending server request is keyed by `(connection epoch, JSON-RPC id)`.
 Resolve that exact key once with `resolve_server_request`. Production hosts must
 eventually provide explicit policy or UI for every request family documented in

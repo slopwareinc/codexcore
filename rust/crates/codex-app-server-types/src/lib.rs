@@ -22,6 +22,11 @@ pub fn validate_server_notification(
     method: &str,
     params: &serde_json::Value,
 ) -> Result<(), serde_json::Error> {
+    let params = if method == "thread/goal/updated" {
+        normalize_nested_goal_status(params)
+    } else {
+        params.clone()
+    };
     let value = serde_json::json!({
         "method": method,
         "params": params,
@@ -157,6 +162,55 @@ response_validator!(validate_thread_revert_params, ThreadRevertParams);
 response_validator!(validate_thread_revert_response, ThreadRevertResponse);
 response_validator!(validate_thread_rollback_params, ThreadRollbackParams);
 response_validator!(validate_thread_rollback_response, ThreadRollbackResponse);
+
+/// Validate a `thread/goal/set` result while retaining future string status
+/// values for the stable canonical layer.
+///
+/// The generated enum remains the authority for every known value and the
+/// surrounding response shape. A future string status is normalized only for
+/// generated structural validation; callers continue to map the untouched raw
+/// payload losslessly.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when the response shape is invalid.
+pub fn validate_thread_goal_set_response(
+    value: &serde_json::Value,
+) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadGoalSetResponse>(normalize_nested_goal_status(value)).map(drop)
+}
+
+/// Validate a `thread/goal/get` result with the same open-status policy as
+/// [`validate_thread_goal_set_response`].
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when the response shape is invalid.
+pub fn validate_thread_goal_get_response(
+    value: &serde_json::Value,
+) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadGoalGetResponse>(normalize_nested_goal_status(value)).map(drop)
+}
+
+response_validator!(validate_thread_goal_clear_response, ThreadGoalClearResponse);
+
+fn normalize_nested_goal_status(value: &serde_json::Value) -> serde_json::Value {
+    let mut normalized = value.clone();
+    if let Some(status) = normalized.pointer_mut("/goal/status")
+        && let serde_json::Value::String(raw) = status
+        && !is_known_goal_status(raw)
+    {
+        *raw = "active".to_owned();
+    }
+    normalized
+}
+
+fn is_known_goal_status(value: &str) -> bool {
+    matches!(
+        value,
+        "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete"
+    )
+}
 
 /// Validate a `thread/turns/list` result.
 ///
@@ -415,7 +469,10 @@ pub fn validate_server_response(
 mod tests {
     use serde_json::{Value, json};
 
-    use super::ClientRequest;
+    use super::{
+        ClientRequest, validate_server_notification, validate_thread_goal_get_response,
+        validate_thread_goal_set_response,
+    };
 
     #[test]
     fn initialize_request_round_trips_with_experimental_capability() {
@@ -444,5 +501,50 @@ mod tests {
             encoded["params"]["capabilities"]["requestAttestation"],
             false
         );
+    }
+
+    #[test]
+    fn goal_validation_keeps_future_status_and_fields_open() {
+        let response = json!({
+            "goal": {
+                "threadId": "thread",
+                "objective": "Ship parity",
+                "status": "futureStatus",
+                "tokenBudget": null,
+                "tokensUsed": 4,
+                "timeUsedSeconds": 5,
+                "createdAt": 6,
+                "updatedAt": 7,
+                "futureGoalField": {"nested": true}
+            }
+        });
+        validate_thread_goal_set_response(&response)
+            .expect("future status remains structurally valid");
+        validate_thread_goal_get_response(&response).expect("get response uses the same policy");
+        validate_server_notification(
+            "thread/goal/updated",
+            &json!({
+                "threadId": "thread",
+                "turnId": null,
+                "goal": response["goal"].clone()
+            }),
+        )
+        .expect("future status notification remains structurally valid");
+    }
+
+    #[test]
+    fn goal_validation_still_rejects_malformed_known_fields() {
+        let response = json!({
+            "goal": {
+                "threadId": "thread",
+                "objective": "Ship parity",
+                "status": "active",
+                "tokensUsed": "four",
+                "timeUsedSeconds": 5,
+                "createdAt": 6,
+                "updatedAt": 7
+            }
+        });
+        assert!(validate_thread_goal_set_response(&response).is_err());
     }
 }

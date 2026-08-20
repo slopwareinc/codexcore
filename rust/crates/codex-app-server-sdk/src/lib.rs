@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 mod auth;
+mod goals;
 mod history;
 mod models;
 mod queue;
@@ -22,6 +23,8 @@ pub use auth::{
     AccountKind, AccountSnapshot, CancelLoginStatus, LoginAppBrand, LoginChallenge, LoginRequest,
 };
 pub use codex_app_server_history::HistoryPolicy;
+pub use codex_app_server_state::{CanonicalThreadGoal as ThreadGoal, ThreadGoalStatus};
+pub use goals::SetGoalOptions;
 pub use history::PaginatedResumeOptions;
 pub use models::{ListModelsOptions, ModelPage, ModelSummary, ReasoningEffortSummary};
 pub use queue::{QueuePage, QueuedSubmission};
@@ -585,6 +588,39 @@ impl CodexThread {
         thread_ops::rollback(&self.client, &self.id, num_turns).await
     }
 
+    /// Create or partially update this thread's server-owned goal.
+    ///
+    /// Canonical state is committed by the ordered actor before this method
+    /// returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated validation, identity, or
+    /// stable projection failure.
+    pub async fn set_goal(&self, options: SetGoalOptions) -> Result<ThreadGoal, SdkError> {
+        goals::set(&self.client, &self.id, options).await
+    }
+
+    /// Read the current goal and authoritatively replace canonical goal state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, generated validation, identity, or
+    /// stable projection failure.
+    pub async fn get_goal(&self) -> Result<Option<ThreadGoal>, SdkError> {
+        goals::get(&self.client, &self.id).await
+    }
+
+    /// Clear the current goal. A `false` response leaves canonical state
+    /// unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request or generated validation failure.
+    pub async fn clear_goal(&self) -> Result<bool, SdkError> {
+        goals::clear(&self.client, &self.id).await
+    }
+
     /// Retain a turn already proven live by canonical `turn/started` state.
     ///
     /// # Errors
@@ -980,6 +1016,76 @@ mod tests {
             .into_value(),
             json!({"type":"localImage","path":"/tmp/image.png","detail":"high"})
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn thread_goal_methods_are_typed_and_canonical_before_return() {
+        let script = format!(
+            "read init; printf '%s\\n' '{INITIALIZE_RESPONSE}'; read initialized; read set; case \"$set\" in *'thread/goal/set'*'Ship parity'*) ;; *) exit 41 ;; esac; printf '%s\\n' '{{\"id\":1,\"result\":{{\"goal\":{{\"threadId\":\"thread\",\"objective\":\"Ship parity\",\"status\":\"active\",\"tokenBudget\":4096,\"tokensUsed\":0,\"timeUsedSeconds\":0,\"createdAt\":6,\"updatedAt\":6,\"futureGoalField\":true}}}}}}'; read get; case \"$get\" in *'thread/goal/get'*) ;; *) exit 42 ;; esac; printf '%s\\n' '{{\"id\":2,\"result\":{{\"goal\":{{\"threadId\":\"thread\",\"objective\":\"Ship parity\",\"status\":\"futureStatus\",\"tokenBudget\":4096,\"tokensUsed\":4,\"timeUsedSeconds\":5,\"createdAt\":6,\"updatedAt\":7}}}}}}'; read clear; case \"$clear\" in *'thread/goal/clear'*) ;; *) exit 43 ;; esac; printf '%s\\n' '{{\"id\":3,\"result\":{{\"cleared\":true}}}}'; sleep 1"
+        );
+        let codex = Codex::connect_local({
+            let mut config = LocalSessionConfig::app_server("/bin/sh");
+            config.transport = FrameConnectionConfig::Stdio {
+                config: StdioConfig {
+                    executable: PathBuf::from("/bin/sh"),
+                    arguments: vec!["-c".to_owned(), script],
+                    environment: BTreeMap::new(),
+                    current_directory: None,
+                },
+                limits: TransportLimits::default(),
+            };
+            config
+        })
+        .await
+        .expect("connect");
+        let thread = CodexThread {
+            client: codex.client.clone(),
+            id: ThreadId::from("thread"),
+            lease: None,
+        };
+
+        let set = thread
+            .set_goal(SetGoalOptions {
+                objective: Some("Ship parity".to_owned()),
+                status: Some(ThreadGoalStatus::Active),
+                token_budget: Some(4_096),
+            })
+            .await
+            .expect("set goal");
+        assert_eq!(set.extensions["futureGoalField"], Value::Bool(true));
+        assert_eq!(
+            codex
+                .client
+                .canonical_snapshot()
+                .await
+                .expect("set snapshot")
+                .threads[&ThreadId::from("thread")]
+                .goal,
+            Some(set)
+        );
+
+        let get = thread
+            .get_goal()
+            .await
+            .expect("get goal")
+            .expect("goal exists");
+        assert_eq!(
+            get.status,
+            ThreadGoalStatus::Unknown("futureStatus".to_owned())
+        );
+        assert!(thread.clear_goal().await.expect("clear goal"));
+        assert!(
+            codex
+                .client
+                .canonical_snapshot()
+                .await
+                .expect("clear snapshot")
+                .threads[&ThreadId::from("thread")]
+                .goal
+                .is_none()
+        );
+        codex.close().await.expect("close session");
     }
 
     #[cfg(unix)]

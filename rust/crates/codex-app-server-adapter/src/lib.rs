@@ -7,9 +7,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codex_app_server_state::{
-    CanonicalItem, CanonicalMutation, CanonicalPlanStep, CanonicalThread, CanonicalTurn, ItemId,
-    ItemKey, ItemTextDelta, LifecycleStatus, PlanStepStatus, StateCoverage, ThreadId, ThreadStatus,
-    TurnId, TurnKey,
+    CanonicalItem, CanonicalMutation, CanonicalPlanStep, CanonicalThread, CanonicalThreadGoal,
+    CanonicalTurn, ItemId, ItemKey, ItemTextDelta, LifecycleStatus, PlanStepStatus, StateCoverage,
+    ThreadGoalStatus, ThreadId, ThreadStatus, TurnId, TurnKey,
 };
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -28,16 +28,35 @@ pub enum NotificationDisposition {
     },
 }
 
+/// Result of adapting a correlated client response.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResponseDisposition {
+    /// A known response produced canonical operations.
+    Mutations(Vec<CanonicalMutation>),
+    /// The response has no canonical projection in this adapter version.
+    Unhandled,
+}
+
+/// Whether a response method has canonical effects and therefore needs its
+/// small request context retained until correlation completes.
+#[must_use]
+pub fn response_has_canonical_projection(method: &str) -> bool {
+    matches!(
+        method,
+        "thread/goal/set" | "thread/goal/get" | "thread/goal/clear"
+    )
+}
+
 /// Generated validation or required-field failure.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum AdapterError {
-    /// Pinned generated schema rejected a known notification.
-    #[error("generated notification validation failed: {0}")]
+    /// Pinned generated schema rejected a known protocol payload.
+    #[error("generated protocol validation failed: {0}")]
     GeneratedValidation(String),
     /// Required field is absent or has an incompatible JSON shape.
-    #[error("notification {method} has invalid field {field}")]
+    #[error("protocol method {method} has invalid field {field}")]
     InvalidField {
-        /// Notification method.
+        /// Protocol method.
         method: String,
         /// Dotted field name.
         field: &'static str,
@@ -75,8 +94,32 @@ pub fn adapt_notification(
                     status: map_thread_status(status),
                     coverage: StateCoverage::Summary,
                     turn_ids: Vec::new(),
+                    goal: None,
                     metadata: BTreeMap::new(),
                 }),
+            ]))
+        }
+        "thread/goal/updated" => {
+            validate(method, &params_value)?;
+            let thread_id = string_field(method, params, "threadId")?;
+            let goal = map_goal(method, object_field(method, params, "goal")?)?;
+            if goal.thread_id.as_str() != thread_id {
+                return Err(invalid(method, "goal.threadId"));
+            }
+            Ok(NotificationDisposition::Mutations(vec![
+                CanonicalMutation::ThreadGoalReplace {
+                    thread_id: ThreadId::new(thread_id),
+                    goal: Some(goal),
+                },
+            ]))
+        }
+        "thread/goal/cleared" => {
+            validate(method, &params_value)?;
+            Ok(NotificationDisposition::Mutations(vec![
+                CanonicalMutation::ThreadGoalReplace {
+                    thread_id: ThreadId::new(string_field(method, params, "threadId")?),
+                    goal: None,
+                },
             ]))
         }
         "turn/started" | "turn/completed" => {
@@ -122,6 +165,123 @@ pub fn adapt_notification(
             method: method.to_owned(),
             params: params.clone(),
         }),
+    }
+}
+
+/// Validate and adapt a correlated response before its awaiting caller resumes.
+///
+/// Only response families with canonical state effects are projected. Unknown
+/// and read-only families return [`ResponseDisposition::Unhandled`].
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] when a known response fails generated validation,
+/// lacks its request identity, or contradicts the requested thread.
+pub fn adapt_response(
+    method: &str,
+    request_params: &Value,
+    result: &Value,
+) -> Result<ResponseDisposition, AdapterError> {
+    match method {
+        "thread/goal/set" => {
+            validate_response(
+                result,
+                codex_app_server_types::validate_thread_goal_set_response,
+            )?;
+            let thread_id = response_thread_id(method, request_params)?;
+            let goal =
+                adapt_thread_goal(result.get("goal").ok_or_else(|| invalid(method, "goal"))?)?;
+            ensure_goal_owner(method, thread_id, &goal)?;
+            Ok(ResponseDisposition::Mutations(vec![
+                CanonicalMutation::ThreadGoalReplace {
+                    thread_id: ThreadId::new(thread_id),
+                    goal: Some(goal),
+                },
+            ]))
+        }
+        "thread/goal/get" => {
+            validate_response(
+                result,
+                codex_app_server_types::validate_thread_goal_get_response,
+            )?;
+            let thread_id = response_thread_id(method, request_params)?;
+            let goal = match result.get("goal") {
+                None | Some(Value::Null) => None,
+                Some(value) => {
+                    let goal = adapt_thread_goal(value)?;
+                    ensure_goal_owner(method, thread_id, &goal)?;
+                    Some(goal)
+                }
+            };
+            Ok(ResponseDisposition::Mutations(vec![
+                CanonicalMutation::ThreadGoalReplace {
+                    thread_id: ThreadId::new(thread_id),
+                    goal,
+                },
+            ]))
+        }
+        "thread/goal/clear" => {
+            validate_response(
+                result,
+                codex_app_server_types::validate_thread_goal_clear_response,
+            )?;
+            let thread_id = response_thread_id(method, request_params)?;
+            let cleared = result
+                .get("cleared")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| invalid(method, "cleared"))?;
+            Ok(ResponseDisposition::Mutations(if cleared {
+                vec![CanonicalMutation::ThreadGoalReplace {
+                    thread_id: ThreadId::new(thread_id),
+                    goal: None,
+                }]
+            } else {
+                Vec::new()
+            }))
+        }
+        _ => Ok(ResponseDisposition::Unhandled),
+    }
+}
+
+/// Map one already validated raw goal into the stable canonical shape.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] when a required canonical field is absent or has
+/// the wrong JSON type.
+pub fn adapt_thread_goal(value: &Value) -> Result<CanonicalThreadGoal, AdapterError> {
+    let value = value
+        .as_object()
+        .ok_or_else(|| invalid("thread/goal", "goal"))?;
+    map_goal("thread/goal", value)
+}
+
+fn validate_response(
+    value: &Value,
+    validator: fn(&Value) -> Result<(), serde_json::Error>,
+) -> Result<(), AdapterError> {
+    validator(value).map_err(|error| AdapterError::GeneratedValidation(error.to_string()))
+}
+
+fn response_thread_id<'a>(
+    method: &str,
+    request_params: &'a Value,
+) -> Result<&'a str, AdapterError> {
+    request_params
+        .get("threadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid(method, "request.threadId"))
+}
+
+fn ensure_goal_owner(
+    method: &str,
+    thread_id: &str,
+    goal: &CanonicalThreadGoal,
+) -> Result<(), AdapterError> {
+    if goal.thread_id.as_str() == thread_id {
+        Ok(())
+    } else {
+        Err(invalid(method, "goal.threadId"))
     }
 }
 
@@ -282,7 +442,54 @@ fn map_thread(method: &str, value: &Map<String, Value>) -> Result<CanonicalThrea
         status,
         coverage: StateCoverage::Full,
         turn_ids,
+        goal: None,
         metadata: metadata_without(value, &["id", "status", "turns"]),
+    })
+}
+
+fn map_goal(method: &str, value: &Map<String, Value>) -> Result<CanonicalThreadGoal, AdapterError> {
+    let required_string = |field: &'static str| {
+        value
+            .get(field)
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid(method, field))
+    };
+    let required_integer = |field: &'static str| {
+        value
+            .get(field)
+            .and_then(Value::as_i64)
+            .ok_or_else(|| invalid(method, field))
+    };
+    let token_budget = match value.get("tokenBudget") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_i64()
+                .ok_or_else(|| invalid(method, "tokenBudget"))?,
+        ),
+    };
+    Ok(CanonicalThreadGoal {
+        thread_id: ThreadId::new(required_string("threadId")?),
+        objective: required_string("objective")?.to_owned(),
+        status: ThreadGoalStatus::from_raw(required_string("status")?),
+        token_budget,
+        tokens_used: required_integer("tokensUsed")?,
+        time_used_seconds: required_integer("timeUsedSeconds")?,
+        created_at: required_integer("createdAt")?,
+        updated_at: required_integer("updatedAt")?,
+        extensions: metadata_without(
+            value,
+            &[
+                "threadId",
+                "objective",
+                "status",
+                "tokenBudget",
+                "tokensUsed",
+                "timeUsedSeconds",
+                "createdAt",
+                "updatedAt",
+            ],
+        ),
     })
 }
 
@@ -529,5 +736,92 @@ mod tests {
                 explanation: Some("Implementation plan".to_owned()),
             }])
         );
+    }
+
+    fn raw_goal(status: &str) -> Value {
+        json!({
+            "threadId": "thread",
+            "objective": "Ship parity",
+            "status": status,
+            "tokenBudget": 4096,
+            "tokensUsed": 512,
+            "timeUsedSeconds": 45,
+            "createdAt": 10,
+            "updatedAt": 20,
+            "futureGoalField": {"nested": true}
+        })
+    }
+
+    #[test]
+    fn goal_notification_preserves_future_status_and_fields() {
+        let params = BTreeMap::from([
+            ("threadId".to_owned(), json!("thread")),
+            ("turnId".to_owned(), Value::Null),
+            ("goal".to_owned(), raw_goal("futureStatus")),
+        ]);
+        let disposition =
+            adapt_notification("thread/goal/updated", &params).expect("future goal remains valid");
+        let NotificationDisposition::Mutations(mutations) = disposition else {
+            panic!("goal update must be handled");
+        };
+        let CanonicalMutation::ThreadGoalReplace {
+            thread_id,
+            goal: Some(goal),
+        } = &mutations[0]
+        else {
+            panic!("goal update must replace canonical goal");
+        };
+        assert_eq!(thread_id, &ThreadId::from("thread"));
+        assert_eq!(
+            goal.status,
+            ThreadGoalStatus::Unknown("futureStatus".to_owned())
+        );
+        assert_eq!(goal.extensions["futureGoalField"], json!({"nested": true}));
+    }
+
+    #[test]
+    fn goal_clear_notification_maps_to_explicit_clear() {
+        let params = BTreeMap::from([("threadId".to_owned(), json!("thread"))]);
+        assert_eq!(
+            adapt_notification("thread/goal/cleared", &params).expect("valid clear"),
+            NotificationDisposition::Mutations(vec![CanonicalMutation::ThreadGoalReplace {
+                thread_id: ThreadId::from("thread"),
+                goal: None,
+            }])
+        );
+    }
+
+    #[test]
+    fn goal_responses_validate_owner_and_clear_semantics() {
+        let request = json!({"threadId": "thread"});
+        let set = adapt_response(
+            "thread/goal/set",
+            &request,
+            &json!({"goal": raw_goal("active")}),
+        )
+        .expect("valid set response");
+        assert!(matches!(
+            set,
+            ResponseDisposition::Mutations(ref mutations)
+                if matches!(mutations.as_slice(), [CanonicalMutation::ThreadGoalReplace { goal: Some(_), .. }])
+        ));
+
+        assert_eq!(
+            adapt_response("thread/goal/get", &request, &json!({"goal": null}),)
+                .expect("valid empty goal"),
+            ResponseDisposition::Mutations(vec![CanonicalMutation::ThreadGoalReplace {
+                thread_id: ThreadId::from("thread"),
+                goal: None,
+            }])
+        );
+        assert_eq!(
+            adapt_response("thread/goal/clear", &request, &json!({"cleared": false}),)
+                .expect("valid no-op clear"),
+            ResponseDisposition::Mutations(Vec::new())
+        );
+
+        let mut wrong = raw_goal("active");
+        wrong["threadId"] = json!("other");
+        assert!(adapt_response("thread/goal/set", &request, &json!({"goal": wrong})).is_err());
     }
 }
