@@ -171,7 +171,8 @@ pub(crate) fn render_collaboration_row(
     let chips = projection
         .chips
         .iter()
-        .map(|chip| render_agent_chip(chip, theme))
+        .enumerate()
+        .map(|(index, chip)| render_agent_chip(index, chip, theme))
         .collect::<Vec<_>>();
     let label = format!("{} · {}", projection.summary, projection.status_summary);
     let header = div()
@@ -227,6 +228,16 @@ pub(crate) fn render_collaboration_row(
         .child(status_glyph(&projection.status, theme))
         .child(div().min_w_0().truncate().child(projection.summary.clone()))
         .children(chips)
+        .when(projection.hidden_agent_count > 0, |view| {
+            view.child(
+                div()
+                    .rounded_full()
+                    .px_2()
+                    .text_size(px(10.))
+                    .text_color(theme.muted_text)
+                    .child(format!("+{} more", projection.hidden_agent_count)),
+            )
+        })
         .when(has_details, |view| {
             view.child(div().child(if expanded { "⌄" } else { "›" }))
         });
@@ -244,10 +255,10 @@ pub(crate) fn render_collaboration_row(
         .into_any()
 }
 
-fn render_agent_chip(chip: &AgentChipProjection, theme: CodexTheme) -> AnyElement {
+fn render_agent_chip(index: usize, chip: &AgentChipProjection, theme: CodexTheme) -> AnyElement {
     let color = chip_status_color(chip.status, theme);
     div()
-        .id(format!("agent-chip:{}", chip.name))
+        .id(format!("agent-chip:{index}:{}", chip.name))
         .role(Role::ListItem)
         .aria_label(format!("{}: {}", chip.name, chip.status_label))
         .max_w(px(130.))
@@ -267,28 +278,32 @@ fn render_collaboration_details(
     theme: CodexTheme,
 ) -> AnyElement {
     let instructions = projection.instructions.clone();
-    let messages = projection.messages.iter().map(|message| {
-        div()
-            .id(format!("{id}:message:{}", message.agent))
-            .role(Role::ListItem)
-            .aria_label(format!("Message from {}: {}", message.agent, message.text))
-            .w_full()
-            .rounded_md()
-            .bg(theme.surface)
-            .border_1()
-            .border_color(theme.border)
-            .px_2()
-            .py_1()
-            .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
-            .child(div().text_color(theme.text).child(message.agent.clone()))
-            .child(
-                div()
-                    .mt_1()
-                    .text_color(theme.muted_text)
-                    .whitespace_normal()
-                    .child(message.text.clone()),
-            )
-    });
+    let messages = projection
+        .messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| {
+            div()
+                .id(format!("{id}:message:{index}"))
+                .role(Role::ListItem)
+                .aria_label(format!("Message from {}: {}", message.agent, message.text))
+                .w_full()
+                .rounded_md()
+                .bg(theme.surface)
+                .border_1()
+                .border_color(theme.border)
+                .px_2()
+                .py_1()
+                .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                .child(div().text_color(theme.text).child(message.agent.clone()))
+                .child(
+                    div()
+                        .mt_1()
+                        .text_color(theme.muted_text)
+                        .whitespace_normal()
+                        .child(message.text.clone()),
+                )
+        });
     div()
         .id(format!("{id}:details"))
         .role(Role::Region)
