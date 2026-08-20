@@ -17,9 +17,11 @@ use gpui::{
 
 mod composer;
 mod prompt;
+mod thread_list;
 
 pub use composer::{CodexComposer, ComposerEvent, init as init_composer};
 pub use prompt::{CodexPrompt, PromptIntent};
+pub use thread_list::{CodexThreadList, ThreadSelectionEvent};
 
 /// Exact Zed revision supplying GPUI for this crate.
 pub const GPUI_REVISION: &str = "8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe";

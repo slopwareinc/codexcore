@@ -27,6 +27,29 @@ codex.close().await?;
 # }
 ```
 
+Stored task navigation uses a generated-schema-validated stable page rather
+than exposing generated protocol types:
+
+```rust
+use codex_app_server_sdk::ListThreadsOptions;
+
+# async fn tasks(codex: &codex_app_server_sdk::Codex) -> Result<(), Box<dyn std::error::Error>> {
+let page = codex
+    .list_threads(ListThreadsOptions {
+        limit: Some(50),
+        ..ListThreadsOptions::default()
+    })
+    .await?;
+for thread in page.data {
+    println!("{}: {}", thread.id, thread.preview);
+}
+# Ok(())
+# }
+```
+
+Pagination cursors stay opaque. `ThreadSummary::raw` preserves additional
+schema-valid fields without making generated wire structs the SDK contract.
+
 ```rust
 use codex_app_server_client::{AppServerClient, LocalSessionConfig};
 use serde_json::json;

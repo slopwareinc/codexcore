@@ -16,7 +16,7 @@ Initial crates:
 - `codex-app-server-lease`: semantic thread retention and reconnect
   reconciliation state machine.
 - `codex-app-server-sdk`: ergonomic input, thread, turn, steer, interrupt, and
-  owned-lease facade.
+  owned-lease facade plus validated stored-thread pages.
 - `codex-app-server-history`: cut-based, cursor-guarded paginated history
   reconciliation with bounded item-page concurrency.
 - `codex-app-server-interaction`: typed approvals, questions, MCP elicitation,
@@ -30,7 +30,8 @@ Initial crates:
   item types from the exact CLI schema.
 - `codex-app-server-state`: framework-neutral canonical identities.
 - `codex-gpui`: accessible virtual transcript, exact-identity prompt, and
-  native bounded composer components pinned to one GPUI revision.
+  native bounded composer and task-navigation components pinned to one GPUI
+  revision.
 - `codex-gpui-app`: native reference host bootstrap that runs a real SDK turn,
   projects coalesced canonical snapshots, and routes explicit prompt intent.
 

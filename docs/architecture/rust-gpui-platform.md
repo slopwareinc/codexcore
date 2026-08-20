@@ -115,6 +115,13 @@ Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key
 bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
 steering, queueing, and persistence remain host policy.
 
+Stored task navigation follows the same boundary. `Codex::list_threads`
+validates the complete response against generated bindings and projects stable
+`ThreadSummary` pages with opaque cursors and a lossless raw field.
+`project_thread_list` supplies compact titles and attention states;
+`CodexThreadList` virtualizes uniform rows and emits only a stable `ThreadId`.
+The host owns resume, lease transfer, pagination, search, and selection races.
+
 Run the executable embedding example on a graphical machine:
 
 ```sh

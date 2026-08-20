@@ -65,6 +65,15 @@ pub fn validate_thread_resume_response(value: &serde_json::Value) -> Result<(), 
     serde_json::from_value::<ThreadResumeResponse>(value.clone()).map(drop)
 }
 
+/// Validate a `thread/list` result.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] when it does not match the pinned schema.
+pub fn validate_thread_list_response(value: &serde_json::Value) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<ThreadListResponse>(value.clone()).map(drop)
+}
+
 /// Validate a `thread/turns/list` result.
 ///
 /// # Errors

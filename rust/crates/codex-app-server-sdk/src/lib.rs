@@ -11,9 +11,11 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 mod history;
+mod threads;
 
 pub use codex_app_server_history::HistoryPolicy;
 pub use history::PaginatedResumeOptions;
+pub use threads::{ListThreadsOptions, SortDirection, ThreadPage, ThreadSortKey, ThreadSummary};
 
 /// SDK facade or response-shape failure.
 #[derive(Debug, Error)]
@@ -32,6 +34,12 @@ pub enum SdkError {
     /// Generated response validation or history reconciliation failure.
     #[error("paginated history failed: {0}")]
     History(String),
+    /// Generated response validation or stable projection failure.
+    #[error("{method} response failed validation: {message}")]
+    ResponseValidation {
+        method: &'static str,
+        message: String,
+    },
 }
 
 /// Supported image detail request.
@@ -219,6 +227,15 @@ impl Codex {
     #[must_use]
     pub const fn client(&self) -> &AppServerClient {
         &self.client
+    }
+
+    /// List stored threads through a generated-schema-validated stable page.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for request, schema, or stable projection failure.
+    pub async fn list_threads(&self, options: ListThreadsOptions) -> Result<ThreadPage, SdkError> {
+        threads::list_threads(&self.client, options).await
     }
 
     /// Start and retain a new thread.

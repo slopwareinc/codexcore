@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use codex_app_server_client::LocalSessionConfig;
 use codex_app_server_sdk::{
-    Codex, CodexInput, PaginatedResumeOptions, StartThreadOptions, TurnOptions,
+    Codex, CodexInput, ListThreadsOptions, PaginatedResumeOptions, StartThreadOptions, TurnOptions,
 };
 use codex_app_server_state::{TurnId, TurnKey};
 use serde_json::{Value, json};
@@ -29,6 +29,31 @@ async fn start_and_release_ephemeral_thread() {
         .expect("start ephemeral thread");
     assert!(!thread.id().as_str().is_empty());
     thread.close().await.expect("release thread lease");
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn list_stored_threads_through_stable_sdk_page() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let page = codex
+        .list_threads(ListThreadsOptions {
+            limit: Some(5),
+            ..ListThreadsOptions::default()
+        })
+        .await
+        .expect("list stable thread page");
+    assert!(page.data.len() <= 5);
+    assert!(
+        page.data
+            .iter()
+            .all(|thread| !thread.id.as_str().is_empty())
+    );
     codex.close().await.expect("close SDK");
 }
 

@@ -2,10 +2,116 @@
 
 pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
+use codex_app_server_sdk::{ThreadPage, ThreadSummary};
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, StateRevision, ThreadId, TurnId,
 };
 use serde_json::Value;
+
+/// Disposable stored-thread list projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThreadListPresentation {
+    pub rows: Vec<ThreadListRow>,
+    pub next_cursor: Option<String>,
+    pub backwards_cursor: Option<String>,
+}
+
+/// One stable task-navigation row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThreadListRow {
+    pub thread_id: ThreadId,
+    pub title: String,
+    pub cwd: String,
+    pub updated_at: i64,
+    pub status: TaskStatusPresentation,
+    pub is_selected: bool,
+}
+
+/// Compact task status independent of protocol union evolution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskStatusPresentation {
+    NotLoaded,
+    Idle,
+    Running,
+    WaitingOnApproval,
+    WaitingOnUserInput,
+    Failed,
+    Unknown,
+}
+
+/// Project a validated SDK thread page for native task navigation.
+#[must_use]
+pub fn project_thread_list(
+    page: &ThreadPage,
+    selected: Option<&ThreadId>,
+) -> ThreadListPresentation {
+    ThreadListPresentation {
+        rows: page
+            .data
+            .iter()
+            .map(|thread| project_thread_row(thread, selected))
+            .collect(),
+        next_cursor: page.next_cursor.clone(),
+        backwards_cursor: page.backwards_cursor.clone(),
+    }
+}
+
+fn project_thread_row(thread: &ThreadSummary, selected: Option<&ThreadId>) -> ThreadListRow {
+    let title = thread
+        .name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(&thread.preview);
+    let title = title.lines().next().unwrap_or_default().trim();
+    ThreadListRow {
+        thread_id: thread.id.clone(),
+        title: if title.is_empty() {
+            "Untitled task".to_owned()
+        } else {
+            truncate_text(title, 120)
+        },
+        cwd: thread.cwd.to_string_lossy().into_owned(),
+        updated_at: thread.updated_at,
+        status: project_task_status(&thread.status),
+        is_selected: selected == Some(&thread.id),
+    }
+}
+
+fn project_task_status(status: &Value) -> TaskStatusPresentation {
+    match status.get("type").and_then(Value::as_str) {
+        Some("notLoaded") => TaskStatusPresentation::NotLoaded,
+        Some("idle") => TaskStatusPresentation::Idle,
+        Some("systemError") => TaskStatusPresentation::Failed,
+        Some("active") => {
+            let flags = status
+                .get("activeFlags")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>();
+            if flags.contains(&"waitingOnApproval") {
+                TaskStatusPresentation::WaitingOnApproval
+            } else if flags.contains(&"waitingOnUserInput") {
+                TaskStatusPresentation::WaitingOnUserInput
+            } else {
+                TaskStatusPresentation::Running
+            }
+        }
+        Some(_) | None => TaskStatusPresentation::Unknown,
+    }
+}
+
+fn truncate_text(value: &str, maximum_chars: usize) -> String {
+    let Some(index) = value
+        .char_indices()
+        .nth(maximum_chars)
+        .map(|(index, _)| index)
+    else {
+        return value.to_owned();
+    };
+    format!("{}…", &value[..index])
+}
 
 /// Complete disposable transcript projection for one thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -569,6 +675,8 @@ fn secondary_action(id: &str, label: &str, kind: PromptActionKind) -> PromptActi
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use codex_app_server_interaction::InteractionScope;
     use codex_app_server_state::{
@@ -678,5 +786,38 @@ mod tests {
             turn_id: Some(TurnId::from("turn")),
             item_id: None,
         }
+    }
+
+    #[test]
+    fn thread_list_prefers_name_and_surfaces_waiting_status() {
+        let page = ThreadPage {
+            data: vec![ThreadSummary {
+                id: ThreadId::from("thread"),
+                name: Some("Named task".to_owned()),
+                preview: "fallback".to_owned(),
+                cwd: PathBuf::from("/workspace"),
+                model_provider: "openai".to_owned(),
+                created_at: 1,
+                updated_at: 2,
+                recency_at: Some(3),
+                ephemeral: false,
+                parent_thread_id: None,
+                status: serde_json::json!({
+                    "type": "active",
+                    "activeFlags": ["waitingOnApproval"]
+                }),
+                raw: Value::Null,
+            }],
+            next_cursor: Some("next".to_owned()),
+            backwards_cursor: None,
+        };
+        let projected = project_thread_list(&page, Some(&ThreadId::from("thread")));
+        assert_eq!(projected.rows[0].title, "Named task");
+        assert_eq!(
+            projected.rows[0].status,
+            TaskStatusPresentation::WaitingOnApproval
+        );
+        assert!(projected.rows[0].is_selected);
+        assert_eq!(projected.next_cursor.as_deref(), Some("next"));
     }
 }
