@@ -126,6 +126,11 @@ Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key
 bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
 steering, queueing, and persistence remain host policy.
 
+The reference host supplies that basic policy: Submit starts a new turn while
+idle and steers the exact active turn while running. Composer state exposes an
+accessible Stop control only during an active turn; it calls `turn/interrupt`
+through the retained `CodexTurn` capability rather than a thread-global guess.
+
 Stored task navigation follows the same boundary. `Codex::list_threads`
 validates the complete response against generated bindings and projects stable
 `ThreadSummary` pages with opaque cursors and a lossless raw field.

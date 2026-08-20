@@ -188,7 +188,8 @@ and meet its patch floor; for this tree that means `0.148.0` or a newer
 ## Run the GPUI reference host bootstrap
 
 The native host runs real multi-turn prompts through terminal canonical state,
-supports native composer submissions and active-turn steering, displays typed
+supports native composer submissions, active-turn steering, and exact-turn
+interruption, displays typed
 pending approval cards, and preserves exact request identity when routing
 approve/decline intent:
 

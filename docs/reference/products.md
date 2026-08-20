@@ -14,7 +14,7 @@ own an App Server session or application lifecycle. See the
 `codex-gpui-app` is the native reference-host bootstrap. It currently owns one
 window, one SDK session, a real thread/turn lifecycle, safe default interaction
 policy, approval and typed-choice question routing, composer-driven
-turns/steering, deterministic quit,
+turns/steering/interruption, deterministic quit,
 stored-task navigation with mode-aware hydration and lease transfer, and the
 validated model/reasoning picker with safe turn-boundary updates, plus the
 GPUI/Tokio bridge. It is not yet the full CodexCore reference-app replacement.

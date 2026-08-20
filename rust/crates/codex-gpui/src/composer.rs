@@ -59,8 +59,9 @@ pub fn init(cx: &mut App) {
 
 /// Composer submission routed to the host.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ComposerEvent {
-    pub text: String,
+pub enum ComposerEvent {
+    Submit { text: String },
+    Interrupt,
 }
 
 enum InputEvent {
@@ -658,6 +659,7 @@ fn marked_runs(
 pub struct CodexComposer {
     input: Entity<ComposerInput>,
     theme: CodexTheme,
+    turn_active: bool,
     _input_subscription: gpui::Subscription,
 }
 
@@ -670,6 +672,7 @@ impl CodexComposer {
         Self {
             input,
             theme,
+            turn_active: false,
             _input_subscription: subscription,
         }
     }
@@ -693,6 +696,13 @@ impl CodexComposer {
         self.input.update(cx, |input, cx| input.set_text(text, cx));
     }
 
+    pub fn set_turn_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.turn_active != active {
+            self.turn_active = active;
+            cx.notify();
+        }
+    }
+
     #[must_use]
     pub fn input_focus_handle(&self, cx: &App) -> FocusHandle {
         self.input.read(cx).focus_handle.clone()
@@ -704,7 +714,13 @@ impl CodexComposer {
             return;
         }
         self.input.update(cx, ComposerInput::reset);
-        cx.emit(ComposerEvent { text });
+        cx.emit(ComposerEvent::Submit { text });
+    }
+
+    fn interrupt(&mut self, cx: &mut Context<Self>) {
+        if self.turn_active {
+            cx.emit(ComposerEvent::Interrupt);
+        }
     }
 }
 
@@ -754,6 +770,25 @@ impl Render for CodexComposer {
                     })
                     .child("Send"),
             )
+            .when(self.turn_active, |view| {
+                view.child(
+                    div()
+                        .id("codex-composer-interrupt")
+                        .focusable()
+                        .tab_stop(true)
+                        .role(Role::Button)
+                        .aria_label("Interrupt active turn")
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme.danger)
+                        .px_3()
+                        .py_2()
+                        .text_color(theme.danger)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx)))
+                        .child("Stop"),
+                )
+            })
     }
 }
 

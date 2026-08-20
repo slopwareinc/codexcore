@@ -161,6 +161,7 @@ async fn print_updates(receiver: Receiver<AppUpdate>) {
             AppUpdate::ThreadList(presentation) => {
                 println!("tasks: {}", presentation.rows.len());
             }
+            AppUpdate::TurnActive(active) => println!("turn-active: {active}"),
             AppUpdate::Failed(error) => eprintln!("session failed: {error}"),
         }
     }
@@ -172,6 +173,7 @@ enum AppUpdate {
     Prompt(Option<PromptPresentation>),
     ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
+    TurnActive(bool),
     Failed(String),
 }
 
@@ -179,6 +181,7 @@ enum AppUpdate {
 enum HostCommand {
     Prompt(PromptIntent),
     Submit(String),
+    Interrupt,
     SelectThread(ThreadId),
     SelectModel(ModelSelectionEvent),
     Shutdown,
@@ -229,7 +232,11 @@ impl CodexApp {
         let composer_sender = command_sender.clone();
         let composer_subscription =
             cx.subscribe(&composer, move |_, _, event: &ComposerEvent, _| {
-                let _ = composer_sender.try_send(HostCommand::Submit(event.text.clone()));
+                let command = match event {
+                    ComposerEvent::Submit { text } => HostCommand::Submit(text.clone()),
+                    ComposerEvent::Interrupt => HostCommand::Interrupt,
+                };
+                let _ = composer_sender.try_send(command);
             });
         let selection_sender = command_sender.clone();
         let thread_list_subscription = cx.subscribe(
@@ -304,6 +311,11 @@ impl CodexApp {
             AppUpdate::ThreadList(presentation) => {
                 self.thread_list.update(cx, |thread_list, cx| {
                     thread_list.set_presentation(presentation, cx);
+                });
+            }
+            AppUpdate::TurnActive(active) => {
+                self.composer.update(cx, |composer, cx| {
+                    composer.set_turn_active(active, cx);
                 });
             }
             AppUpdate::Failed(error) => {
@@ -543,6 +555,7 @@ async fn drive_turn(
         .start_turn(vec![CodexInput::text(input)], options.clone())
         .await
         .map_err(|error| error.to_string())?;
+    driver.updates.send(AppUpdate::TurnActive(true)).await.ok();
     let turn_key = TurnKey {
         thread_id: thread_id.clone(),
         turn_id: turn.id().clone(),
@@ -570,6 +583,9 @@ async fn drive_turn(
                             .await
                             .map_err(|error| error.to_string())?;
                     }
+                    Ok(HostCommand::Interrupt) => {
+                        turn.interrupt().await.map_err(|error| error.to_string())?;
+                    }
                     Ok(HostCommand::SelectThread(selected)) => {
                         outcome.pending_selection = Some(selected);
                         send_status(driver.updates, "Task switch queued until the active turn completes…").await;
@@ -587,6 +603,7 @@ async fn drive_turn(
         }
     }
     turn.close().await.map_err(|error| error.to_string())?;
+    driver.updates.send(AppUpdate::TurnActive(false)).await.ok();
     Ok(outcome)
 }
 
@@ -760,6 +777,7 @@ async fn next_idle_action(
                 return Ok(IdleAction::SelectModel(selection));
             }
             Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
+            Ok(HostCommand::Interrupt) => {}
             Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
         }
     }
