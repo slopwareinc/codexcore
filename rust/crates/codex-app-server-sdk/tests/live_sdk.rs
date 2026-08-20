@@ -75,6 +75,36 @@ async fn resume_legacy_thread_through_declared_history_mode() {
         .await
         .expect("start legacy thread");
     let thread_id = thread.id().clone();
+    let turn = thread
+        .start_turn(
+            vec![CodexInput::text("Reply with OK.")],
+            TurnOptions::default(),
+        )
+        .await
+        .expect("materialize legacy rollout");
+    let turn_key = TurnKey {
+        thread_id: thread_id.clone(),
+        turn_id: turn.id().clone(),
+    };
+    let mut reached_terminal = false;
+    for _ in 0..120 {
+        let canonical = codex
+            .client()
+            .canonical_snapshot()
+            .await
+            .expect("turn snapshot");
+        if canonical
+            .turns
+            .get(&turn_key)
+            .is_some_and(|turn| turn.status.is_terminal())
+        {
+            reached_terminal = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(reached_terminal, "legacy turn did not reach terminal state");
+    turn.close().await.expect("release active turn lease");
     thread.close().await.expect("release initial lease");
     let resumed = codex
         .resume_thread_hydrated(thread_id.clone(), PaginatedResumeOptions::default())
