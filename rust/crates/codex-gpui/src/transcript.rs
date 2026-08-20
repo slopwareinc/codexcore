@@ -41,17 +41,18 @@ pub struct CodexTheme {
 impl Default for CodexTheme {
     fn default() -> Self {
         Self {
-            background: rgb(0x0017_1717),
-            surface: rgb(0x0020_2020),
-            elevated_surface: rgb(0x0029_2929),
-            border: rgb(0x003a_3a3a),
-            text: rgb(0x00f2_f2f2),
-            muted_text: rgb(0x00a3_a3a3),
-            accent: rgb(0x00d9_7757),
-            user_message: rgb(0x0030_3030),
-            success: rgb(0x0058_a66f),
-            warning: rgb(0x00d6_a84b),
-            danger: rgb(0x00d6_6a65),
+            // CodexCoreUI's official Slate palette.
+            background: rgb(0x000f_0f10),
+            surface: rgb(0x0016_1618),
+            elevated_surface: rgb(0x001f_1f22),
+            border: rgb(0x0033_3338),
+            text: rgb(0x00fa_fafa),
+            muted_text: rgb(0x00a8_a8b0),
+            accent: rgb(0x0081_89ff),
+            user_message: rgb(0x002a_2a2c),
+            success: rgb(0x0044_d17e),
+            warning: rgb(0x00e7_a23c),
+            danger: rgb(0x00ff_6b66),
         }
     }
 }
@@ -193,11 +194,17 @@ impl Render for CodexTranscript {
             .bg(theme.background)
             .text_color(theme.text)
             .child(
-                list(state, move |index, _window, _cx| {
-                    rows.get(index)
-                        .map_or_else(|| div().into_any(), |row| render_row(row, theme, &emitter))
-                })
-                .size_full(),
+                div().flex().justify_center().size_full().child(
+                    div().w_full().max_w(px(920.)).h_full().child(
+                        list(state, move |index, _window, _cx| {
+                            rows.get(index).map_or_else(
+                                || div().into_any(),
+                                |row| render_row(row, theme, &emitter),
+                            )
+                        })
+                        .size_full(),
+                    ),
+                ),
             )
     }
 }

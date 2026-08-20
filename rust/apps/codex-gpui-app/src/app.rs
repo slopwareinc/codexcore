@@ -15,7 +15,7 @@ use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexGoal, CodexModelPicker,
-    CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexThreadList, CodexTranscript,
+    CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList, CodexTranscript,
     ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
     SubagentSelectionEvent, ThreadSelectionEvent, TranscriptEvent,
 };
@@ -29,7 +29,7 @@ use codex_presentation::{
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, rgb, size,
+    WindowOptions, div, prelude::*, px, size,
 };
 use gpui_platform::application;
 use gpui_tokio::Tokio;
@@ -202,6 +202,7 @@ struct CodexApp {
     goal: Entity<CodexGoal>,
     authentication: Entity<CodexAuthentication>,
     authentication_visible: bool,
+    inspector_visible: bool,
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
@@ -439,6 +440,7 @@ impl CodexApp {
             goal,
             authentication,
             authentication_visible: true,
+            inspector_visible: false,
             composer,
             prompt: None,
             prompt_subscription: None,
@@ -539,87 +541,206 @@ impl CodexApp {
 }
 
 impl Render for CodexApp {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    #[allow(clippy::too_many_lines)]
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = CodexTheme::default();
+        let inspector_label = if self.inspector_visible {
+            "Hide inspector"
+        } else {
+            "Show inspector"
+        };
         div()
+            .id("codex-workspace")
             .size_full()
             .relative()
             .flex()
             .flex_col()
             .overflow_hidden()
-            .bg(rgb(0x0017_1717))
-            .text_color(rgb(0x00f2_f2f2))
+            .bg(theme.background)
+            .text_color(theme.text)
             .child(
                 div()
+                    .id("codex-window-chrome")
+                    .h(px(52.))
                     .flex_shrink_0()
-                    .px_5()
-                    .py_3()
+                    .flex()
+                    .items_center()
                     .border_b_1()
-                    .border_color(rgb(0x003a_3a3a))
-                    .text_sm()
-                    .text_color(rgb(0x00a3_a3a3))
-                    .child(self.status.clone()),
+                    .border_color(theme.border)
+                    .bg(theme.surface)
+                    .child(
+                        div()
+                            .w(px(276.))
+                            .h_full()
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_5()
+                            .child(
+                                div()
+                                    .size(px(22.))
+                                    .rounded_lg()
+                                    .bg(theme.accent)
+                                    .text_color(theme.background)
+                                    .text_center()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .child("C"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child("Codex"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .px_5()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_sm().child("New task"))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.muted_text)
+                                            .child("CodexCore"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.muted_text)
+                                            .child(self.status.clone()),
+                                    )
+                                    .child(
+                                        shell_button(
+                                            "inspector-toggle",
+                                            "☷",
+                                            inspector_label,
+                                            self.inspector_visible,
+                                            theme,
+                                        )
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.inspector_visible = !this.inspector_visible;
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    ),
+                            ),
+                    ),
             )
             .child(
                 div()
+                    .id("codex-workspace-body")
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .overflow_hidden()
                     .child(
                         div()
-                            .w(px(280.))
+                            .id("codex-sidebar")
+                            .w(px(276.))
                             .h_full()
                             .flex_shrink_0()
                             .border_r_1()
-                            .border_color(rgb(0x003a_3a3a))
+                            .border_color(theme.border)
                             .child(self.thread_list.clone()),
                     )
                     .child(
                         div()
+                            .id("codex-chat-column")
                             .flex_1()
                             .h_full()
-                            .overflow_hidden()
-                            .child(self.transcript.clone()),
-                    )
-                    .child(
-                        div()
-                            .w(px(260.))
-                            .h_full()
-                            .flex_shrink_0()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .overflow_hidden()
-                            .border_l_1()
-                            .border_color(rgb(0x003a_3a3a))
+                            .child(
+                                div()
+                                    .h(px(44.))
+                                    .flex_shrink_0()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .px_6()
+                                    .border_b_1()
+                                    .border_color(theme.border)
+                                    .child(
+                                        div().text_xs().text_color(theme.muted_text).child("CHAT"),
+                                    )
+                                    .child(div().flex().items_center().gap_2().child(
+                                        shell_button(
+                                            "chat-menu",
+                                            "•••",
+                                            "Chat actions",
+                                            false,
+                                            theme,
+                                        ),
+                                    )),
+                            )
+                            .child(div().flex_1().min_h_0().child(self.transcript.clone()))
+                            .when_some(self.prompt.clone(), |view, prompt| {
+                                view.child(div().flex_shrink_0().px_6().pb_3().child(prompt))
+                            })
+                            .child(self.queue.clone())
                             .child(
                                 div()
                                     .flex_shrink_0()
-                                    .border_b_1()
-                                    .border_color(rgb(0x003a_3a3a))
-                                    .child(self.goal.clone()),
-                            )
-                            .child(div().flex_1().min_h_0().child(self.model_picker.clone()))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .border_t_1()
-                                    .border_color(rgb(0x003a_3a3a))
-                                    .child(self.subagent_navigator.clone()),
+                                    .w_full()
+                                    .flex()
+                                    .justify_center()
+                                    .px_5()
+                                    .pb_5()
+                                    .child(
+                                        div().w_full().max_w(px(760.)).child(self.composer.clone()),
+                                    ),
                             ),
-                    ),
-            )
-            .when_some(self.prompt.clone(), |view, prompt| {
-                view.child(div().flex_shrink_0().w_full().px_5().pb_5().child(prompt))
-            })
-            .child(self.queue.clone())
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .w_full()
-                    .px_5()
-                    .pb_5()
-                    .child(self.composer.clone()),
+                    )
+                    .when(self.inspector_visible, |view| {
+                        view.child(
+                            div()
+                                .id("codex-inspector")
+                                .w(px(280.))
+                                .h_full()
+                                .flex_shrink_0()
+                                .flex()
+                                .flex_col()
+                                .overflow_hidden()
+                                .border_l_1()
+                                .border_color(theme.border)
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .border_b_1()
+                                        .border_color(theme.border)
+                                        .child(self.goal.clone()),
+                                )
+                                .child(div().flex_1().min_h_0().child(self.model_picker.clone()))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .border_t_1()
+                                        .border_color(theme.border)
+                                        .child(self.subagent_navigator.clone()),
+                                ),
+                        )
+                    }),
             )
             .when(self.authentication_visible, |view| {
                 view.child(
@@ -633,6 +754,33 @@ impl Render for CodexApp {
                 )
             })
     }
+}
+
+fn shell_button(
+    id: &'static str,
+    glyph: &'static str,
+    label: &'static str,
+    active: bool,
+    theme: CodexTheme,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .focusable()
+        .tab_stop(true)
+        .role(gpui::Role::Button)
+        .aria_label(label)
+        .rounded_lg()
+        .px_2()
+        .py_1()
+        .text_sm()
+        .text_color(if active {
+            theme.accent
+        } else {
+            theme.muted_text
+        })
+        .when(active, |button| button.bg(theme.accent.opacity(0.14)))
+        .cursor_pointer()
+        .child(glyph)
 }
 
 async fn ensure_authenticated(

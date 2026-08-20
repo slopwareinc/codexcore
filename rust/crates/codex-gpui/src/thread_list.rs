@@ -55,6 +55,7 @@ impl CodexThreadList {
 impl EventEmitter<ThreadSelectionEvent> for CodexThreadList {}
 
 impl Render for CodexThreadList {
+    #[allow(clippy::too_many_lines)]
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let item_count = self.presentation.rows.len();
         div()
@@ -65,26 +66,129 @@ impl Render for CodexThreadList {
             .overflow_hidden()
             .bg(self.theme.surface)
             .child(
-                uniform_list(
-                    "codex-thread-list",
-                    item_count,
-                    cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
-                        range
-                            .filter_map(|index| {
-                                let row = this.presentation.rows.get(index)?.clone();
-                                let thread_id = row.thread_id.clone();
-                                Some(
-                                    render_row(&row, this.theme)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.select(thread_id.clone(), cx);
-                                        }))
-                                        .into_any(),
-                                )
-                            })
-                            .collect::<Vec<AnyElement>>()
-                    }),
-                )
-                .size_full(),
+                div()
+                    .h(px(110.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_3()
+                    .border_b_1()
+                    .border_color(self.theme.border)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(self.theme.muted_text)
+                                    .child("WORKSPACE"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(self.theme.muted_text)
+                                    .child("⌘K"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("codex-new-chat")
+                            .role(Role::Button)
+                            .focusable()
+                            .tab_stop(true)
+                            .rounded_lg()
+                            .bg(self.theme.elevated_surface)
+                            .border_1()
+                            .border_color(self.theme.border)
+                            .px_3()
+                            .py_2()
+                            .text_sm()
+                            .text_color(self.theme.text)
+                            .cursor_pointer()
+                            .aria_label("New chat")
+                            .child("＋  New chat"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .px_3()
+                            .pt_3()
+                            .pb_2()
+                            .text_xs()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(self.theme.muted_text)
+                            .child(format!("CHATS  ·  {item_count}")),
+                    )
+                    .child(
+                        uniform_list(
+                            "codex-thread-list",
+                            item_count,
+                            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+                                range
+                                    .filter_map(|index| {
+                                        let row = this.presentation.rows.get(index)?.clone();
+                                        let thread_id = row.thread_id.clone();
+                                        Some(
+                                            render_row(&row, this.theme)
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.select(thread_id.clone(), cx);
+                                                }))
+                                                .into_any(),
+                                        )
+                                    })
+                                    .collect::<Vec<AnyElement>>()
+                            }),
+                        )
+                        .size_full(),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(58.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_4()
+                    .border_t_1()
+                    .border_color(self.theme.border)
+                    .child(
+                        div()
+                            .size(px(30.))
+                            .rounded_full()
+                            .bg(self.theme.accent.opacity(0.24))
+                            .border_1()
+                            .border_color(self.theme.accent)
+                            .text_center()
+                            .py_1()
+                            .text_xs()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child("PC"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_xs().text_color(self.theme.text).child("Codex"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(self.theme.muted_text)
+                                    .child("Connected"),
+                            ),
+                    ),
             )
     }
 }
