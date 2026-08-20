@@ -8,21 +8,22 @@ use codex_app_server_interaction::{
     ServerRequestBody, ServerRequestReply, TypedServerRequest, default_resolution, parse_pending,
 };
 use codex_app_server_sdk::{
-    Codex, CodexInput, CodexThread, ListModelsOptions, ListThreadsOptions, PaginatedResumeOptions,
-    StartThreadOptions, TurnOptions,
+    Codex, CodexInput, CodexThread, ListModelsOptions, ListThreadsOptions, LoginAppBrand,
+    LoginRequest, PaginatedResumeOptions, StartThreadOptions, TurnOptions,
 };
 use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
-    ActiveSubmitBehavior, CodexComposer, CodexModelPicker, CodexPrompt, CodexQueue,
-    CodexThreadList, CodexTranscript, ComposerEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
-    ThreadSelectionEvent,
+    ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexModelPicker, CodexPrompt,
+    CodexQueue, CodexThreadList, CodexTranscript, ComposerEvent, LoginEvent, ModelSelectionEvent,
+    PromptIntent, QueueEvent, ThreadSelectionEvent,
 };
 use codex_presentation::{
-    ModelPickerPresentation, PromptActionKind, PromptPresentation, QueuePresentation,
-    StandardItemPolicy, TaskStatusPresentation, ThreadListPresentation, ThreadListRow,
-    TranscriptPresentation, TranscriptProjector, project_model_picker, project_prompt,
-    project_queue, project_thread_list,
+    AuthenticationPresentation, ModelPickerPresentation, PromptActionKind, PromptPresentation,
+    QueuePresentation, StandardItemPolicy, TaskStatusPresentation, ThreadListPresentation,
+    ThreadListRow, TranscriptPresentation, TranscriptProjector, project_account,
+    project_login_challenge, project_model_picker, project_prompt, project_queue,
+    project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -113,6 +114,16 @@ async fn print_updates(
                 println!("tasks: {}", presentation.rows.len());
             }
             AppUpdate::Queue(presentation) => println!("queue: {}", presentation.rows.len()),
+            AppUpdate::Authentication(presentation) => println!(
+                "authentication: {}",
+                match presentation {
+                    AuthenticationPresentation::SignedOut { .. } => "signed-out",
+                    AuthenticationPresentation::Authenticated { .. } => "authenticated",
+                    AuthenticationPresentation::BrowserChallenge { .. } => "browser-challenge",
+                    AuthenticationPresentation::DeviceChallenge { .. } => "device-challenge",
+                    AuthenticationPresentation::Failed { .. } => "failed",
+                }
+            ),
             AppUpdate::TurnActive(active) => {
                 println!("turn-active: {active}");
                 if active
@@ -140,6 +151,7 @@ enum AppUpdate {
     ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
     Queue(QueuePresentation),
+    Authentication(AuthenticationPresentation),
     TurnActive(bool),
     Failed(String),
 }
@@ -155,6 +167,7 @@ enum HostCommand {
     SelectThread(ThreadId),
     SelectModel(ModelSelectionEvent),
     Queue(QueueEvent),
+    Login(LoginEvent),
     Shutdown,
 }
 
@@ -163,6 +176,8 @@ struct CodexApp {
     thread_list: Entity<CodexThreadList>,
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
+    authentication: Entity<CodexAuthentication>,
+    authentication_visible: bool,
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
@@ -170,6 +185,7 @@ struct CodexApp {
     _thread_list_subscription: Subscription,
     _model_picker_subscription: Subscription,
     _queue_subscription: Subscription,
+    _authentication_subscription: Subscription,
     _quit_subscription: Subscription,
     status: String,
     command_sender: Sender<HostCommand>,
@@ -183,6 +199,7 @@ struct InitialViews {
     model_picker: Entity<CodexModelPicker>,
     queue: Entity<CodexQueue>,
     composer: Entity<CodexComposer>,
+    authentication: Entity<CodexAuthentication>,
 }
 
 fn initial_views(cx: &mut Context<CodexApp>) -> InitialViews {
@@ -214,6 +231,14 @@ fn initial_views(cx: &mut Context<CodexApp>) -> InitialViews {
             })
         }),
         composer: cx.new(CodexComposer::new),
+        authentication: cx.new(|cx| {
+            CodexAuthentication::new(
+                AuthenticationPresentation::SignedOut {
+                    requires_openai_auth: true,
+                },
+                cx,
+            )
+        }),
     }
 }
 
@@ -225,6 +250,7 @@ impl CodexApp {
             model_picker,
             queue,
             composer,
+            authentication,
         } = initial_views(cx);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
@@ -262,6 +288,15 @@ impl CodexApp {
         let queue_subscription = cx.subscribe(&queue, move |_, _, event: &QueueEvent, _| {
             let _ = queue_sender.try_send(HostCommand::Queue(event.clone()));
         });
+        let auth_sender = command_sender.clone();
+        let authentication_subscription =
+            cx.subscribe(&authentication, move |_, _, event: &LoginEvent, cx| {
+                if let LoginEvent::OpenUrl(url) = event {
+                    cx.open_url(url);
+                } else {
+                    let _ = auth_sender.try_send(HostCommand::Login(event.clone()));
+                }
+            });
         let quit_sender = command_sender.clone();
         let quit_subscription = cx.on_app_quit(move |_, _| {
             let quit_sender = quit_sender.clone();
@@ -290,6 +325,8 @@ impl CodexApp {
             thread_list,
             model_picker,
             queue,
+            authentication,
+            authentication_visible: true,
             composer,
             prompt: None,
             prompt_subscription: None,
@@ -297,6 +334,7 @@ impl CodexApp {
             _thread_list_subscription: thread_list_subscription,
             _model_picker_subscription: model_picker_subscription,
             _queue_subscription: queue_subscription,
+            _authentication_subscription: authentication_subscription,
             _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
             command_sender,
@@ -327,6 +365,15 @@ impl CodexApp {
             AppUpdate::Queue(presentation) => {
                 self.queue.update(cx, |queue, cx| {
                     queue.set_presentation(presentation, cx);
+                });
+            }
+            AppUpdate::Authentication(presentation) => {
+                self.authentication_visible = !matches!(
+                    presentation,
+                    AuthenticationPresentation::Authenticated { .. }
+                );
+                self.authentication.update(cx, |authentication, cx| {
+                    authentication.set_presentation(presentation, cx);
                 });
             }
             AppUpdate::TurnActive(active) => {
@@ -368,6 +415,7 @@ impl Render for CodexApp {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -428,7 +476,143 @@ impl Render for CodexApp {
                     .pb_5()
                     .child(self.composer.clone()),
             )
+            .when(self.authentication_visible, |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .top(px(0.))
+                        .right(px(0.))
+                        .bottom(px(0.))
+                        .left(px(0.))
+                        .child(self.authentication.clone()),
+                )
+            })
     }
+}
+
+async fn ensure_authenticated(
+    codex: &Codex,
+    commands: &Receiver<HostCommand>,
+    updates: &Sender<AppUpdate>,
+    observation: &mut SessionObservation,
+) -> Result<(), String> {
+    if publish_account(codex, updates).await? {
+        return Ok(());
+    }
+    loop {
+        tokio::select! {
+            changed = observation.changed() => {
+                changed.map_err(|error| error.to_string())?;
+                if publish_account(codex, updates).await? {
+                    return Ok(());
+                }
+            }
+            command = commands.recv() => {
+                match command {
+                    Ok(HostCommand::Login(event)) => {
+                        match handle_login_event(codex, event, updates).await {
+                            Ok(true) if publish_account(codex, updates).await? => return Ok(()),
+                            Ok(_) => {}
+                            Err(error) => {
+                                updates.send(AppUpdate::Authentication(
+                                    AuthenticationPresentation::Failed { message: error }
+                                )).await.ok();
+                            }
+                        }
+                    }
+                    Ok(HostCommand::Shutdown) | Err(_) => {
+                        return Err("authentication canceled by host shutdown".to_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+async fn publish_account(codex: &Codex, updates: &Sender<AppUpdate>) -> Result<bool, String> {
+    let account = codex
+        .account(false)
+        .await
+        .map_err(|error| error.to_string())?;
+    let ready = account.account.is_some() || !account.requires_openai_auth;
+    let presentation = if ready && account.account.is_none() {
+        AuthenticationPresentation::Authenticated {
+            label: "No account required".to_owned(),
+        }
+    } else {
+        project_account(&account)
+    };
+    updates
+        .send(AppUpdate::Authentication(presentation))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())?;
+    Ok(ready)
+}
+
+async fn handle_login_event(
+    codex: &Codex,
+    event: LoginEvent,
+    updates: &Sender<AppUpdate>,
+) -> Result<bool, String> {
+    let (presentation, refresh_account) = match event {
+        LoginEvent::ApiKey(api_key) => {
+            let challenge = codex
+                .login(LoginRequest::ApiKey(api_key))
+                .await
+                .map_err(|error| error.to_string())?;
+            let complete = matches!(challenge, codex_app_server_sdk::LoginChallenge::Complete);
+            (project_login_challenge(challenge), complete)
+        }
+        LoginEvent::Browser => {
+            let challenge = codex
+                .login(LoginRequest::ChatGptBrowser {
+                    streamlined: true,
+                    hosted_success_page: true,
+                    app_brand: Some(LoginAppBrand::Codex),
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            (project_login_challenge(challenge), false)
+        }
+        LoginEvent::DeviceCode => {
+            let challenge = codex
+                .login(LoginRequest::ChatGptDeviceCode)
+                .await
+                .map_err(|error| error.to_string())?;
+            (project_login_challenge(challenge), false)
+        }
+        LoginEvent::Cancel { login_id } => {
+            codex
+                .cancel_login(&login_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            (
+                project_account(
+                    &codex
+                        .account(false)
+                        .await
+                        .map_err(|error| error.to_string())?,
+                ),
+                true,
+            )
+        }
+        LoginEvent::Back => (
+            project_account(
+                &codex
+                    .account(false)
+                    .await
+                    .map_err(|error| error.to_string())?,
+            ),
+            true,
+        ),
+        LoginEvent::OpenUrl(_) => return Ok(false),
+    };
+    updates
+        .send(AppUpdate::Authentication(presentation))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())?;
+    Ok(refresh_account)
 }
 
 // Keeping the ordered host loop contiguous makes turn/queue/switch precedence auditable.
@@ -442,15 +626,16 @@ async fn run_session(
     let codex = Codex::connect_local(LocalSessionConfig::app_server(config.codex_binary.clone()))
         .await
         .map_err(|error| error.to_string())?;
-    let mut turn_options = load_model_catalog(&codex, &updates).await?;
-    let (started_thread, mut thread_id) =
-        start_initial_thread(&codex, &config, &turn_options, &updates).await?;
-    let mut thread = Some(started_thread);
     let mut session_observation = codex
         .client()
         .observe()
         .await
         .map_err(|error| error.to_string())?;
+    ensure_authenticated(&codex, &commands, &updates, &mut session_observation).await?;
+    let mut turn_options = load_model_catalog(&codex, &updates).await?;
+    let (started_thread, mut thread_id) =
+        start_initial_thread(&codex, &config, &turn_options, &updates).await?;
+    let mut thread = Some(started_thread);
     let mut canonical_observation = observe_thread(&codex, &thread_id).await?;
     let mut next_launch = Some(TurnLaunch::Input(config.prompt.clone()));
     let mut next_queue_id = 1_u64;
@@ -757,6 +942,7 @@ impl TurnDriver<'_> {
                 handle_queue_event(thread, event).await?;
                 publish_queue(thread, self.updates).await?;
             }
+            Ok(HostCommand::Login(_)) => {}
             Ok(HostCommand::Shutdown) | Err(_) => outcome.shutdown = true,
         }
         Ok(())
@@ -1068,7 +1254,7 @@ async fn next_idle_action(
             }
             Ok(HostCommand::Queue(event)) => return Ok(IdleAction::Queue(event)),
             Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
-            Ok(HostCommand::Interrupt) => {}
+            Ok(HostCommand::Interrupt | HostCommand::Login(_)) => {}
             Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
         }
     }

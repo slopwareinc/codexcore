@@ -132,7 +132,7 @@ impl ComposerInput {
         cx.notify();
     }
 
-    fn reset(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reset(&mut self, cx: &mut Context<Self>) {
         self.set_text("", cx);
     }
 

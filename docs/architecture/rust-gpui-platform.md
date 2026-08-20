@@ -197,6 +197,12 @@ turn while idle and steer the exact active turn while running. The same driver
 has a headless mode for authenticated Linux verification and an explicit quit
 command for deterministic App Server and lease teardown.
 
+The host reads account state before model or thread startup. Signed-out state
+is a full-window native GPUI flow with masked API-key input, browser OAuth,
+device-code copy/open, cancellation, and retry. Browser/device completion is
+driven by session invalidations followed by authoritative `account/read`; API
+keys exist only in prompt-local input and the one login command payload.
+
 ## Verification strategy
 
 - Pure Rust envelope, reducer, state-machine, and projection tests.

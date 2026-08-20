@@ -4,12 +4,78 @@ use std::sync::Arc;
 
 pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
-use codex_app_server_sdk::{ModelPage, QueuePage, ThreadPage, ThreadSummary};
+use codex_app_server_sdk::{
+    AccountKind, AccountSnapshot, LoginChallenge, ModelPage, QueuePage, ThreadPage, ThreadSummary,
+};
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, PlanStepStatus, StateRevision,
     ThreadId, TurnId,
 };
 use serde_json::Value;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AuthenticationPresentation {
+    SignedOut {
+        requires_openai_auth: bool,
+    },
+    Authenticated {
+        label: String,
+    },
+    BrowserChallenge {
+        login_id: String,
+        url: String,
+    },
+    DeviceChallenge {
+        login_id: String,
+        user_code: String,
+        verification_url: String,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+#[must_use]
+pub fn project_account(account: &AccountSnapshot) -> AuthenticationPresentation {
+    let Some(account) = &account.account else {
+        return AuthenticationPresentation::SignedOut {
+            requires_openai_auth: account.requires_openai_auth,
+        };
+    };
+    AuthenticationPresentation::Authenticated {
+        label: match account {
+            AccountKind::ApiKey => "API key".to_owned(),
+            AccountKind::ChatGpt { email, plan_type } => email
+                .as_ref()
+                .map_or_else(|| format!("ChatGPT · {plan_type}"), Clone::clone),
+            AccountKind::AmazonBedrock { .. } => "Amazon Bedrock".to_owned(),
+        },
+    }
+}
+
+#[must_use]
+pub fn project_login_challenge(challenge: LoginChallenge) -> AuthenticationPresentation {
+    match challenge {
+        LoginChallenge::Complete => AuthenticationPresentation::Authenticated {
+            label: "Authenticated".to_owned(),
+        },
+        LoginChallenge::Browser { login_id, auth_url } => {
+            AuthenticationPresentation::BrowserChallenge {
+                login_id,
+                url: auth_url,
+            }
+        }
+        LoginChallenge::DeviceCode {
+            login_id,
+            user_code,
+            verification_url,
+        } => AuthenticationPresentation::DeviceChallenge {
+            login_id,
+            user_code,
+            verification_url,
+        },
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueuePresentation {
@@ -1350,5 +1416,30 @@ mod tests {
         });
         assert_eq!(projected.rows[0].id, "queued");
         assert_eq!(projected.rows[0].text, "Follow up [image]");
+    }
+
+    #[test]
+    fn account_projection_never_exposes_secret_material() {
+        assert_eq!(
+            project_account(&AccountSnapshot {
+                account: Some(AccountKind::ChatGpt {
+                    email: Some("user@example.com".to_owned()),
+                    plan_type: "pro".to_owned(),
+                }),
+                requires_openai_auth: true,
+            }),
+            AuthenticationPresentation::Authenticated {
+                label: "user@example.com".to_owned()
+            }
+        );
+        assert_eq!(
+            project_account(&AccountSnapshot {
+                account: None,
+                requires_openai_auth: true,
+            }),
+            AuthenticationPresentation::SignedOut {
+                requires_openai_auth: true
+            }
+        );
     }
 }
