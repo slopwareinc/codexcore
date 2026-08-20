@@ -22,7 +22,7 @@ pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use queue::{CodexQueue, QueueEvent};
 pub use subagent_navigator::{CodexSubagentNavigator, SubagentSelectionEvent};
-pub use thread_list::{CodexThreadList, ThreadSelectionEvent};
+pub use thread_list::{CodexThreadList, ThreadListCommand, ThreadSelectionEvent};
 pub use transcript::{
     CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptRow, transcript_rows,
 };

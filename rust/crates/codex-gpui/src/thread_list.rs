@@ -13,6 +13,13 @@ pub struct ThreadSelectionEvent {
     pub thread_id: ThreadId,
 }
 
+/// Sidebar route command routed to the host.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ThreadListCommand {
+    NewChat,
+    Search,
+}
+
 /// Accessible virtualized stored-task navigation.
 pub struct CodexThreadList {
     presentation: ThreadListPresentation,
@@ -53,6 +60,7 @@ impl CodexThreadList {
 }
 
 impl EventEmitter<ThreadSelectionEvent> for CodexThreadList {}
+impl EventEmitter<ThreadListCommand> for CodexThreadList {}
 
 impl Render for CodexThreadList {
     #[allow(clippy::too_many_lines)]
@@ -110,7 +118,26 @@ impl Render for CodexThreadList {
                             .text_color(self.theme.text)
                             .cursor_pointer()
                             .aria_label("New chat")
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::NewChat)),
+                            )
                             .child("＋  New chat"),
+                    )
+                    .child(
+                        div()
+                            .id("codex-search-chats")
+                            .role(Role::Button)
+                            .focusable()
+                            .tab_stop(true)
+                            .rounded_lg()
+                            .px_3()
+                            .py_1()
+                            .text_xs()
+                            .text_color(self.theme.muted_text)
+                            .cursor_pointer()
+                            .aria_label("Search chats")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::Search)))
+                            .child("⌕  Search chats"),
                     ),
             )
             .child(

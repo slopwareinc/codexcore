@@ -17,7 +17,7 @@ use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexGoal, CodexModelPicker,
     CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList, CodexTranscript,
     ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
-    SubagentSelectionEvent, ThreadSelectionEvent, TranscriptEvent,
+    SubagentSelectionEvent, ThreadListCommand, ThreadSelectionEvent, TranscriptEvent,
 };
 use codex_presentation::{
     AuthenticationPresentation, GoalPresentation, ModelPickerPresentation, PromptActionKind,
@@ -186,6 +186,8 @@ enum HostCommand {
     },
     Interrupt,
     SelectThread(ThreadId),
+    NewChat,
+    Search,
     SelectModel(ModelSelectionEvent),
     Queue(QueueEvent),
     Goal(GoalEvent),
@@ -209,6 +211,7 @@ struct CodexApp {
     _composer_subscription: Subscription,
     _transcript_subscription: Subscription,
     _thread_list_subscription: Subscription,
+    _thread_command_subscription: Subscription,
     _subagent_subscription: Subscription,
     _model_picker_subscription: Subscription,
     _queue_subscription: Subscription,
@@ -360,6 +363,21 @@ fn subscribe_thread_selection(
     })
 }
 
+fn subscribe_thread_commands(
+    thread_list: &Entity<CodexThreadList>,
+    sender: &Sender<HostCommand>,
+    cx: &mut Context<CodexApp>,
+) -> Subscription {
+    let sender = sender.clone();
+    cx.subscribe(thread_list, move |_, _, event: &ThreadListCommand, _| {
+        let command = match event {
+            ThreadListCommand::NewChat => HostCommand::NewChat,
+            ThreadListCommand::Search => HostCommand::Search,
+        };
+        let _ = sender.try_send(command);
+    })
+}
+
 impl CodexApp {
     fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
         let InitialViews {
@@ -392,6 +410,8 @@ impl CodexApp {
         let transcript_subscription = subscribe_transcript_links(&transcript, cx);
         let thread_list_subscription =
             subscribe_thread_selection(&thread_list, &command_sender, cx);
+        let thread_command_subscription =
+            subscribe_thread_commands(&thread_list, &command_sender, cx);
         let subagent_subscription =
             subscribe_subagent_selection(&subagent_navigator, &command_sender, cx);
         let model_sender = command_sender.clone();
@@ -447,6 +467,7 @@ impl CodexApp {
             _composer_subscription: composer_subscription,
             _transcript_subscription: transcript_subscription,
             _thread_list_subscription: thread_list_subscription,
+            _thread_command_subscription: thread_command_subscription,
             _subagent_subscription: subagent_subscription,
             _model_picker_subscription: model_picker_subscription,
             _queue_subscription: queue_subscription,
@@ -670,29 +691,6 @@ impl Render for CodexApp {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
-                            .child(
-                                div()
-                                    .h(px(44.))
-                                    .flex_shrink_0()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .px_6()
-                                    .border_b_1()
-                                    .border_color(theme.border)
-                                    .child(
-                                        div().text_xs().text_color(theme.muted_text).child("CHAT"),
-                                    )
-                                    .child(div().flex().items_center().gap_2().child(
-                                        shell_button(
-                                            "chat-menu",
-                                            "•••",
-                                            "Chat actions",
-                                            false,
-                                            theme,
-                                        ),
-                                    )),
-                            )
                             .child(div().flex_1().min_h_0().child(self.transcript.clone()))
                             .when_some(self.prompt.clone(), |view, prompt| {
                                 view.child(div().flex_shrink_0().px_6().pb_3().child(prompt))
@@ -962,6 +960,30 @@ async fn run_session(
                         thread = Some(replacement);
                         canonical_observation = observe_thread(&codex, &thread_id).await?;
                     }
+                    continue;
+                }
+                IdleAction::NewChat => {
+                    if let Some(previous) = thread.take() {
+                        previous.close().await.map_err(|error| error.to_string())?;
+                    }
+                    let (replacement, replacement_id) =
+                        start_initial_thread(&codex, &config, &turn_options, &updates).await?;
+                    thread_id = replacement_id;
+                    thread = Some(replacement);
+                    canonical_observation = observe_thread(&codex, &thread_id).await?;
+                    refresh_goal_for_selection(
+                        thread
+                            .as_ref()
+                            .ok_or_else(|| "new thread lease is missing".to_owned())?,
+                        &updates,
+                    )
+                    .await;
+                    publish_selected(codex.client(), &thread_id, &updates).await?;
+                    send_status(&updates, "New chat ready").await;
+                    continue;
+                }
+                IdleAction::Search => {
+                    send_status(&updates, "Search is available from the task sidebar").await;
                     continue;
                 }
                 IdleAction::SelectModel(selection) => {
@@ -1262,6 +1284,20 @@ impl TurnDriver<'_> {
             },
             Ok(HostCommand::Interrupt) => {
                 turn.interrupt().await.map_err(|error| error.to_string())?;
+            }
+            Ok(HostCommand::NewChat) => {
+                send_status(
+                    self.updates,
+                    "Finish the active turn before starting a new chat",
+                )
+                .await;
+            }
+            Ok(HostCommand::Search) => {
+                send_status(
+                    self.updates,
+                    "Search is available after this turn completes",
+                )
+                .await;
             }
             Ok(HostCommand::SelectThread(selected)) => {
                 outcome.pending_selection = Some(selected);
@@ -1632,6 +1668,8 @@ async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
 enum IdleAction {
     Submit(String),
     Select(ThreadId),
+    NewChat,
+    Search,
     SelectModel(ModelSelectionEvent),
     Queue(QueueEvent),
     Goal(GoalEvent),
@@ -1656,6 +1694,8 @@ async fn next_idle_action(
                 Ok(HostCommand::SelectThread(thread_id)) => {
                     return Ok(IdleAction::Select(thread_id));
                 }
+                Ok(HostCommand::NewChat) => return Ok(IdleAction::NewChat),
+                Ok(HostCommand::Search) => return Ok(IdleAction::Search),
                 Ok(HostCommand::SelectModel(selection)) => {
                     return Ok(IdleAction::SelectModel(selection));
                 }
