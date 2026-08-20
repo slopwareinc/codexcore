@@ -15,7 +15,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | TCP/TLS WebSocket and Unix WebSocket | Complete | Bounded text frames, credential redaction, actor round-trip tests | Remote deployment soak test |
 | Ordered actor/correlation | Complete | Epoch-qualified IDs, handshake buffering, response-before-resume tests | Cross-language golden replay |
 | Disconnect/no-replay semantics | Complete | Write-attempt tracking and reconnect tests | Larger permutation/property suite |
-| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, bounded ordered orphan replay, typed Plan/Goal replacements, and pinned 0.148.0 command/reasoning/file/MCP streaming deltas with terminal-authority tests | `terminalInteraction`, direct start/completion timestamp promotion, and the remaining non-transcript notification inventory |
+| Canonical reducer and adapter | Partial | Atomic batches, coverage/status monotonicity, bounded ordered orphan replay, typed Plan/Goal replacements, pinned 0.148.0 command/reasoning/file/MCP streaming deltas, typed command `terminalInteraction`, direct item start/completion timestamps, and terminal-authority tests | Remaining non-transcript notification inventory |
 | Coalesced observation | Complete | Atomic scoped seed, descendant matching, field filters, newest-one actor tests | Expand coarse Rust masks as canonical field inventory grows |
 | Thread leases | Complete | Semantic priorities, stale completion suppression, reconnect tests | Turn-operation lease inventory audit |
 | Legacy/paginated hydration | Complete | Mode-aware read, cut coordinator, live materialized legacy/paginated tests | Reconnect-during-page live stress |
