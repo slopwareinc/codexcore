@@ -947,6 +947,7 @@ fn render_work_group(
         .into_any()
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_work_row(
     row: &WorkRowV2,
     group_key: &str,
@@ -1637,7 +1638,9 @@ fn truncate_chars(mut text: String, maximum_chars: usize) -> String {
 fn unix_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 /// Calculate active work elapsed time from the server timestamp, falling back
@@ -1648,9 +1651,12 @@ fn working_elapsed_seconds(
     since_unix_seconds: Option<i64>,
     client_started_unix_seconds: i64,
 ) -> u64 {
-    now_unix_seconds
-        .saturating_sub(since_unix_seconds.unwrap_or(client_started_unix_seconds))
-        .max(0) as u64
+    u64::try_from(
+        now_unix_seconds
+            .saturating_sub(since_unix_seconds.unwrap_or(client_started_unix_seconds))
+            .max(0),
+    )
+    .unwrap_or_default()
 }
 
 fn interrupted_work_label(duration_ms: Option<u64>, message: &str) -> String {
