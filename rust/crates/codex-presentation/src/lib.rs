@@ -1167,7 +1167,7 @@ mod tests {
     use codex_app_server_interaction::{InteractionScope, QuestionOption, UserQuestion};
     use codex_app_server_sdk::{ModelSummary, QueuedSubmission, ReasoningEffortSummary};
     use codex_app_server_state::{
-        CanonicalItem, CanonicalMutation, CanonicalStateReducer, StateCoverage,
+        CanonicalItem, CanonicalMutation, CanonicalStateReducer, ItemLiveOverlay, StateCoverage,
     };
     use codex_app_server_wire::JsonRpcId;
     use std::collections::BTreeMap;
@@ -1202,7 +1202,7 @@ mod tests {
                     payload,
                     duration_ms: None,
                     error: None,
-                    live_overlay: Default::default(),
+                    live_overlay: ItemLiveOverlay::default(),
                     live_fields: BTreeMap::new(),
                     content_revision: 0,
                 })])

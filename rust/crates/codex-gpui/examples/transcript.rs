@@ -1,6 +1,13 @@
 use codex_app_server_state::{LifecycleStatus, StateRevision, ThreadId, TurnId};
 use codex_gpui::CodexTranscriptV2;
-use codex_presentation::{MarkdownDocument, transcript_v2::*};
+use codex_presentation::{
+    MarkdownDocument,
+    transcript_v2::{
+        AssistantTextV2, CommandRowV2, ConversationSegmentV2, NarrativeEntryV2, NoticeV2,
+        TranscriptV2Presentation, TurnStatusV2, TurnV2Presentation, TurnWorkDisclosureV2,
+        UserMessageV2, WorkCategoryV2, WorkGroupV2, WorkItemStatusV2, WorkRowV2,
+    },
+};
 use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
 

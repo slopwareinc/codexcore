@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, CanonicalThread, CanonicalTurn, ItemId, ItemKey,
-    LifecycleStatus, StateCoverage, StateRevision, ThreadId, ThreadStatus, TurnId,
+    ItemLiveOverlay, LifecycleStatus, StateCoverage, StateRevision, ThreadId, ThreadStatus, TurnId,
 };
 use codex_presentation::{
     CollabAction, CollabActionStatus, CollabAgentLifecycle, ThreadGraphKey, ThreadGraphProjector,
@@ -499,7 +499,7 @@ fn canonical_item(
         },
         duration_ms: None,
         error: None,
-        live_overlay: Default::default(),
+        live_overlay: ItemLiveOverlay::default(),
         live_fields: BTreeMap::new(),
         content_revision: 0,
     }
