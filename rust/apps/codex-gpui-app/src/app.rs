@@ -274,7 +274,13 @@ impl CodexApp {
             let sender = self.command_sender.clone();
             self.prompt_subscription = Some(cx.subscribe(
                 &prompt,
-                move |_this, _prompt, intent: &PromptIntent, _cx| {
+                move |_this, _prompt, intent: &PromptIntent, cx| {
+                    if intent.action == PromptActionKind::OpenUrl
+                        && let Some(url) = &intent.url
+                    {
+                        cx.open_url(url);
+                        return;
+                    }
                     let _ = sender.try_send(HostCommand::Prompt(intent.clone()));
                 },
             ));
@@ -731,7 +737,12 @@ async fn handle_prompt(client: &AppServerClient, intent: PromptIntent) -> Result
         .into_iter()
         .find(|request| request.key == intent.key)
         .ok_or_else(|| "prompt was already resolved".to_owned())?;
-    let Some(reply) = reply_for_intent(&request, intent.action, intent.answers.as_ref()) else {
+    let Some(reply) = reply_for_intent(
+        &request,
+        intent.action,
+        intent.answers.as_ref(),
+        intent.mcp_content.as_ref(),
+    ) else {
         return Ok(());
     };
     client
@@ -744,6 +755,7 @@ fn reply_for_intent(
     request: &TypedServerRequest,
     action: PromptActionKind,
     answers: Option<&std::collections::BTreeMap<String, Vec<String>>>,
+    mcp_content: Option<&serde_json::Value>,
 ) -> Option<ServerRequestReply> {
     let approved = action == PromptActionKind::Approve;
     let declined = action == PromptActionKind::Decline;
@@ -787,6 +799,15 @@ fn reply_for_intent(
                 metadata: None,
             })
         }
+        ServerRequestBody::McpElicitation { metadata, .. }
+            if action == PromptActionKind::Respond && mcp_content.is_some() =>
+        {
+            Some(ServerRequestReply::McpElicitation {
+                action: "accept".to_owned(),
+                content: mcp_content.cloned(),
+                metadata: metadata.clone(),
+            })
+        }
         ServerRequestBody::UserInput { .. } if action == PromptActionKind::Respond => answers
             .cloned()
             .map(|answers| ServerRequestReply::UserInput { answers }),
@@ -822,7 +843,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use codex_app_server_client::ServerRequestKey;
-    use codex_app_server_interaction::{InteractionScope, UserQuestion};
+    use codex_app_server_interaction::{InteractionScope, McpElicitationMode, UserQuestion};
     use codex_app_server_wire::JsonRpcId;
 
     use super::*;
@@ -849,11 +870,11 @@ mod tests {
             raw_params: BTreeMap::new(),
         };
         assert_eq!(
-            reply_for_intent(&request, PromptActionKind::Approve, None),
+            reply_for_intent(&request, PromptActionKind::Approve, None, None),
             Some(ServerRequestReply::CommandDecision(json!("accept")))
         );
         assert_eq!(
-            reply_for_intent(&request, PromptActionKind::Respond, None),
+            reply_for_intent(&request, PromptActionKind::Respond, None, None),
             None
         );
     }
@@ -885,7 +906,7 @@ mod tests {
         };
         let answers = BTreeMap::from([("choice".to_owned(), vec!["Safe".to_owned()])]);
         assert_eq!(
-            reply_for_intent(&request, PromptActionKind::Respond, Some(&answers)),
+            reply_for_intent(&request, PromptActionKind::Respond, Some(&answers), None,),
             Some(ServerRequestReply::UserInput { answers })
         );
     }
@@ -902,5 +923,38 @@ mod tests {
         );
         assert_eq!(options.model.as_deref(), Some("model"));
         assert_eq!(options.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn maps_mcp_form_content_to_accept_reply_with_metadata() {
+        let request = TypedServerRequest {
+            key: ServerRequestKey {
+                connection_epoch: 2,
+                request_id: JsonRpcId::Integer(9),
+            },
+            body: ServerRequestBody::McpElicitation {
+                scope: InteractionScope {
+                    thread_id: ThreadId::from("thread"),
+                    turn_id: None,
+                    item_id: None,
+                },
+                server_name: "server".to_owned(),
+                message: "Configure".to_owned(),
+                mode: McpElicitationMode::Form {
+                    requested_schema: json!({"type": "object"}),
+                },
+                metadata: Some(json!({"request": "meta"})),
+            },
+            raw_params: BTreeMap::new(),
+        };
+        let content = json!({"name": "value"});
+        assert_eq!(
+            reply_for_intent(&request, PromptActionKind::Respond, None, Some(&content),),
+            Some(ServerRequestReply::McpElicitation {
+                action: "accept".to_owned(),
+                content: Some(content),
+                metadata: Some(json!({"request": "meta"})),
+            })
+        );
     }
 }

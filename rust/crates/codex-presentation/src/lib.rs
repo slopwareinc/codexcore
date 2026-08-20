@@ -594,6 +594,32 @@ pub struct PromptPresentation {
     pub actions: Vec<PromptActionPresentation>,
     /// Structured user questions when this prompt requires answers.
     pub user_input: Option<UserInputPresentation>,
+    pub mcp_form: Option<McpFormPresentation>,
+    pub mcp_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpFormPresentation {
+    pub fields: Vec<McpFieldPresentation>,
+    pub unsupported_fields: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpFieldPresentation {
+    pub name: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub kind: McpFieldKind,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum McpFieldKind {
+    Text { secret: bool },
+    Number { integer: bool },
+    Boolean,
+    Choice(Vec<String>),
+    Unsupported,
 }
 
 /// Structured user-input form independent of a UI framework.
@@ -799,7 +825,7 @@ fn mcp_prompt(
     mode: &McpElicitationMode,
 ) -> PromptPresentation {
     let is_url = matches!(mode, McpElicitationMode::Url { .. });
-    prompt(
+    let mut prompt = prompt(
         request,
         format!("{server_name} requests input"),
         Some(match mode {
@@ -820,7 +846,15 @@ fn mcp_prompt(
             ),
             secondary_action("decline", "Decline", PromptActionKind::Decline),
         ],
-    )
+    );
+    match mode {
+        McpElicitationMode::Form { requested_schema }
+        | McpElicitationMode::OpenAiForm { requested_schema } => {
+            prompt.mcp_form = Some(project_mcp_form(requested_schema));
+        }
+        McpElicitationMode::Url { url, .. } => prompt.mcp_url = Some(url.clone()),
+    }
+    prompt
 }
 
 fn host_action_prompt(request: &TypedServerRequest, title: String) -> PromptPresentation {
@@ -854,6 +888,74 @@ fn prompt(
         is_destructive,
         actions,
         user_input: None,
+        mcp_form: None,
+        mcp_url: None,
+    }
+}
+
+fn project_mcp_form(schema: &Value) -> McpFormPresentation {
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return McpFormPresentation {
+            fields: Vec::new(),
+            unsupported_fields: vec!["<root>".to_owned()],
+        };
+    };
+    let mut unsupported_fields = Vec::new();
+    let fields = properties
+        .iter()
+        .map(|(name, schema)| {
+            let kind = project_mcp_field_kind(schema);
+            if kind == McpFieldKind::Unsupported {
+                unsupported_fields.push(name.clone());
+            }
+            McpFieldPresentation {
+                name: name.clone(),
+                title: schema
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or(name)
+                    .to_owned(),
+                description: schema
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                required: required.contains(name.as_str()),
+                kind,
+            }
+        })
+        .collect();
+    McpFormPresentation {
+        fields,
+        unsupported_fields,
+    }
+}
+
+fn project_mcp_field_kind(schema: &Value) -> McpFieldKind {
+    if let Some(choices) = schema.get("enum").and_then(Value::as_array) {
+        let choices = choices
+            .iter()
+            .map(Value::as_str)
+            .collect::<Option<Vec<_>>>();
+        return choices.map_or(McpFieldKind::Unsupported, |choices| {
+            McpFieldKind::Choice(choices.into_iter().map(str::to_owned).collect())
+        });
+    }
+    match schema.get("type").and_then(Value::as_str) {
+        Some("string") => McpFieldKind::Text {
+            secret: schema.get("format").and_then(Value::as_str) == Some("password")
+                || schema.get("writeOnly").and_then(Value::as_bool) == Some(true),
+        },
+        Some("number") => McpFieldKind::Number { integer: false },
+        Some("integer") => McpFieldKind::Number { integer: true },
+        Some("boolean") => McpFieldKind::Boolean,
+        _ => McpFieldKind::Unsupported,
     }
 }
 
@@ -1014,6 +1116,29 @@ mod tests {
         let prompt = project_prompt(&request);
         assert_eq!(prompt.actions[0].kind, PromptActionKind::OpenUrl);
         assert_eq!(prompt.actions[1].kind, PromptActionKind::Decline);
+        assert_eq!(prompt.mcp_url.as_deref(), Some("https://example.com/auth"));
+    }
+
+    #[test]
+    fn mcp_form_projects_supported_primitives_and_blocks_nested_objects() {
+        let form = project_mcp_form(&serde_json::json!({
+            "type": "object",
+            "required": ["name", "mode"],
+            "properties": {
+                "name": {"type": "string", "title": "Name"},
+                "count": {"type": "integer"},
+                "enabled": {"type": "boolean"},
+                "mode": {"type": "string", "enum": ["safe", "fast"]},
+                "nested": {"type": "object", "properties": {}}
+            }
+        }));
+        assert!(form.fields.iter().any(|field| field.name == "count"));
+        assert!(form.fields.iter().any(|field| {
+            field.name == "mode"
+                && field.kind == McpFieldKind::Choice(vec!["safe".to_owned(), "fast".to_owned()])
+                && field.required
+        }));
+        assert_eq!(form.unsupported_fields, vec!["nested"]);
     }
 
     #[test]

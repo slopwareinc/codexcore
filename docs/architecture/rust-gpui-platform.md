@@ -127,6 +127,14 @@ native IME input engine as retained per-question entities. Secret questions use
 password accessibility roles and masked painting while the exact answer stays
 only in prompt-local state until submission.
 
+MCP form elicitation projects required JSON Schema object properties into
+native text/password, integer/number, boolean, and string-enum controls. Submit
+stays disabled for missing required values, invalid numbers, or any unsupported
+nested/compound field; unsupported names remain visible. Accepted content and
+request metadata return through the original request identity. URL-mode
+elicitation opens through the GPUI host and stays pending until App Server
+resolves or cancels it.
+
 The composer uses GPUI's native input-handler contract for IME composition,
 UTF-16 platform ranges, grapheme navigation, selection, and clipboard actions.
 Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key

@@ -209,8 +209,9 @@ CODEX_BINARY=/absolute/path/to/codex \
 ```
 
 Advertised-choice, free-form, custom, and secret user questions can be answered
-inline. MCP schema-driven form editors are still pending; the host never
-synthesizes answers for those requests, so they remain visibly pending.
+inline. MCP primitive schema forms and URL-mode opening are supported; nested
+or compound schemas remain visibly blocked rather than receiving synthesized
+answers.
 
 ## Remote and Unix-socket sessions
 
