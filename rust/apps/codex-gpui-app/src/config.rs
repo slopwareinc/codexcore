@@ -5,6 +5,7 @@ pub(crate) struct RunConfiguration {
     pub(crate) codex_binary: PathBuf,
     pub(crate) cwd: PathBuf,
     pub(crate) prompt: String,
+    pub(crate) prompt_explicit: bool,
     pub(crate) ephemeral: bool,
     pub(crate) headless: bool,
     pub(crate) queued_prompt: Option<String>,
@@ -16,6 +17,7 @@ impl RunConfiguration {
             env::var_os("CODEX_BINARY").map_or_else(|| PathBuf::from("codex"), PathBuf::from);
         let mut cwd = env::current_dir().map_err(|error| error.to_string())?;
         let mut prompt = "Introduce yourself in one short sentence. Do not use tools.".to_owned();
+        let mut prompt_explicit = false;
         let mut ephemeral = false;
         let mut headless = false;
         let mut queued_prompt = None;
@@ -26,7 +28,10 @@ impl RunConfiguration {
                     codex_binary = PathBuf::from(next_value(&mut arguments, &argument)?);
                 }
                 "--cwd" => cwd = PathBuf::from(next_value(&mut arguments, &argument)?),
-                "--prompt" => prompt = next_value(&mut arguments, &argument)?,
+                "--prompt" => {
+                    prompt = next_value(&mut arguments, &argument)?;
+                    prompt_explicit = true;
+                }
                 "--persist" => ephemeral = false,
                 "--ephemeral" => ephemeral = true,
                 "--headless" => headless = true,
@@ -45,6 +50,7 @@ impl RunConfiguration {
             codex_binary,
             cwd,
             prompt,
+            prompt_explicit,
             ephemeral,
             headless,
             queued_prompt,
@@ -87,6 +93,7 @@ mod tests {
         assert_eq!(config.codex_binary, PathBuf::from("/bin/codex"));
         assert_eq!(config.cwd, PathBuf::from("/workspace"));
         assert_eq!(config.prompt, "hello");
+        assert!(config.prompt_explicit);
         assert!(!config.ephemeral);
         assert!(config.headless);
         assert_eq!(config.queued_prompt.as_deref(), Some("follow up"));
@@ -96,6 +103,7 @@ mod tests {
     fn reference_host_persists_threads_unless_ephemeral_is_explicit() {
         let persistent = RunConfiguration::parse(Vec::<String>::new()).expect("defaults");
         assert!(!persistent.ephemeral);
+        assert!(!persistent.prompt_explicit);
         let ephemeral =
             RunConfiguration::parse(["--ephemeral".to_owned()]).expect("ephemeral override");
         assert!(ephemeral.ephemeral);

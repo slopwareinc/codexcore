@@ -936,7 +936,8 @@ async fn run_session(
         &updates,
     )
     .await;
-    let mut next_launch = Some(TurnLaunch::Input(config.prompt.clone()));
+    let mut next_launch = (config.headless || config.prompt_explicit)
+        .then(|| TurnLaunch::Input(config.prompt.clone()));
     let mut next_queue_id = 1_u64;
     let mut shutdown = false;
     while !shutdown {
@@ -1199,7 +1200,11 @@ async fn start_initial_thread(
         codex,
         &thread_id,
         Some(&config.cwd),
-        TaskStatusPresentation::Running,
+        if config.headless || config.prompt_explicit {
+            TaskStatusPresentation::Running
+        } else {
+            TaskStatusPresentation::Idle
+        },
         updates,
     )
     .await?;
