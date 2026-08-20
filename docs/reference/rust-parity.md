@@ -31,8 +31,8 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 
 | Capability | Rust status | Current evidence | Remaining proof/work |
 | --- | --- | --- | --- |
-| Virtual transcript | Partial | Bottom-aligned variable-height list, stable IDs, tail following, targeted remeasurement | Markdown, selection/copy, turn minimap, visual/stress baselines |
-| User/assistant/reasoning/activity rows | Partial | Semantic projection and accessible native rows | Full grouping/phase grammar and rich Markdown |
+| Virtual transcript | Partial | Bottom-aligned variable-height list, stable IDs, tail following, targeted remeasurement, native Markdown blocks | Selection/copy, turn minimap, visual/stress baselines |
+| User/assistant/reasoning/activity rows | Partial | Semantic projection, accessible native rows, CommonMark/GFM headings, emphasis, code, quotes, lists/tasks, aligned tables, rules, literal HTML fallback, image alt text | Full grouping/phase grammar, host-routed link actions, syntax highlighting, incremental streaming-tail parsing |
 | Commands | Partial | Bounded UTF-8 output, exit state, monospace card | ANSI styling, expand/copy, internal scrolling |
 | File changes | Partial | Stable semantic changes and bounded colored diff preview | Full unified parser, gutters/hunks, expansion/review actions |
 | Tool calls/unknown items | Partial | Semantic cards, bounded JSON, visible unknown fallback | Product renderer registry and structured result views |

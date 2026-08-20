@@ -6,6 +6,7 @@
 
 mod auth;
 mod composer;
+mod markdown;
 mod model_picker;
 mod prompt;
 mod queue;

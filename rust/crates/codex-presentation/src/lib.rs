@@ -1,5 +1,11 @@
 //! Framework-neutral transcript, activity, and prompt presentation.
 
+mod markdown;
+
+pub use markdown::{
+    MarkdownAlignment, MarkdownBlock, MarkdownDocument, MarkdownNode, MarkdownQuoteKind,
+};
+
 use std::sync::Arc;
 
 pub use codex_app_server_client::ServerRequestKey;
@@ -346,6 +352,7 @@ pub enum TranscriptEntry {
     AssistantMessage {
         text: String,
         phase: Option<String>,
+        markdown: MarkdownDocument,
     },
     Reasoning {
         summary: String,
@@ -544,10 +551,14 @@ fn project_item(item: &CanonicalItem) -> TranscriptEntry {
         "userMessage" => TranscriptEntry::UserMessage {
             text: message_text(&payload),
         },
-        "agentMessage" => TranscriptEntry::AssistantMessage {
-            text: string(&payload, "text").unwrap_or_default(),
-            phase: string(&payload, "phase"),
-        },
+        "agentMessage" => {
+            let text = string(&payload, "text").unwrap_or_default();
+            TranscriptEntry::AssistantMessage {
+                markdown: MarkdownDocument::parse(&text),
+                text,
+                phase: string(&payload, "phase"),
+            }
+        }
         "reasoning" => TranscriptEntry::Reasoning {
             summary: string(&payload, "summary")
                 .or_else(|| string(&payload, "text"))

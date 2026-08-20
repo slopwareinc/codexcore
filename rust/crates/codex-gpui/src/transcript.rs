@@ -5,7 +5,7 @@ use std::sync::Arc;
 use codex_app_server_state::{LifecycleStatus, PlanStepStatus, StateRevision};
 use codex_presentation::{
     ActivityKind, ActivityPresentation, CommandOutputPresentation, FileChangeKind,
-    FileChangePresentation, PlanPresentation, PresentedEntry, TranscriptEntry,
+    FileChangePresentation, MarkdownDocument, PlanPresentation, PresentedEntry, TranscriptEntry,
     TranscriptPresentation,
 };
 use gpui::{
@@ -356,9 +356,11 @@ fn render_entry(entry: &PresentedEntry, theme: CodexTheme) -> AnyElement {
 
     match &entry.content {
         TranscriptEntry::UserMessage { text } => render_user(shell, text, theme),
-        TranscriptEntry::AssistantMessage { text, phase } => {
-            render_assistant(shell, text, phase.as_deref(), theme)
-        }
+        TranscriptEntry::AssistantMessage {
+            text: _,
+            phase,
+            markdown,
+        } => render_assistant(shell, markdown, phase.as_deref(), theme),
         TranscriptEntry::Reasoning { summary, detail } => {
             render_reasoning(shell, summary, detail.as_deref(), theme)
         }
@@ -435,7 +437,7 @@ fn render_user(shell: RowShell, text: &str, theme: CodexTheme) -> AnyElement {
 
 fn render_assistant(
     shell: RowShell,
-    text: &str,
+    markdown: &MarkdownDocument,
     phase: Option<&str>,
     theme: CodexTheme,
 ) -> AnyElement {
@@ -447,9 +449,7 @@ fn render_assistant(
         .child(
             div()
                 .max_w(px(840.))
-                .whitespace_normal()
-                .line_height(px(22.))
-                .child(text.to_owned()),
+                .child(crate::markdown::render_markdown(markdown, theme)),
         )
         .into_any()
 }
@@ -790,7 +790,11 @@ fn compact_json(value: &serde_json::Value) -> String {
 fn entry_accessibility_label(entry: &PresentedEntry) -> String {
     let label = match &entry.content {
         TranscriptEntry::UserMessage { text } => format!("You: {text}"),
-        TranscriptEntry::AssistantMessage { text, phase } => phase.as_ref().map_or_else(
+        TranscriptEntry::AssistantMessage {
+            text,
+            phase,
+            markdown: _,
+        } => phase.as_ref().map_or_else(
             || format!("Codex: {text}"),
             |phase| format!("Codex {phase}: {text}"),
         ),
@@ -871,6 +875,7 @@ mod tests {
             content: TranscriptEntry::AssistantMessage {
                 text: text.to_owned(),
                 phase: None,
+                markdown: codex_presentation::MarkdownDocument::parse(text),
             },
         }
     }

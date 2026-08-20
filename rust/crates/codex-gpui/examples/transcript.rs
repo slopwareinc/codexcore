@@ -40,6 +40,9 @@ fn sample_transcript() -> TranscriptPresentation {
             content: TranscriptEntry::AssistantMessage {
                 text: "The SDK owns protocol ordering and canonical state. This view consumes a disposable projection and can be embedded in any GPUI host.".to_owned(),
                 phase: Some("commentary".to_owned()),
+                markdown: codex_presentation::MarkdownDocument::parse(
+                    "The SDK owns protocol ordering and canonical state. This view consumes a disposable projection and can be embedded in any GPUI host.",
+                ),
             },
         },
         PresentedEntry {

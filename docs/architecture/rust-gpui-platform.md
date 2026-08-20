@@ -121,6 +121,15 @@ reports omitted bytes while canonical state retains the source fact. JSON tool
 summaries are capped at 12,000 characters. These are render-projection bounds,
 not protocol truncation or event-loss policies.
 
+Assistant Markdown is parsed in the framework-neutral presentation layer with
+the pinned MIT-licensed `pulldown-cmark` parser; GPUI never reparses source in
+`Render`. The native tree preserves headings, inline emphasis/code/link
+destinations, fenced and indented code completeness, quotes, ordered and task
+lists, aligned tables, thematic rules, and image alt text. Raw block and inline
+HTML is rendered literally, never interpreted, and remote images are not
+fetched. Link activation remains a typed host capability rather than direct
+renderer authority.
+
 `turn/plan/updated` is generated-validated into typed, lossless plan-step
 statuses and an authoritative turn-level replacement. Reducer commits are
 atomic and idempotent; presentation gives the plan its own stable virtual row
