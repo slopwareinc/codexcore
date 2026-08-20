@@ -6,6 +6,7 @@
 
 mod auth;
 mod composer;
+mod file_change;
 mod goal;
 mod markdown;
 mod model_picker;
@@ -18,6 +19,11 @@ mod transcript_v2;
 
 pub use auth::{CodexAuthentication, LoginEvent};
 pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as init_composer};
+pub use file_change::{
+    DIFF_GUTTER_WIDTH, DiffHunkProjection, DiffLineKind, DiffLineProjection, FileChangeLayout,
+    FileChangeProjection, FileDiffProjection, MAX_DIFF_BYTES, MAX_DIFF_HEIGHT,
+    MAX_VISIBLE_DIFF_LINES, MAX_VISIBLE_FILES, parse_unified_diff,
+};
 pub use goal::{CodexGoal, GoalEvent};
 pub use model_picker::{CodexModelPicker, ModelSelectionEvent, display_reasoning_effort};
 pub use prompt::{CodexPrompt, PromptIntent};

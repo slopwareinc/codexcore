@@ -338,6 +338,7 @@ pub struct CodexTranscriptV2 {
     turn_expansion_overrides: BTreeMap<String, bool>,
     group_expansion_overrides: BTreeMap<String, bool>,
     expanded_work_rows: BTreeSet<String>,
+    selected_file_indices: BTreeMap<String, usize>,
 }
 
 impl CodexTranscriptV2 {
@@ -361,6 +362,7 @@ impl CodexTranscriptV2 {
             turn_expansion_overrides: BTreeMap::new(),
             group_expansion_overrides: BTreeMap::new(),
             expanded_work_rows: BTreeSet::new(),
+            selected_file_indices: BTreeMap::new(),
         }
     }
 
@@ -492,10 +494,28 @@ impl CodexTranscriptV2 {
         cx.notify();
     }
 
-    fn toggle_work_row(&mut self, row_key: String, group_key: &str, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_work_row(
+        &mut self,
+        row_key: String,
+        group_key: &str,
+        cx: &mut Context<Self>,
+    ) {
         if !self.expanded_work_rows.remove(&row_key) {
             self.expanded_work_rows.insert(row_key);
         }
+        self.remeasure_group(group_key);
+        cx.notify();
+    }
+
+    pub(crate) fn select_file_change(
+        &mut self,
+        row_key: &str,
+        selected_index: usize,
+        group_key: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_file_indices
+            .insert(row_key.to_owned(), selected_index);
         self.remeasure_group(group_key);
         cx.notify();
     }
@@ -548,6 +568,11 @@ impl CodexTranscriptV2 {
                 .iter()
                 .any(|group_key| row_key.starts_with(&format!("{group_key}:row:")))
         });
+        self.selected_file_indices.retain(|row_key, _| {
+            group_keys
+                .iter()
+                .any(|group_key| row_key.starts_with(&format!("{group_key}:row:")))
+        });
     }
 }
 
@@ -564,6 +589,7 @@ impl Render for CodexTranscriptV2 {
         let emitter = cx.entity().downgrade();
         let group_expansion_overrides = self.group_expansion_overrides.clone();
         let expanded_work_rows = self.expanded_work_rows.clone();
+        let selected_file_indices = self.selected_file_indices.clone();
         div()
             .id("codex-transcript-v2")
             .role(Role::Log)
@@ -595,6 +621,7 @@ impl Render for CodexTranscriptV2 {
                                                 &emitter,
                                                 &group_expansion_overrides,
                                                 &expanded_work_rows,
+                                                &selected_file_indices,
                                                 now_unix_seconds,
                                                 &working_client_started_unix_seconds,
                                             )
@@ -654,6 +681,7 @@ fn render_row(
     emitter: &WeakEntity<CodexTranscriptV2>,
     group_expansion_overrides: &BTreeMap<String, bool>,
     expanded_work_rows: &BTreeSet<String>,
+    selected_file_indices: &BTreeMap<String, usize>,
     now_unix_seconds: i64,
     working_client_started_unix_seconds: &BTreeMap<String, i64>,
 ) -> AnyElement {
@@ -696,6 +724,7 @@ fn render_row(
                     .copied()
                     .unwrap_or(group.is_expanded_by_default),
                 expanded_work_rows,
+                selected_file_indices,
             )
         }
         TranscriptV2Row::ProductToolCall { call, .. } => {
@@ -869,6 +898,7 @@ fn render_work_group(
     emitter: &WeakEntity<CodexTranscriptV2>,
     expanded: bool,
     expanded_work_rows: &BTreeSet<String>,
+    selected_file_indices: &BTreeMap<String, usize>,
 ) -> AnyElement {
     let label = group.display_header().to_owned();
     let group_key = id.to_owned();
@@ -940,6 +970,10 @@ fn render_work_group(
                             theme,
                             emitter,
                             expanded_work_rows.contains(&row_key),
+                            selected_file_indices
+                                .get(&row_key)
+                                .copied()
+                                .unwrap_or_default(),
                         )
                     })),
             )
@@ -954,8 +988,20 @@ fn render_work_row(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
     expanded: bool,
+    selected_file_index: usize,
 ) -> AnyElement {
     let row_key = work_row_key(group_key, row.id());
+    if let WorkRowV2::FileChange(file_change) = row {
+        return crate::file_change::render_file_change_row(
+            &row_key,
+            group_key,
+            file_change,
+            theme,
+            emitter,
+            expanded,
+            selected_file_index,
+        );
+    }
     let (label, detail) = work_row_content(row);
     let has_detail = detail.is_some();
     let status = row.status();
