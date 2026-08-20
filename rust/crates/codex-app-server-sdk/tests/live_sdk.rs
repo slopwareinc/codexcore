@@ -140,6 +140,39 @@ async fn section_crud_and_thread_move() {
         .await
         .expect("start movable thread");
     let thread_id = thread.id().clone();
+    let turn = thread
+        .start_turn(
+            vec![CodexInput::text("Reply with OK.")],
+            TurnOptions::default(),
+        )
+        .await
+        .expect("materialize movable thread");
+    let turn_key = TurnKey {
+        thread_id: thread_id.clone(),
+        turn_id: turn.id().clone(),
+    };
+    let mut reached_terminal = false;
+    for _ in 0..120 {
+        let canonical = codex
+            .client()
+            .canonical_snapshot()
+            .await
+            .expect("turn snapshot");
+        if canonical
+            .turns
+            .get(&turn_key)
+            .is_some_and(|turn| turn.status.is_terminal())
+        {
+            reached_terminal = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(
+        reached_terminal,
+        "movable turn did not reach terminal state"
+    );
+    turn.close().await.expect("release active turn");
     codex
         .move_thread_to_section(&thread_id, Some(&section.id), None)
         .await
