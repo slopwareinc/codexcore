@@ -3,6 +3,7 @@
 mod collaboration_graph;
 mod goal;
 mod markdown;
+pub mod transcript_v2;
 
 pub use collaboration_graph::{
     CollabAction, CollabActionStatus, CollabAgentLifecycle, CollabAgentState, ThreadGraphAction,
