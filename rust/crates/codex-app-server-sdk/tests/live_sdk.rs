@@ -51,6 +51,15 @@ async fn durable_queue_add_list_update_reorder_delete() {
         .await
         .expect("start queue thread");
     let thread_id = thread.id().clone();
+    let turn = thread
+        .start_turn(
+            vec![CodexInput::text(
+                "Write a detailed multi-section explanation of Rust ownership with many examples.",
+            )],
+            TurnOptions::default(),
+        )
+        .await
+        .expect("start seed turn");
     let queued = thread
         .queue_add(
             vec![CodexInput::text("first")],
@@ -78,6 +87,8 @@ async fn durable_queue_add_list_update_reorder_delete() {
         .await
         .expect("reorder queue");
     assert!(thread.queue_delete(&queued.id).await.expect("delete queue"));
+    turn.interrupt().await.expect("interrupt seed turn");
+    turn.close().await.expect("release active turn");
     thread.close().await.expect("release thread");
     codex
         .client()
