@@ -17,8 +17,8 @@ use codex_presentation::{
     },
 };
 use gpui::{
-    AnyElement, Context, EventEmitter, FollowMode, ListAlignment, ListState, Render, Role, Task,
-    WeakEntity, Window, div, list, prelude::*, px,
+    AnyElement, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment, ListState, Render,
+    Role, Task, WeakEntity, Window, div, list, prelude::*, px,
 };
 
 use crate::{
@@ -798,17 +798,29 @@ fn render_work_disclosure(
         })
         .when(is_actionable, |view| {
             let emitter = emitter.clone();
+            let click_emitter = emitter.clone();
+            let keyboard_turn_id = toggle_turn_id.clone();
             view.role(Role::Button)
                 .aria_expanded(expanded)
                 .focusable()
                 .tab_stop(true)
                 .cursor_pointer()
                 .on_click(move |_, _, cx| {
-                    emitter
+                    click_emitter
                         .update(cx, |transcript, cx| {
                             transcript.toggle_turn_work(toggle_turn_id.clone(), cx);
                         })
                         .ok();
+                })
+                .on_key_down(move |event, window, cx| {
+                    if is_disclosure_key(event) {
+                        window.prevent_default();
+                        emitter
+                            .update(cx, |transcript, cx| {
+                                transcript.toggle_turn_work(keyboard_turn_id.clone(), cx);
+                            })
+                            .ok();
+                    }
                 })
         })
         .when(!is_actionable, |view| view.role(Role::Status))
@@ -868,6 +880,8 @@ fn render_work_group(
         .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
         .child({
             let emitter = emitter.clone();
+            let click_emitter = emitter.clone();
+            let keyboard_group_key = group_key.clone();
             div()
                 .id(format!("{id}:disclosure"))
                 .role(Role::Button)
@@ -891,11 +905,21 @@ fn render_work_group(
                 .child(div().min_w_0().truncate().child(label))
                 .child(div().child(if expanded { "⌄" } else { "›" }))
                 .on_click(move |_, _, cx| {
-                    emitter
+                    click_emitter
                         .update(cx, |transcript, cx| {
                             transcript.toggle_group(&group_key, cx);
                         })
                         .ok();
+                })
+                .on_key_down(move |event, window, cx| {
+                    if is_disclosure_key(event) {
+                        window.prevent_default();
+                        emitter
+                            .update(cx, |transcript, cx| {
+                                transcript.toggle_group(&keyboard_group_key, cx);
+                            })
+                            .ok();
+                    }
                 })
         })
         .when(expanded, |view| {
@@ -962,19 +986,36 @@ fn render_work_row(
         })
         .when(has_detail, |view| {
             let emitter = emitter.clone();
+            let click_emitter = emitter.clone();
             let toggle_key = row_key.clone();
             let toggle_group_key = group_key.to_owned();
+            let keyboard_toggle_key = toggle_key.clone();
+            let keyboard_group_key = toggle_group_key.clone();
             view.role(Role::Button)
                 .aria_expanded(expanded)
                 .focusable()
                 .tab_stop(true)
                 .cursor_pointer()
                 .on_click(move |_, _, cx| {
-                    emitter
+                    click_emitter
                         .update(cx, |transcript, cx| {
                             transcript.toggle_work_row(toggle_key.clone(), &toggle_group_key, cx);
                         })
                         .ok();
+                })
+                .on_key_down(move |event, window, cx| {
+                    if is_disclosure_key(event) {
+                        window.prevent_default();
+                        emitter
+                            .update(cx, |transcript, cx| {
+                                transcript.toggle_work_row(
+                                    keyboard_toggle_key.clone(),
+                                    &keyboard_group_key,
+                                    cx,
+                                );
+                            })
+                            .ok();
+                    }
                 })
         })
         .h(px(TranscriptLayoutMetrics::WORK_ROW_HEIGHT))
@@ -1447,6 +1488,15 @@ fn work_kind_glyph(row: &WorkRowV2) -> &'static str {
         WorkRowV2::Collaboration(_) => "◎",
         WorkRowV2::Other(_) => "·",
     }
+}
+
+fn is_disclosure_key(event: &KeyDownEvent) -> bool {
+    is_disclosure_key_name(&event.keystroke.key)
+}
+
+#[must_use]
+fn is_disclosure_key_name(key: &str) -> bool {
+    matches!(key, "enter" | "return" | "space" | " ")
 }
 
 fn work_status_label(status: &WorkItemStatusV2) -> &str {
@@ -1951,6 +2001,14 @@ mod tests {
             )),
             "⌘"
         );
+    }
+
+    #[test]
+    fn disclosure_keyboard_activation_accepts_enter_and_space_only() {
+        assert!(is_disclosure_key_name("enter"));
+        assert!(is_disclosure_key_name("space"));
+        assert!(is_disclosure_key_name(" "));
+        assert!(!is_disclosure_key_name("escape"));
     }
 
     #[test]
