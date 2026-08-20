@@ -76,6 +76,8 @@ pub struct CodexTheme {
     pub accent: Rgba,
     pub user_message: Rgba,
     pub user_message_stroke: Rgba,
+    /// Accent used for work that is still running.
+    pub running: Rgba,
     pub success: Rgba,
     pub warning: Rgba,
     pub danger: Rgba,
@@ -95,6 +97,7 @@ impl Default for CodexTheme {
             accent: rgb(0x0081_89ff),
             user_message: rgba(0xffff_ff0f),
             user_message_stroke: rgba(0xffff_ff14),
+            running: rgb(0x0081_89ff),
             success: rgb(0x0044_d17e),
             warning: rgb(0x00e7_a23c),
             danger: rgb(0x00ff_6b66),

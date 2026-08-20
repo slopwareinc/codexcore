@@ -3,19 +3,21 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use codex_app_server_state::{StateRevision, TurnId};
 use codex_presentation::{
     PlanPresentation,
     transcript_v2::{
-        AssistantTextV2, CollaborationActionV2, ConversationSegmentV2, GeneratedImageV2,
-        InlineActivityV2, NarrativeEntryV2, NoticeV2, ProductToolCallV2, TranscriptV2Presentation,
-        TurnStatusV2, TurnV2Presentation, UserMessageV2, WorkGroupV2, WorkItemStatusV2, WorkRowV2,
+        AssistantTextV2, CollaborationActionV2, CommandRowV2, ConversationSegmentV2,
+        GeneratedImageV2, InlineActivityV2, NarrativeEntryV2, NoticeV2, ProductToolCallV2,
+        TranscriptV2Presentation, TurnStatusV2, TurnV2Presentation, UserMessageV2, WorkCategoryV2,
+        WorkGroupV2, WorkItemStatusV2, WorkRowV2,
     },
 };
 use gpui::{
-    AnyElement, Context, EventEmitter, FollowMode, ListAlignment, ListState, Render, Role,
+    AnyElement, Context, EventEmitter, FollowMode, ListAlignment, ListState, Render, Role, Task,
     WeakEntity, Window, div, list, prelude::*, px,
 };
 
@@ -165,6 +167,20 @@ fn project_rows(
         .collect()
 }
 
+fn working_client_starts(
+    presentation: &TranscriptV2Presentation,
+    now_unix_seconds: i64,
+) -> BTreeMap<String, i64> {
+    presentation
+        .turns
+        .iter()
+        .filter_map(|turn| {
+            matches!(turn.status, TurnStatusV2::Working { .. })
+                .then_some((turn.turn_id.as_str().to_owned(), now_unix_seconds))
+        })
+        .collect()
+}
+
 fn project_turn_rows(
     turn: &TurnV2Presentation,
     turn_expansion_overrides: &BTreeMap<String, bool>,
@@ -311,6 +327,13 @@ pub struct CodexTranscriptV2 {
     rows: Arc<[TranscriptV2Row]>,
     list_state: ListState,
     theme: CodexTheme,
+    /// Client fallback start, scoped to each working turn whose server
+    /// timestamp is absent. A transcript may receive a later working turn.
+    working_client_started_unix_seconds: BTreeMap<String, i64>,
+    /// Wall-clock second used by the one active work-header tick.
+    now_unix_seconds: i64,
+    /// A single foreground-owned tick task refreshes active elapsed labels.
+    work_tick_task: Option<Task<()>>,
     turn_expansion_overrides: BTreeMap<String, bool>,
     group_expansion_overrides: BTreeMap<String, bool>,
     expanded_work_rows: BTreeSet<String>,
@@ -322,11 +345,18 @@ impl CodexTranscriptV2 {
         let rows: Arc<[TranscriptV2Row]> = transcript_v2_rows(presentation).into();
         let list_state = ListState::new(rows.len(), ListAlignment::Bottom, px(800.));
         list_state.set_follow_mode(FollowMode::Tail);
+        let now_unix_seconds = unix_seconds();
         Self {
             presentation: presentation.clone(),
             rows,
             list_state,
             theme: CodexTheme::default(),
+            working_client_started_unix_seconds: working_client_starts(
+                presentation,
+                now_unix_seconds,
+            ),
+            now_unix_seconds,
+            work_tick_task: None,
             turn_expansion_overrides: BTreeMap::new(),
             group_expansion_overrides: BTreeMap::new(),
             expanded_work_rows: BTreeSet::new(),
@@ -358,10 +388,68 @@ impl CodexTranscriptV2 {
         if presentation.revision < self.presentation.revision {
             return;
         }
+        self.now_unix_seconds = unix_seconds();
         self.presentation = presentation.clone();
+        self.sync_working_client_starts();
         self.prune_expansion_state();
         self.rebuild_rows();
+        if !self.has_working_turn() {
+            self.work_tick_task.take();
+        }
         cx.notify();
+    }
+
+    fn has_working_turn(&self) -> bool {
+        self.presentation
+            .turns
+            .iter()
+            .any(|turn| matches!(turn.status, TurnStatusV2::Working { .. }))
+    }
+
+    fn sync_working_client_starts(&mut self) {
+        let active_turns = self
+            .presentation
+            .turns
+            .iter()
+            .filter_map(|turn| {
+                matches!(turn.status, TurnStatusV2::Working { .. })
+                    .then_some(turn.turn_id.as_str().to_owned())
+            })
+            .collect::<BTreeSet<_>>();
+        self.working_client_started_unix_seconds
+            .retain(|turn_id, _| active_turns.contains(turn_id));
+        for turn_id in active_turns {
+            self.working_client_started_unix_seconds
+                .entry(turn_id)
+                .or_insert(self.now_unix_seconds);
+        }
+    }
+
+    /// Start the one real GPUI timer used for active work headers. The task is
+    /// deliberately lazy so an idle transcript does not wake once per second.
+    fn ensure_work_tick(&mut self, cx: &Context<Self>) {
+        if self.work_tick_task.is_some() || !self.has_working_turn() {
+            return;
+        }
+        self.work_tick_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let Ok(active) = this.update(cx, |transcript, cx| {
+                    if !transcript.has_working_turn() {
+                        transcript.work_tick_task.take();
+                        return false;
+                    }
+                    transcript.now_unix_seconds = unix_seconds();
+                    cx.notify();
+                    true
+                }) else {
+                    break;
+                };
+                if !active {
+                    break;
+                }
+            }
+        }));
     }
 
     fn toggle_turn_work(&mut self, turn_id: String, cx: &mut Context<Self>) {
@@ -466,9 +554,12 @@ impl EventEmitter<TranscriptEvent> for CodexTranscriptV2 {}
 
 impl Render for CodexTranscriptV2 {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_work_tick(cx);
         let rows = Arc::clone(&self.rows);
         let state = self.list_state.clone();
         let theme = self.theme;
+        let now_unix_seconds = self.now_unix_seconds;
+        let working_client_started_unix_seconds = self.working_client_started_unix_seconds.clone();
         let emitter = cx.entity().downgrade();
         let group_expansion_overrides = self.group_expansion_overrides.clone();
         let expanded_work_rows = self.expanded_work_rows.clone();
@@ -503,6 +594,8 @@ impl Render for CodexTranscriptV2 {
                                                 &emitter,
                                                 &group_expansion_overrides,
                                                 &expanded_work_rows,
+                                                now_unix_seconds,
+                                                &working_client_started_unix_seconds,
                                             )
                                         },
                                     )
@@ -560,6 +653,8 @@ fn render_row(
     emitter: &WeakEntity<CodexTranscriptV2>,
     group_expansion_overrides: &BTreeMap<String, bool>,
     expanded_work_rows: &BTreeSet<String>,
+    now_unix_seconds: i64,
+    working_client_started_unix_seconds: &BTreeMap<String, i64>,
 ) -> AnyElement {
     match row {
         TranscriptV2Row::OpeningUser { message, .. }
@@ -579,6 +674,10 @@ fn render_row(
             *visible_entry_count,
             theme,
             emitter,
+            now_unix_seconds,
+            working_client_started_unix_seconds
+                .get(turn_id.as_str())
+                .copied(),
         ),
         TranscriptV2Row::Prose { prose, .. }
         | TranscriptV2Row::FinalAnswer { answer: prose, .. } => {
@@ -667,8 +766,15 @@ fn render_work_disclosure(
     visible_entry_count: usize,
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
+    now_unix_seconds: i64,
+    client_started_unix_seconds: Option<i64>,
 ) -> AnyElement {
-    let label = work_disclosure_label(status, visible_entry_count);
+    let label = work_disclosure_label(
+        status,
+        visible_entry_count,
+        now_unix_seconds,
+        client_started_unix_seconds.unwrap_or(now_unix_seconds),
+    );
     let toggle_turn_id = turn_id.as_str().to_owned();
     let is_actionable = matches!(status, TurnStatusV2::Done { .. });
     div()
@@ -709,16 +815,37 @@ fn render_work_disclosure(
         .into_any()
 }
 
-fn work_disclosure_label(status: &TurnStatusV2, visible_entry_count: usize) -> String {
+fn work_disclosure_label(
+    status: &TurnStatusV2,
+    visible_entry_count: usize,
+    now_unix_seconds: i64,
+    client_started_unix_seconds: i64,
+) -> String {
     match status {
         TurnStatusV2::Working { .. } if visible_entry_count == 0 => "Thinking".to_owned(),
-        TurnStatusV2::Working { .. } => "Working".to_owned(),
+        TurnStatusV2::Working { since_unix_seconds } => format!(
+            "Working for {}s",
+            working_elapsed_seconds(
+                now_unix_seconds,
+                *since_unix_seconds,
+                client_started_unix_seconds,
+            )
+        ),
         TurnStatusV2::Done { duration_ms } => duration_ms.map_or_else(
             || "Worked".to_owned(),
             |duration| format!("Worked for {}", format_duration(duration)),
         ),
-        TurnStatusV2::Interrupted { .. } => "Work interrupted".to_owned(),
-        TurnStatusV2::Failed { .. } => "Work failed".to_owned(),
+        TurnStatusV2::Interrupted {
+            duration_ms,
+            message,
+        } => interrupted_work_label(*duration_ms, message),
+        TurnStatusV2::Failed { message, .. } => {
+            if message.trim().is_empty() {
+                "Work failed".to_owned()
+            } else {
+                bounded_label(message.clone())
+            }
+        }
     }
 }
 
@@ -806,16 +933,32 @@ fn render_work_row(
     let (label, detail) = work_row_content(row);
     let has_detail = detail.is_some();
     let status = row.status();
+    let label_for_aria = label.clone();
+    let (duration, execution_state, use_command_font) = match row {
+        WorkRowV2::Command(command) => (
+            command_duration_label(command),
+            Some(command_execution_state_label(command)),
+            command_row_is_monospaced(command),
+        ),
+        _ => (None, None, false),
+    };
+    let label_view = div()
+        .min_w_0()
+        .flex_1()
+        .truncate()
+        .when(use_command_font, |view| view.font_family("monospace"))
+        .child(label);
+    let status_color = work_status_color(status, theme);
     let header = div()
         .id(format!("work-row:{row_key}:disclosure"))
         .aria_label(if has_detail {
             format!(
-                "{label}, {}, {}",
+                "{label_for_aria}, {}, {}",
                 work_status_label(status),
                 if expanded { "expanded" } else { "collapsed" }
             )
         } else {
-            format!("{label}, {}", work_status_label(status))
+            format!("{label_for_aria}, {}", work_status_label(status))
         })
         .when(has_detail, |view| {
             let emitter = emitter.clone();
@@ -842,8 +985,30 @@ fn render_work_row(
         .gap_2()
         .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
         .text_color(theme.tertiary_text)
+        .child(
+            div()
+                .w(px(14.))
+                .text_color(theme.muted_text)
+                .child(work_kind_glyph(row)),
+        )
         .child(work_status_glyph(status, theme))
-        .child(div().min_w_0().flex_1().truncate().child(label))
+        .child(label_view)
+        .when_some(duration, |view, duration| {
+            view.child(
+                div()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                    .text_color(theme.tertiary_text)
+                    .child(duration),
+            )
+        })
+        .when_some(execution_state, |view, state| {
+            view.child(
+                div()
+                    .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                    .text_color(status_color)
+                    .child(state),
+            )
+        })
         .when(has_detail, |view| {
             view.child(
                 div()
@@ -868,7 +1033,7 @@ fn render_work_row(
                     .ml(px(38.))
                     .mb_2()
                     .max_h(px(220.))
-                    .overflow_hidden()
+                    .overflow_y_scroll()
                     .rounded_md()
                     .border_1()
                     .border_color(theme.border)
@@ -888,11 +1053,63 @@ fn work_row_key(group_key: &str, row_id: &str) -> String {
     format!("{group_key}:row:{row_id}")
 }
 
+const COMMAND_LABEL_LIMIT: usize = 280;
+
+/// The command text is the primary label. A semantic label alone can hide the
+/// actual process while it is still running (for example, "Running command").
+#[must_use]
+fn command_row_label(command: &CommandRowV2) -> String {
+    let command_text = command.command.trim();
+    if !matches!(command.category, WorkCategoryV2::Run) {
+        return if command.label.trim().is_empty() {
+            truncate_middle(command_text, COMMAND_LABEL_LIMIT)
+        } else {
+            truncate_middle(command.label.trim(), COMMAND_LABEL_LIMIT)
+        };
+    }
+    if command_text.is_empty() {
+        return truncate_middle(command.label.trim(), COMMAND_LABEL_LIMIT);
+    }
+    truncate_middle(format!("$ {command_text}"), COMMAND_LABEL_LIMIT)
+}
+
+#[must_use]
+fn command_row_is_monospaced(command: &CommandRowV2) -> bool {
+    matches!(command.category, WorkCategoryV2::Run)
+}
+
+/// Explicit process outcome shown beside every command duration.
+#[must_use]
+fn command_execution_state_label(command: &CommandRowV2) -> String {
+    match &command.status {
+        WorkItemStatusV2::InProgress => "running".to_owned(),
+        WorkItemStatusV2::Completed => match command.exit_code {
+            Some(0) => "succeeded · exit 0".to_owned(),
+            Some(code) => format!("failed · exit {code}"),
+            None => "finished".to_owned(),
+        },
+        WorkItemStatusV2::Failed => command.exit_code.map_or_else(
+            || "failed".to_owned(),
+            |code| format!("failed · exit {code}"),
+        ),
+        WorkItemStatusV2::Declined => "stopped".to_owned(),
+        WorkItemStatusV2::Unknown(_) => "status unknown".to_owned(),
+    }
+}
+
+#[must_use]
+fn command_duration_label(command: &CommandRowV2) -> Option<String> {
+    command.duration_ms.map(format_duration)
+}
+
 #[allow(clippy::too_many_lines)]
 fn work_row_content(row: &WorkRowV2) -> (String, Option<String>) {
     match row {
         WorkRowV2::Command(command) => {
             let mut detail = Vec::new();
+            if !command.command.trim().is_empty() {
+                detail.push(format!("Command\n{}", command.command.trim()));
+            }
             if let Some(cwd) = &command.cwd {
                 detail.push(format!("Working directory: {cwd}"));
             }
@@ -908,14 +1125,7 @@ fn work_row_content(row: &WorkRowV2) -> (String, Option<String>) {
             if let Some(exit_code) = command.exit_code {
                 detail.push(format!("Exit code: {exit_code}"));
             }
-            (
-                if command.label.trim().is_empty() {
-                    format!("$ {}", command.command)
-                } else {
-                    command.label.clone()
-                },
-                nonempty_detail(detail),
-            )
+            (command_row_label(command), nonempty_detail(detail))
         }
         WorkRowV2::FileChange(file_change) => {
             const MAXIMUM_FILES: usize = 12;
@@ -1208,13 +1418,35 @@ fn render_card(
 
 fn work_status_glyph(status: &WorkItemStatusV2, theme: CodexTheme) -> gpui::Div {
     let (glyph, color) = match status {
-        WorkItemStatusV2::InProgress => ("◌", theme.accent),
+        WorkItemStatusV2::InProgress => ("◌", theme.running),
         WorkItemStatusV2::Completed => ("✓", theme.success),
         WorkItemStatusV2::Failed => ("×", theme.danger),
         WorkItemStatusV2::Declined => ("—", theme.warning),
         WorkItemStatusV2::Unknown(_) => ("?", theme.warning),
     };
     div().w(px(14.)).text_color(color).child(glyph)
+}
+
+fn work_status_color(status: &WorkItemStatusV2, theme: CodexTheme) -> gpui::Rgba {
+    match status {
+        WorkItemStatusV2::InProgress => theme.running,
+        WorkItemStatusV2::Completed => theme.success,
+        WorkItemStatusV2::Failed => theme.danger,
+        WorkItemStatusV2::Declined | WorkItemStatusV2::Unknown(_) => theme.warning,
+    }
+}
+
+/// Stable semantic kind glyphs keep command/file/tool rows distinguishable
+/// even when a status glyph has the same shape for every row.
+fn work_kind_glyph(row: &WorkRowV2) -> &'static str {
+    match row {
+        WorkRowV2::Command(_) => "⌘",
+        WorkRowV2::FileChange(_) => "✎",
+        WorkRowV2::McpToolCall(_) => "◈",
+        WorkRowV2::WebSearch(_) => "⌕",
+        WorkRowV2::Collaboration(_) => "◎",
+        WorkRowV2::Other(_) => "·",
+    }
 }
 
 fn work_status_label(status: &WorkItemStatusV2) -> &str {
@@ -1248,6 +1480,28 @@ fn bounded_label(label: String) -> String {
     truncate_chars(label, 512)
 }
 
+/// Bound a visible command/path while retaining both its beginning and its
+/// useful trailing arguments or filename. The result is always UTF-8 safe.
+fn truncate_middle(text: impl AsRef<str>, maximum_chars: usize) -> String {
+    let text = text.as_ref();
+    let count = text.chars().count();
+    if count <= maximum_chars {
+        return text.to_owned();
+    }
+    if maximum_chars <= 1 {
+        return "…".chars().take(maximum_chars).collect();
+    }
+    let available = maximum_chars - 1;
+    let left_count = available.div_ceil(2);
+    let right_count = available / 2;
+    let left = text.chars().take(left_count).collect::<String>();
+    let right = text
+        .chars()
+        .skip(count.saturating_sub(right_count))
+        .collect::<String>();
+    format!("{left}…{right}")
+}
+
 fn truncate_chars(mut text: String, maximum_chars: usize) -> String {
     let Some(byte_index) = text
         .char_indices()
@@ -1259,6 +1513,37 @@ fn truncate_chars(mut text: String, maximum_chars: usize) -> String {
     text.truncate(byte_index);
     text.push('…');
     text
+}
+
+fn unix_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64)
+}
+
+/// Calculate active work elapsed time from the server timestamp, falling back
+/// to the client-side start captured when the component was created.
+#[must_use]
+fn working_elapsed_seconds(
+    now_unix_seconds: i64,
+    since_unix_seconds: Option<i64>,
+    client_started_unix_seconds: i64,
+) -> u64 {
+    now_unix_seconds
+        .saturating_sub(since_unix_seconds.unwrap_or(client_started_unix_seconds))
+        .max(0) as u64
+}
+
+fn interrupted_work_label(duration_ms: Option<u64>, message: &str) -> String {
+    let elapsed = duration_ms
+        .map(|duration| format!(" after {}", format_duration(duration)))
+        .unwrap_or_default();
+    let message = message.trim();
+    if message.is_empty() {
+        format!("Interrupted{elapsed}")
+    } else {
+        bounded_label(format!("Interrupted{elapsed}: {message}"))
+    }
 }
 
 fn format_duration(duration_ms: u64) -> String {
@@ -1563,7 +1848,9 @@ mod tests {
                 &TurnStatusV2::Working {
                     since_unix_seconds: None
                 },
-                0
+                0,
+                1_000,
+                900,
             ),
             "Thinking"
         );
@@ -1572,18 +1859,97 @@ mod tests {
                 &TurnStatusV2::Working {
                     since_unix_seconds: None
                 },
-                2
+                2,
+                1_000,
+                900,
             ),
-            "Working"
+            "Working for 100s"
         );
         assert_eq!(
             work_disclosure_label(
                 &TurnStatusV2::Done {
                     duration_ms: Some(4_800)
                 },
-                2
+                2,
+                1_000,
+                900,
             ),
             "Worked for 4.8s"
+        );
+    }
+
+    fn command_row(status: WorkItemStatusV2, exit_code: Option<i64>) -> CommandRowV2 {
+        CommandRowV2 {
+            id: "command".to_owned(),
+            command: "cargo test --workspace --locked".to_owned(),
+            label: "Running command".to_owned(),
+            category: WorkCategoryV2::Run,
+            status,
+            cwd: None,
+            exit_code,
+            duration_ms: Some(1_240),
+            output: None,
+        }
+    }
+
+    #[test]
+    fn command_rows_surface_command_metadata_while_running_and_after_exit() {
+        let running = command_row(WorkItemStatusV2::InProgress, None);
+        assert_eq!(
+            command_row_label(&running),
+            "$ cargo test --workspace --locked"
+        );
+        assert!(command_row_is_monospaced(&running));
+        assert_eq!(command_duration_label(&running).as_deref(), Some("1.2s"));
+        assert_eq!(command_execution_state_label(&running), "running");
+
+        let mut listed = running.clone();
+        listed.category = WorkCategoryV2::List;
+        listed.label = "Listed files".to_owned();
+        assert_eq!(command_row_label(&listed), "Listed files");
+        assert!(!command_row_is_monospaced(&listed));
+
+        let succeeded = command_row(WorkItemStatusV2::Completed, Some(0));
+        assert_eq!(
+            command_execution_state_label(&succeeded),
+            "succeeded · exit 0"
+        );
+
+        let failed = command_row(WorkItemStatusV2::Completed, Some(2));
+        assert_eq!(command_execution_state_label(&failed), "failed · exit 2");
+    }
+
+    #[test]
+    fn command_label_truncation_preserves_both_middle_sides() {
+        let mut command = command_row(WorkItemStatusV2::InProgress, None);
+        command.command = format!("cargo run -- {}", "x".repeat(COMMAND_LABEL_LIMIT));
+        let label = command_row_label(&command);
+        assert_eq!(label.chars().count(), COMMAND_LABEL_LIMIT);
+        assert!(label.starts_with("$ cargo run"));
+        assert!(label.ends_with('x'));
+        assert!(label.contains('…'));
+    }
+
+    #[test]
+    fn active_work_elapsed_label_is_monotonic_and_clamped() {
+        assert_eq!(working_elapsed_seconds(1_050, Some(1_000), 900), 50);
+        assert_eq!(working_elapsed_seconds(899, Some(1_000), 900), 0);
+        assert_eq!(working_elapsed_seconds(1_050, None, 1_000), 50);
+    }
+
+    #[test]
+    fn work_rows_keep_semantic_kind_glyphs_distinct_from_status_glyphs() {
+        let command = command_row(WorkItemStatusV2::InProgress, None);
+        assert_eq!(work_kind_glyph(&WorkRowV2::Command(command)), "⌘");
+        assert_ne!(
+            work_kind_glyph(&WorkRowV2::WebSearch(
+                codex_presentation::transcript_v2::WebSearchRowV2 {
+                    id: "search".to_owned(),
+                    query: "gpui".to_owned(),
+                    status: WorkItemStatusV2::Completed,
+                }
+            )),
+            "⌘"
         );
     }
 
