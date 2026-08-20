@@ -101,6 +101,7 @@ impl Render for CodexQueue {
                                     .collect::<Vec<AnyElement>>()
                             }),
                         )
+                        .h(queue_list_height(count))
                         .max_h(px(144.)),
                     ),
             )
@@ -109,6 +110,10 @@ impl Render for CodexQueue {
 
 fn queue_is_visible(row_count: usize) -> bool {
     row_count > 0
+}
+
+fn queue_list_height(row_count: usize) -> gpui::Pixels {
+    px(44.) * f32::from(u16::try_from(row_count.min(3)).unwrap_or(3))
 }
 
 fn render_row(
@@ -213,5 +218,12 @@ mod tests {
     fn empty_queue_has_no_chrome_to_measure() {
         assert!(!queue_is_visible(0));
         assert!(queue_is_visible(1));
+    }
+
+    #[test]
+    fn queue_list_gets_only_the_height_its_rows_need() {
+        assert_eq!(queue_list_height(1), px(44.));
+        assert_eq!(queue_list_height(3), px(132.));
+        assert_eq!(queue_list_height(8), px(132.));
     }
 }
