@@ -122,7 +122,7 @@ impl Render for CodexModelPicker {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.select_effort(value.clone(), cx);
                             }))
-                            .child(effort.value.clone())
+                            .child(display_reasoning_effort(&effort.value))
                     })
                     .collect::<Vec<_>>()
             })
@@ -185,6 +185,38 @@ impl Render for CodexModelPicker {
                 .flex_1(),
             )
     }
+}
+
+fn display_reasoning_effort(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" => String::new(),
+        "none" => "None".to_owned(),
+        "minimal" => "Minimal".to_owned(),
+        "low" => "Low".to_owned(),
+        "medium" => "Medium".to_owned(),
+        "high" => "High".to_owned(),
+        "xhigh" => "Extra High".to_owned(),
+        "max" | "maximum" => "Maximum".to_owned(),
+        "ultra" => "Ultra".to_owned(),
+        _ => normalized
+            .split(['-', '_', ' '])
+            .filter(|part| !part.is_empty())
+            .map(title_case_word)
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn title_case_word(word: &str) -> String {
+    let mut characters = word.chars();
+    let Some(first) = characters.next() else {
+        return String::new();
+    };
+    first
+        .to_uppercase()
+        .chain(characters.flat_map(char::to_lowercase))
+        .collect()
 }
 
 fn render_model(
@@ -254,5 +286,13 @@ mod tests {
         };
         assert_eq!(event.model, "model");
         assert_eq!(event.effort, "high");
+    }
+
+    #[test]
+    fn reasoning_effort_labels_are_human_readable() {
+        assert_eq!(display_reasoning_effort("low"), "Low");
+        assert_eq!(display_reasoning_effort("medium"), "Medium");
+        assert_eq!(display_reasoning_effort("xhigh"), "Extra High");
+        assert_eq!(display_reasoning_effort("some_effort"), "Some Effort");
     }
 }

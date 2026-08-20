@@ -62,45 +62,53 @@ impl EventEmitter<QueueEvent> for CodexQueue {}
 impl Render for CodexQueue {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.presentation.rows.len();
-        let content = (count > 0).then(|| {
-            div()
-                .size_full()
-                .child(
-                    div()
-                        .px_5()
-                        .py_2()
-                        .text_xs()
-                        .text_color(self.theme.muted_text)
-                        .child(format!("Queued follow-ups · {count}")),
-                )
-                .child(
-                    uniform_list(
-                        "codex-queue-list",
-                        count,
-                        cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
-                            let count = this.presentation.rows.len();
-                            range
-                                .filter_map(|index| {
-                                    let row = this.presentation.rows.get(index)?.clone();
-                                    Some(render_row(&row, index, count, this.theme, cx))
-                                })
-                                .collect::<Vec<AnyElement>>()
-                        }),
-                    )
-                    .max_h(px(144.)),
-                )
-        });
-        div()
+        let shell = div()
             .id("codex-queue")
             .role(Role::Region)
-            .aria_label(format!("Queued follow-ups: {count}"))
+            .aria_label(format!("Queued follow-ups: {count}"));
+        if !queue_is_visible(count) {
+            return shell;
+        }
+        shell
             .w_full()
             .max_h(px(180.))
             .border_t_1()
             .border_color(self.theme.border)
             .bg(self.theme.surface)
-            .when_some(content, gpui::ParentElement::child)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .px_5()
+                            .py_2()
+                            .text_xs()
+                            .text_color(self.theme.muted_text)
+                            .child(format!("Queued follow-ups · {count}")),
+                    )
+                    .child(
+                        uniform_list(
+                            "codex-queue-list",
+                            count,
+                            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+                                let count = this.presentation.rows.len();
+                                range
+                                    .filter_map(|index| {
+                                        let row = this.presentation.rows.get(index)?.clone();
+                                        Some(render_row(&row, index, count, this.theme, cx))
+                                    })
+                                    .collect::<Vec<AnyElement>>()
+                            }),
+                        )
+                        .max_h(px(144.)),
+                    ),
+            )
     }
+}
+
+fn queue_is_visible(row_count: usize) -> bool {
+    row_count > 0
 }
 
 fn render_row(
@@ -199,5 +207,11 @@ mod tests {
                 ids: vec!["b".to_owned(), "a".to_owned()]
             }
         );
+    }
+
+    #[test]
+    fn empty_queue_has_no_chrome_to_measure() {
+        assert!(!queue_is_visible(0));
+        assert!(queue_is_visible(1));
     }
 }

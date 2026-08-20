@@ -1837,13 +1837,43 @@ fn composer_model_label(presentation: &ModelPickerPresentation) -> String {
     if display_name.trim().is_empty() {
         return "Model".to_owned();
     }
-    let effort = match presentation.selected_effort.as_str() {
-        "" => return display_name.to_owned(),
-        "xhigh" => "Extra high",
-        "none" => "No reasoning",
-        value => value,
-    };
+    let effort = display_reasoning_effort(&presentation.selected_effort);
+    if effort.is_empty() {
+        return display_name.to_owned();
+    }
     format!("{display_name} · {effort}")
+}
+
+fn display_reasoning_effort(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" => String::new(),
+        "none" => "None".to_owned(),
+        "minimal" => "Minimal".to_owned(),
+        "low" => "Low".to_owned(),
+        "medium" => "Medium".to_owned(),
+        "high" => "High".to_owned(),
+        "xhigh" => "Extra High".to_owned(),
+        "max" | "maximum" => "Maximum".to_owned(),
+        "ultra" => "Ultra".to_owned(),
+        _ => normalized
+            .split(['-', '_', ' '])
+            .filter(|part| !part.is_empty())
+            .map(title_case_word)
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn title_case_word(word: &str) -> String {
+    let mut characters = word.chars();
+    let Some(first) = characters.next() else {
+        return String::new();
+    };
+    first
+        .to_uppercase()
+        .chain(characters.flat_map(char::to_lowercase))
+        .collect()
 }
 
 fn current_unix_seconds() -> i64 {
@@ -1976,7 +2006,39 @@ mod tests {
             selected_model: "gpt-5.6-sol".to_owned(),
             selected_effort: "xhigh".to_owned(),
         };
-        assert_eq!(composer_model_label(&presentation), "5.6 Sol · Extra high");
+        assert_eq!(composer_model_label(&presentation), "5.6 Sol · Extra High");
+    }
+
+    #[test]
+    fn composer_model_label_title_cases_all_known_efforts() {
+        let model = codex_presentation::ModelChoicePresentation {
+            model: "model".to_owned(),
+            display_name: "Model".to_owned(),
+            description: String::new(),
+            is_default: true,
+            default_effort: "medium".to_owned(),
+            efforts: Vec::new(),
+        };
+        for (wire, label) in [
+            ("none", "None"),
+            ("minimal", "Minimal"),
+            ("low", "Low"),
+            ("medium", "Medium"),
+            ("high", "High"),
+            ("xhigh", "Extra High"),
+            ("max", "Maximum"),
+            ("ultra", "Ultra"),
+        ] {
+            let presentation = ModelPickerPresentation {
+                models: vec![model.clone()],
+                selected_model: "model".to_owned(),
+                selected_effort: wire.to_owned(),
+            };
+            assert_eq!(
+                composer_model_label(&presentation),
+                format!("Model · {label}")
+            );
+        }
     }
 
     #[test]

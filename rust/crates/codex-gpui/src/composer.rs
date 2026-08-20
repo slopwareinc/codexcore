@@ -932,29 +932,29 @@ impl Render for CodexComposer {
                                 button.on_click(cx.listener(|this, _, _, cx| this.submit(cx)))
                             })
                             .child("↑"),
-                    ),
+                    )
+                    .when(self.turn_active, |view| {
+                        view.child(
+                            div()
+                                .id("codex-composer-interrupt")
+                                .focusable()
+                                .tab_stop(true)
+                                .role(Role::Button)
+                                .aria_label("Interrupt active turn")
+                                .size(px(32.))
+                                .rounded_full()
+                                .border_1()
+                                .border_color(theme.danger)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_color(theme.danger)
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx)))
+                                .child("■"),
+                        )
+                    }),
             )
-            .when(self.turn_active, |view| {
-                view.child(
-                    div()
-                        .id("codex-composer-interrupt")
-                        .focusable()
-                        .tab_stop(true)
-                        .role(Role::Button)
-                        .aria_label("Interrupt active turn")
-                        .size(px(32.))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(theme.danger)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(theme.danger)
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx)))
-                        .child("■"),
-                )
-            })
     }
 }
 
