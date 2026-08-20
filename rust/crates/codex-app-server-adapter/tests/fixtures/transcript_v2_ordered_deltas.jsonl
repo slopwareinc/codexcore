@@ -1,0 +1,20 @@
+{"method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":1,"item":{"type":"commandExecution","id":"command-live","command":"printf live","commandActions":[],"cwd":"/tmp","status":"inProgress"}}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread","turnId":"turn","itemId":"command-live","delta":"alpha"}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread","turnId":"turn","itemId":"command-live","delta":"-beta"}}
+{"method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":2,"item":{"type":"reasoning","id":"reasoning-live","summary":[],"content":[]}}}
+{"method":"item/reasoning/summaryPartAdded","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","summaryIndex":0}}
+{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","summaryIndex":0,"delta":"first"}}
+{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","summaryIndex":0,"delta":" second"}}
+{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","summaryIndex":1,"delta":"next"}}
+{"method":"item/reasoning/textDelta","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","contentIndex":0,"delta":"detail"}}
+{"method":"item/reasoning/textDelta","params":{"threadId":"thread","turnId":"turn","itemId":"reasoning-live","contentIndex":0,"delta":" body"}}
+{"method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":3,"item":{"type":"fileChange","id":"file-live","changes":[],"status":"inProgress"}}}
+{"method":"item/fileChange/patchUpdated","params":{"threadId":"thread","turnId":"turn","itemId":"file-live","changes":[{"path":"Sources/App.swift","kind":{"type":"add"},"diff":"+let value = 1"}]}}
+{"method":"item/fileChange/outputDelta","params":{"threadId":"thread","turnId":"turn","itemId":"file-live","delta":"patch applied"}}
+{"method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":4,"item":{"type":"mcpToolCall","id":"mcp-live","arguments":{},"server":"fixture-server","status":"inProgress","tool":"fixture-tool"}}}
+{"method":"item/mcpToolCall/progress","params":{"threadId":"thread","turnId":"turn","itemId":"mcp-live","message":"phase one"}}
+{"method":"item/mcpToolCall/progress","params":{"threadId":"thread","turnId":"turn","itemId":"mcp-live","message":" then two"}}
+{"method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":5,"item":{"type":"commandExecution","id":"command-final","command":"false","commandActions":[],"cwd":"/tmp","status":"inProgress"}}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread","turnId":"turn","itemId":"command-final","delta":"speculative"}}
+{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","completedAtMs":42,"item":{"type":"commandExecution","id":"command-final","command":"false","commandActions":[],"cwd":"/tmp","status":"failed","durationMs":37,"exitCode":1,"aggregatedOutput":"authoritative","error":{"message":"future command error","code":"E_FUTURE"},"futureField":{"nested":true}}}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread","turnId":"turn","itemId":"command-final","delta":"late"}}

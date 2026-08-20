@@ -12,13 +12,11 @@ mod reducer;
 
 pub use model::{
     CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalPlanStep, CanonicalState,
-    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, LifecycleStatus, PlanStepStatus,
-    StateEntityScope, StateFieldMask, StateInvalidation, StateObservationScope, ThreadGoalStatus,
-    ThreadStatus,
+    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemDelta, ItemLiveOverlay,
+    LifecycleStatus, PlanStepStatus, StateEntityScope, StateFieldMask, StateInvalidation,
+    StateObservationScope, TextChunkBuffer, ThreadGoalStatus, ThreadStatus,
 };
-pub use reducer::{
-    CanonicalMutation, CanonicalStateReducer, ItemTextDelta, ReducerConfiguration, ReducerError,
-};
+pub use reducer::{CanonicalMutation, CanonicalStateReducer, ReducerConfiguration, ReducerError};
 
 macro_rules! string_id {
     ($name:ident, $doc:literal) => {

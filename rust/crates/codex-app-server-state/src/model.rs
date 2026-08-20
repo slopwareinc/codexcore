@@ -273,6 +273,123 @@ impl PlanStepStatus {
     }
 }
 
+/// Typed content carried by one live item delta.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ItemDelta {
+    /// Assistant message markdown.
+    AgentMessage(String),
+    /// Experimental plan item text.
+    Plan(String),
+    /// One indexed reasoning summary part.
+    ReasoningSummary { index: i64, text: String },
+    /// One indexed reasoning content part.
+    ReasoningContent { index: i64, text: String },
+    /// Interleaved command stdout/stderr.
+    CommandOutput(String),
+    /// Deprecated textual `apply_patch` output.
+    FileChangeOutput(String),
+    /// Human-readable MCP tool progress.
+    McpProgress(String),
+}
+
+impl ItemDelta {
+    pub(crate) fn utf8_bytes(&self) -> usize {
+        match self {
+            Self::AgentMessage(value)
+            | Self::Plan(value)
+            | Self::CommandOutput(value)
+            | Self::FileChangeOutput(value)
+            | Self::McpProgress(value)
+            | Self::ReasoningSummary { text: value, .. }
+            | Self::ReasoningContent { text: value, .. } => value.len(),
+        }
+    }
+}
+
+/// Ordered chunks from one live protocol text stream.
+///
+/// Keeping chunks separate avoids rebuilding a cumulative string for every
+/// hot delta while still preserving repeated and empty chunks exactly.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct TextChunkBuffer(Vec<String>);
+
+impl TextChunkBuffer {
+    pub(crate) fn append(&mut self, value: String) {
+        self.0.push(value);
+    }
+
+    /// Borrow retained chunks in wire order.
+    #[must_use]
+    pub fn chunks(&self) -> &[String] {
+        &self.0
+    }
+
+    /// Materialize the complete stream text.
+    #[must_use]
+    pub fn joined(&self) -> String {
+        self.0.concat()
+    }
+
+    /// Whether the stream has no retained chunks.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Live-only item content discarded by an authoritative terminal item.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ItemLiveOverlay {
+    pub agent_message: TextChunkBuffer,
+    pub plan: TextChunkBuffer,
+    pub reasoning_summary: BTreeMap<i64, TextChunkBuffer>,
+    pub reasoning_content: BTreeMap<i64, TextChunkBuffer>,
+    pub command_output: TextChunkBuffer,
+    pub file_change_output: TextChunkBuffer,
+    pub mcp_progress: TextChunkBuffer,
+}
+
+impl ItemLiveOverlay {
+    pub(crate) fn append(&mut self, delta: ItemDelta) {
+        match delta {
+            ItemDelta::AgentMessage(text) => self.agent_message.append(text),
+            ItemDelta::Plan(text) => self.plan.append(text),
+            ItemDelta::ReasoningSummary { index, text } => self
+                .reasoning_summary
+                .entry(index)
+                .or_default()
+                .append(text),
+            ItemDelta::ReasoningContent { index, text } => self
+                .reasoning_content
+                .entry(index)
+                .or_default()
+                .append(text),
+            ItemDelta::CommandOutput(text) => self.command_output.append(text),
+            ItemDelta::FileChangeOutput(text) => self.file_change_output.append(text),
+            ItemDelta::McpProgress(text) => self.mcp_progress.append(text),
+        }
+    }
+
+    /// Whether no live delta content is retained.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.agent_message.is_empty()
+            && self.plan.is_empty()
+            && self
+                .reasoning_summary
+                .values()
+                .all(TextChunkBuffer::is_empty)
+            && self
+                .reasoning_content
+                .values()
+                .all(TextChunkBuffer::is_empty)
+            && self.command_output.is_empty()
+            && self.file_change_output.is_empty()
+            && self.mcp_progress.is_empty()
+    }
+}
+
 /// One normalized transcript item.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CanonicalItem {
@@ -286,6 +403,18 @@ pub struct CanonicalItem {
     pub coverage: StateCoverage,
     /// Lossless typed/open item payload.
     pub payload: BTreeMap<String, Value>,
+    /// Protocol duration promoted for framework-neutral lifecycle consumers.
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    /// Structured item error promoted without narrowing future fields.
+    #[serde(default)]
+    pub error: Option<Value>,
+    /// Ordered live delta content separate from authoritative payload fields.
+    #[serde(default)]
+    pub live_overlay: ItemLiveOverlay,
+    /// Replacement-style live values such as current file changes.
+    #[serde(default)]
+    pub live_fields: BTreeMap<String, Value>,
     /// Monotonic content update revision for projection caches.
     pub content_revision: u64,
 }
@@ -327,6 +456,8 @@ pub enum CanonicalChange {
     ItemUpdated(ItemKey),
     /// Text delta was appended to a materialized item.
     ItemDeltaAppended(ItemKey),
+    /// A replacement-style live item field changed.
+    ItemLiveFieldReplaced(ItemKey),
     /// Delta was retained until its item materializes.
     OrphanDeltaBuffered(ItemKey),
     /// A bounded orphan delta was evicted or refused.
@@ -478,7 +609,8 @@ impl StateInvalidation {
                 self.fields |= StateFieldMask::ITEM_LIFECYCLE | StateFieldMask::ITEM_CONTENT;
                 self.record_item(key);
             }
-            CanonicalChange::ItemDeltaAppended(key) => {
+            CanonicalChange::ItemDeltaAppended(key)
+            | CanonicalChange::ItemLiveFieldReplaced(key) => {
                 self.fields |= StateFieldMask::ITEM_CONTENT;
                 self.record_item(key);
             }

@@ -5,8 +5,8 @@ use thiserror::Error;
 
 use crate::{
     CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalPlanStep, CanonicalState,
-    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemKey, LifecycleStatus, ThreadId,
-    TurnKey,
+    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemDelta, ItemKey, ItemLiveOverlay,
+    LifecycleStatus, ThreadId, TurnKey,
 };
 
 /// Bounded orphan-delta retention policy.
@@ -28,17 +28,6 @@ impl Default for ReducerConfiguration {
             maximum_orphan_deltas_per_item: 256,
         }
     }
-}
-
-/// One text delta for a named item payload field.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ItemTextDelta {
-    /// Target item.
-    pub key: ItemKey,
-    /// Payload field receiving the text.
-    pub field: String,
-    /// Exact appended text.
-    pub text: String,
 }
 
 /// Typed operation accepted by the deterministic reducer.
@@ -64,7 +53,13 @@ pub enum CanonicalMutation {
     /// Merge an item and replay retained orphan deltas.
     ItemUpsert(CanonicalItem),
     /// Append text or retain it until the item starts.
-    ItemDelta(ItemTextDelta),
+    ItemDelta { key: ItemKey, delta: ItemDelta },
+    /// Replace one live-only item field while the item is nonterminal.
+    ItemLiveFieldReplace {
+        key: ItemKey,
+        field: String,
+        value: Option<Value>,
+    },
 }
 
 /// Rejected mutation transaction.
@@ -87,7 +82,7 @@ pub enum ReducerError {
 #[derive(Clone, Debug)]
 struct BufferedDelta {
     sequence: u64,
-    delta: ItemTextDelta,
+    delta: ItemDelta,
     utf8_bytes: usize,
 }
 
@@ -200,7 +195,12 @@ impl CanonicalStateReducer {
                 explanation,
             } => self.replace_plan(key, steps, explanation, changes),
             CanonicalMutation::ItemUpsert(item) => self.upsert_item(item, changes)?,
-            CanonicalMutation::ItemDelta(delta) => self.apply_or_buffer_delta(delta, changes)?,
+            CanonicalMutation::ItemDelta { key, delta } => {
+                self.apply_or_buffer_delta(key, delta, changes)?;
+            }
+            CanonicalMutation::ItemLiveFieldReplace { key, field, value } => {
+                self.replace_live_field(key, field, value, changes)?;
+            }
         }
         Ok(())
     }
@@ -348,6 +348,11 @@ impl CanonicalStateReducer {
             changes.insert(CanonicalChange::TurnUpdated(turn_key));
         }
 
+        let incoming_is_terminal = incoming.status.is_terminal();
+        if incoming_is_terminal {
+            incoming.live_overlay = ItemLiveOverlay::default();
+            incoming.live_fields.clear();
+        }
         match self.state.items.get_mut(&key) {
             None => {
                 self.state.items.insert(key.clone(), incoming);
@@ -355,10 +360,28 @@ impl CanonicalStateReducer {
             }
             Some(existing) => {
                 let before = existing.clone();
-                existing.kind = incoming.kind;
-                existing.status = merge_lifecycle(&existing.status, incoming.status);
+                let existing_is_terminal = existing.status.is_terminal();
                 existing.coverage = existing.coverage.merged(incoming.coverage);
-                existing.payload.append(&mut incoming.payload);
+                if incoming_is_terminal {
+                    existing.kind = incoming.kind;
+                    existing.status = merge_lifecycle(&existing.status, incoming.status);
+                    existing.payload = incoming.payload;
+                    existing.duration_ms = incoming.duration_ms;
+                    existing.error = incoming.error;
+                    existing.live_overlay = ItemLiveOverlay::default();
+                    existing.live_fields.clear();
+                } else if !existing_is_terminal {
+                    existing.kind = incoming.kind;
+                    existing.status = incoming.status;
+                    existing.payload.append(&mut incoming.payload);
+                    if incoming.duration_ms.is_some() {
+                        existing.duration_ms = incoming.duration_ms;
+                    }
+                    if incoming.error.is_some() {
+                        existing.error = incoming.error;
+                    }
+                    existing.live_fields.extend(incoming.live_fields);
+                }
                 if *existing != before {
                     existing.content_revision = existing
                         .content_revision
@@ -368,66 +391,70 @@ impl CanonicalStateReducer {
                 }
             }
         }
-        self.replay_orphans(&key, changes)
+        if incoming_is_terminal {
+            self.discard_orphans(&key);
+            Ok(())
+        } else {
+            self.replay_orphans(&key, changes)
+        }
     }
 
     fn apply_or_buffer_delta(
         &mut self,
-        delta: ItemTextDelta,
+        key: ItemKey,
+        delta: ItemDelta,
         changes: &mut BTreeSet<CanonicalChange>,
     ) -> Result<(), ReducerError> {
-        if self.state.items.contains_key(&delta.key) {
-            return self.append_delta(delta, changes);
+        if self.state.items.contains_key(&key) {
+            return self.append_delta(&key, delta, changes);
         }
-        self.buffer_orphan(delta, changes)
+        self.buffer_orphan(key, delta, changes)
     }
 
     fn append_delta(
         &mut self,
-        delta: ItemTextDelta,
+        key: &ItemKey,
+        delta: ItemDelta,
         changes: &mut BTreeSet<CanonicalChange>,
     ) -> Result<(), ReducerError> {
         let item = self
             .state
             .items
-            .get_mut(&delta.key)
+            .get_mut(key)
             .expect("delta target checked by caller");
-        let value = item
-            .payload
-            .entry(delta.field)
-            .or_insert_with(|| Value::String(String::new()));
-        match value {
-            Value::String(text) => text.push_str(&delta.text),
-            value => *value = Value::String(delta.text),
+        if item.status.is_terminal() {
+            return Ok(());
         }
+        item.live_overlay.append(delta);
         item.content_revision = item
             .content_revision
             .checked_add(1)
             .ok_or(ReducerError::ContentRevisionExhausted)?;
-        changes.insert(CanonicalChange::ItemDeltaAppended(delta.key));
+        changes.insert(CanonicalChange::ItemDeltaAppended(key.clone()));
         Ok(())
     }
 
     fn buffer_orphan(
         &mut self,
-        delta: ItemTextDelta,
+        key: ItemKey,
+        delta: ItemDelta,
         changes: &mut BTreeSet<CanonicalChange>,
     ) -> Result<(), ReducerError> {
-        let bytes = delta.text.len();
+        let bytes = delta.utf8_bytes();
         if self.configuration.maximum_orphan_delta_count == 0
             || self.configuration.maximum_orphan_deltas_per_item == 0
             || bytes > self.configuration.maximum_orphan_utf8_bytes
         {
-            changes.insert(CanonicalChange::OrphanDeltaDropped(delta.key));
+            changes.insert(CanonicalChange::OrphanDeltaDropped(key));
             return Ok(());
         }
 
         while self
             .orphan_by_item
-            .get(&delta.key)
+            .get(&key)
             .is_some_and(|queue| queue.len() >= self.configuration.maximum_orphan_deltas_per_item)
         {
-            self.evict_item_front(&delta.key, changes);
+            self.evict_item_front(&key, changes);
         }
         while self.orphan_delta_count >= self.configuration.maximum_orphan_delta_count
             || self.orphan_utf8_bytes.saturating_add(bytes)
@@ -444,17 +471,17 @@ impl CanonicalStateReducer {
             .checked_add(1)
             .ok_or(ReducerError::ContentRevisionExhausted)?;
         self.orphan_by_item
-            .entry(delta.key.clone())
+            .entry(key.clone())
             .or_default()
             .push_back(BufferedDelta {
                 sequence,
-                delta: delta.clone(),
+                delta,
                 utf8_bytes: bytes,
             });
-        self.orphan_order.push_back((delta.key.clone(), sequence));
+        self.orphan_order.push_back((key.clone(), sequence));
         self.orphan_delta_count += 1;
         self.orphan_utf8_bytes += bytes;
-        changes.insert(CanonicalChange::OrphanDeltaBuffered(delta.key));
+        changes.insert(CanonicalChange::OrphanDeltaBuffered(key));
         Ok(())
     }
 
@@ -469,8 +496,48 @@ impl CanonicalStateReducer {
         for buffered in queue {
             self.orphan_delta_count -= 1;
             self.orphan_utf8_bytes -= buffered.utf8_bytes;
-            self.append_delta(buffered.delta, changes)?;
+            self.append_delta(key, buffered.delta, changes)?;
         }
+        Ok(())
+    }
+
+    fn discard_orphans(&mut self, key: &ItemKey) {
+        let Some(queue) = self.orphan_by_item.remove(key) else {
+            return;
+        };
+        for buffered in queue {
+            self.orphan_delta_count -= 1;
+            self.orphan_utf8_bytes -= buffered.utf8_bytes;
+        }
+    }
+
+    fn replace_live_field(
+        &mut self,
+        key: ItemKey,
+        field: String,
+        value: Option<Value>,
+        changes: &mut BTreeSet<CanonicalChange>,
+    ) -> Result<(), ReducerError> {
+        let Some(item) = self.state.items.get_mut(&key) else {
+            return Ok(());
+        };
+        if item.status.is_terminal() {
+            return Ok(());
+        }
+        let previous = item.live_fields.get(&field);
+        if previous == value.as_ref() {
+            return Ok(());
+        }
+        if let Some(value) = value {
+            item.live_fields.insert(field, value);
+        } else {
+            item.live_fields.remove(&field);
+        }
+        item.content_revision = item
+            .content_revision
+            .checked_add(1)
+            .ok_or(ReducerError::ContentRevisionExhausted)?;
+        changes.insert(CanonicalChange::ItemLiveFieldReplaced(key));
         Ok(())
     }
 
@@ -587,9 +654,10 @@ fn validate(mutation: &CanonicalMutation) -> Result<(), ReducerError> {
                 Ok(())
             }
         }
-        CanonicalMutation::ItemDelta(delta) => {
-            check_item_key(&delta.key)?;
-            if delta.field.is_empty() {
+        CanonicalMutation::ItemDelta { key, .. } => check_item_key(key),
+        CanonicalMutation::ItemLiveFieldReplace { key, field, .. } => {
+            check_item_key(key)?;
+            if field.is_empty() {
                 Err(ReducerError::EmptyField("delta field"))
             } else {
                 Ok(())
@@ -653,6 +721,10 @@ mod tests {
             status,
             coverage: StateCoverage::Full,
             payload: BTreeMap::from([("text".to_owned(), json!("hello"))]),
+            duration_ms: None,
+            error: None,
+            live_overlay: ItemLiveOverlay::default(),
+            live_fields: BTreeMap::new(),
             content_revision: 0,
         }
     }
@@ -703,11 +775,10 @@ mod tests {
         let key = item_key("late");
         for text in [" one", " two"] {
             reducer
-                .apply(&[CanonicalMutation::ItemDelta(ItemTextDelta {
+                .apply(&[CanonicalMutation::ItemDelta {
                     key: key.clone(),
-                    field: "text".to_owned(),
-                    text: text.to_owned(),
-                })])
+                    delta: ItemDelta::AgentMessage(text.to_owned()),
+                }])
                 .expect("buffer delta");
         }
         assert_eq!(reducer.buffered_orphan_delta_count(), 2);
@@ -718,8 +789,11 @@ mod tests {
             ))])
             .expect("insert item");
         assert_eq!(
-            reducer.snapshot().items[&key].payload["text"],
-            "hello one two"
+            reducer.snapshot().items[&key]
+                .live_overlay
+                .agent_message
+                .joined(),
+            " one two"
         );
         assert_eq!(reducer.buffered_orphan_delta_count(), 0);
     }
@@ -733,11 +807,10 @@ mod tests {
         });
         for (item, text) in [("a", "a"), ("b", "b"), ("c", "c")] {
             reducer
-                .apply(&[CanonicalMutation::ItemDelta(ItemTextDelta {
+                .apply(&[CanonicalMutation::ItemDelta {
                     key: item_key(item),
-                    field: "text".to_owned(),
-                    text: text.to_owned(),
-                })])
+                    delta: ItemDelta::AgentMessage(text.to_owned()),
+                }])
                 .expect("bounded buffer");
         }
         assert_eq!(reducer.buffered_orphan_delta_count(), 2);
@@ -759,16 +832,15 @@ mod tests {
         let before = reducer.snapshot().clone();
         let error = reducer
             .apply(&[
-                CanonicalMutation::ItemDelta(ItemTextDelta {
+                CanonicalMutation::ItemDelta {
                     key: item_key("valid"),
-                    field: "text".to_owned(),
-                    text: "value".to_owned(),
-                }),
-                CanonicalMutation::ItemDelta(ItemTextDelta {
+                    delta: ItemDelta::AgentMessage("value".to_owned()),
+                },
+                CanonicalMutation::ItemLiveFieldReplace {
                     key: item_key("invalid"),
                     field: String::new(),
-                    text: "value".to_owned(),
-                }),
+                    value: Some(json!(true)),
+                },
             ])
             .expect_err("invalid field rejects transaction");
         assert_eq!(error, ReducerError::EmptyField("delta field"));

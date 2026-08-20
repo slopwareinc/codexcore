@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codex_app_server_state::{
     CanonicalItem, CanonicalMutation, CanonicalPlanStep, CanonicalThread, CanonicalThreadGoal,
-    CanonicalTurn, ItemId, ItemKey, ItemTextDelta, LifecycleStatus, PlanStepStatus, StateCoverage,
-    ThreadGoalStatus, ThreadId, ThreadStatus, TurnId, TurnKey,
+    CanonicalTurn, ItemDelta, ItemId, ItemKey, ItemLiveOverlay, LifecycleStatus, PlanStepStatus,
+    StateCoverage, ThreadGoalStatus, ThreadId, ThreadStatus, TurnId, TurnKey,
 };
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -147,24 +147,89 @@ pub fn adapt_notification(
                 )?),
             ]))
         }
-        "item/agentMessage/delta" => {
-            validate(method, &params_value)?;
-            Ok(NotificationDisposition::Mutations(vec![
-                CanonicalMutation::ItemDelta(ItemTextDelta {
-                    key: ItemKey {
-                        thread_id: ThreadId::new(string_field(method, params, "threadId")?),
-                        turn_id: TurnId::new(string_field(method, params, "turnId")?),
-                        item_id: ItemId::new(string_field(method, params, "itemId")?),
-                    },
-                    field: "text".to_owned(),
-                    text: string_field(method, params, "delta")?.to_owned(),
-                }),
-            ]))
-        }
+        "item/agentMessage/delta"
+        | "item/plan/delta"
+        | "item/commandExecution/outputDelta"
+        | "item/fileChange/outputDelta"
+        | "item/fileChange/patchUpdated"
+        | "item/mcpToolCall/progress"
+        | "item/reasoning/summaryTextDelta"
+        | "item/reasoning/summaryPartAdded"
+        | "item/reasoning/textDelta" => adapt_live_item_notification(method, params, &params_value),
         _ => Ok(NotificationDisposition::Unhandled {
             method: method.to_owned(),
             params: params.clone(),
         }),
+    }
+}
+
+fn adapt_live_item_notification(
+    method: &str,
+    params: &BTreeMap<String, Value>,
+    params_value: &Value,
+) -> Result<NotificationDisposition, AdapterError> {
+    validate(method, params_value)?;
+    match method {
+        "item/agentMessage/delta" => item_delta(
+            method,
+            params,
+            ItemDelta::AgentMessage(string_field(method, params, "delta")?.to_owned()),
+        ),
+        "item/plan/delta" => item_delta(
+            method,
+            params,
+            ItemDelta::Plan(string_field(method, params, "delta")?.to_owned()),
+        ),
+        "item/commandExecution/outputDelta" => item_delta(
+            method,
+            params,
+            ItemDelta::CommandOutput(string_field(method, params, "delta")?.to_owned()),
+        ),
+        "item/fileChange/outputDelta" => item_delta(
+            method,
+            params,
+            ItemDelta::FileChangeOutput(string_field(method, params, "delta")?.to_owned()),
+        ),
+        "item/mcpToolCall/progress" => item_delta(
+            method,
+            params,
+            ItemDelta::McpProgress(string_field(method, params, "message")?.to_owned()),
+        ),
+        "item/reasoning/summaryTextDelta" => item_delta(
+            method,
+            params,
+            ItemDelta::ReasoningSummary {
+                index: integer_field(method, params, "summaryIndex")?,
+                text: string_field(method, params, "delta")?.to_owned(),
+            },
+        ),
+        "item/reasoning/textDelta" => item_delta(
+            method,
+            params,
+            ItemDelta::ReasoningContent {
+                index: integer_field(method, params, "contentIndex")?,
+                text: string_field(method, params, "delta")?.to_owned(),
+            },
+        ),
+        "item/fileChange/patchUpdated" => live_field(
+            method,
+            params,
+            "fileChanges".to_owned(),
+            params
+                .get("changes")
+                .cloned()
+                .ok_or_else(|| invalid(method, "changes"))?,
+        ),
+        "item/reasoning/summaryPartAdded" => live_field(
+            method,
+            params,
+            format!(
+                "reasoningSummaryPart:{}",
+                integer_field(method, params, "summaryIndex")?
+            ),
+            Value::Bool(true),
+        ),
+        _ => unreachable!("caller selects only supported live item notifications"),
     }
 }
 
@@ -601,6 +666,10 @@ fn map_item(
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),
+        duration_ms: value.get("durationMs").and_then(Value::as_i64),
+        error: value.get("error").filter(|value| !value.is_null()).cloned(),
+        live_overlay: ItemLiveOverlay::default(),
+        live_fields: BTreeMap::new(),
         content_revision: 0,
     })
 }
@@ -613,6 +682,42 @@ fn metadata_without(value: &Map<String, Value>, excluded: &[&str]) -> BTreeMap<S
         .collect()
 }
 
+fn item_delta(
+    method: &str,
+    params: &BTreeMap<String, Value>,
+    delta: ItemDelta,
+) -> Result<NotificationDisposition, AdapterError> {
+    Ok(NotificationDisposition::Mutations(vec![
+        CanonicalMutation::ItemDelta {
+            key: item_key(method, params)?,
+            delta,
+        },
+    ]))
+}
+
+fn live_field(
+    method: &str,
+    params: &BTreeMap<String, Value>,
+    field: String,
+    value: Value,
+) -> Result<NotificationDisposition, AdapterError> {
+    Ok(NotificationDisposition::Mutations(vec![
+        CanonicalMutation::ItemLiveFieldReplace {
+            key: item_key(method, params)?,
+            field,
+            value: Some(value),
+        },
+    ]))
+}
+
+fn item_key(method: &str, params: &BTreeMap<String, Value>) -> Result<ItemKey, AdapterError> {
+    Ok(ItemKey {
+        thread_id: ThreadId::new(string_field(method, params, "threadId")?),
+        turn_id: TurnId::new(string_field(method, params, "turnId")?),
+        item_id: ItemId::new(string_field(method, params, "itemId")?),
+    })
+}
+
 fn string_field<'a>(
     method: &str,
     params: &'a BTreeMap<String, Value>,
@@ -621,6 +726,17 @@ fn string_field<'a>(
     params
         .get(field)
         .and_then(Value::as_str)
+        .ok_or_else(|| invalid(method, field))
+}
+
+fn integer_field(
+    method: &str,
+    params: &BTreeMap<String, Value>,
+    field: &'static str,
+) -> Result<i64, AdapterError> {
+    params
+        .get(field)
+        .and_then(Value::as_i64)
         .ok_or_else(|| invalid(method, field))
 }
 
@@ -668,15 +784,14 @@ mod tests {
             .expect("generated schema accepts delta");
         assert_eq!(
             disposition,
-            NotificationDisposition::Mutations(vec![CanonicalMutation::ItemDelta(ItemTextDelta {
+            NotificationDisposition::Mutations(vec![CanonicalMutation::ItemDelta {
                 key: ItemKey {
                     thread_id: ThreadId::from("thread"),
                     turn_id: TurnId::from("turn"),
                     item_id: ItemId::from("item"),
                 },
-                field: "text".to_owned(),
-                text: "hello".to_owned(),
-            })])
+                delta: ItemDelta::AgentMessage("hello".to_owned()),
+            }])
         );
     }
 
