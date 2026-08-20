@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use codex_app_server_state::{LifecycleStatus, PlanStepStatus, StateRevision};
+use codex_app_server_state::{LifecycleStatus, PlanStepStatus, StateRevision, TurnId};
 use codex_presentation::{
     ActivityKind, ActivityPresentation, CommandOutputPresentation, FileChangeKind,
     FileChangePresentation, MarkdownDocument, PlanPresentation, PresentedEntry, TranscriptEntry,
@@ -60,7 +60,31 @@ pub const GPUI_REVISION: &str = "8bbbeb3d15a7b08c852d6c941cefdbbbaeab82fe";
 /// Host-owned action emitted by transcript content.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TranscriptEvent {
-    OpenLink { destination: String, label: String },
+    OpenLink {
+        destination: String,
+        label: String,
+    },
+    /// Ask the host to edit one exact user message.
+    ///
+    /// The renderer does not mutate the composer or canonical state. `text`
+    /// is the raw message value the host may use to seed its edit flow.
+    EditUserMessage {
+        turn_id: TurnId,
+        message_id: String,
+        text: String,
+    },
+    /// Ask the host to retry one exact turn, identified through its user
+    /// message rather than a display-row position.
+    RetryTurn {
+        turn_id: TurnId,
+        message_id: String,
+    },
+    /// Ask the host to fork one exact turn, identified through its user
+    /// message rather than a display-row position.
+    ForkTurn {
+        turn_id: TurnId,
+        message_id: String,
+    },
 }
 
 /// Keys that activate a focused disclosure or inline transcript action.
