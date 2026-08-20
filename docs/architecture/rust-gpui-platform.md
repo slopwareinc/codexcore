@@ -157,9 +157,12 @@ bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
 steering, queueing, and persistence remain host policy.
 
 The reference host supplies that basic policy: Submit starts a new turn while
-idle and steers the exact active turn while running. Composer state exposes an
-accessible Stop control only during an active turn; it calls `turn/interrupt`
-through the retained `CodexTurn` capability rather than a thread-global guess.
+idle. During an active turn, Queue is the default and Steer is an explicit
+toggle. Queued submissions use App Server's durable queue, render in an
+accessible ordered strip with move/remove controls, and start one at a time
+after each terminal turn. Composer state exposes an accessible Stop control
+only during an active turn; it calls `turn/interrupt` through the retained
+`CodexTurn` capability rather than a thread-global guess.
 
 Stored task navigation follows the same boundary. `Codex::list_threads`
 validates the complete response against generated bindings and projects stable

@@ -226,13 +226,17 @@ CODEX_BINARY=/absolute/path/to/codex \
   --prompt "Summarize this project without changing files."
 ```
 
-Use `--persist` to keep the thread; the safer default is ephemeral. A headless
-mode exercises the same SDK/session/projection driver without a display:
+Reference-host threads are persisted by default so durable follow-ups and task
+navigation work. Use `--ephemeral` for a disposable thread. A headless mode
+exercises the same SDK/session/projection driver without a display:
 
 ```bash
 CODEX_BINARY=/absolute/path/to/codex \
   cargo run -p codex-gpui-app -- --headless
 ```
+
+Add `--queue "follow-up"` in headless mode to inject a durable active-turn
+follow-up and verify automatic one-at-a-time queue draining.
 
 Advertised-choice, free-form, custom, and secret user questions can be answered
 inline. MCP primitive schema forms and URL-mode opening are supported; nested

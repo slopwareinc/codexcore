@@ -4,12 +4,55 @@ use std::sync::Arc;
 
 pub use codex_app_server_client::ServerRequestKey;
 use codex_app_server_interaction::{McpElicitationMode, ServerRequestBody, TypedServerRequest};
-use codex_app_server_sdk::{ModelPage, ThreadPage, ThreadSummary};
+use codex_app_server_sdk::{ModelPage, QueuePage, ThreadPage, ThreadSummary};
 use codex_app_server_state::{
     CanonicalItem, CanonicalState, ItemKey, LifecycleStatus, PlanStepStatus, StateRevision,
     ThreadId, TurnId,
 };
 use serde_json::Value;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueuePresentation {
+    pub rows: Vec<QueueRowPresentation>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueRowPresentation {
+    pub id: String,
+    pub text: String,
+}
+
+#[must_use]
+pub fn project_queue(page: &QueuePage) -> QueuePresentation {
+    QueuePresentation {
+        rows: page
+            .data
+            .iter()
+            .map(|submission| QueueRowPresentation {
+                id: submission.id.clone(),
+                text: queue_input_text(&submission.input),
+            })
+            .collect(),
+        next_cursor: page.next_cursor.clone(),
+    }
+}
+
+fn queue_input_text(input: &[Value]) -> String {
+    let parts = input
+        .iter()
+        .map(|value| match value.get("type").and_then(Value::as_str) {
+            Some("text") => value
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            Some(kind) => format!("[{kind}]"),
+            None => "[input]".to_owned(),
+        })
+        .collect::<Vec<_>>();
+    truncate_text(&parts.join(" "), 240)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelPickerPresentation {
@@ -1014,7 +1057,7 @@ mod tests {
 
     use super::*;
     use codex_app_server_interaction::{InteractionScope, QuestionOption, UserQuestion};
-    use codex_app_server_sdk::{ModelSummary, ReasoningEffortSummary};
+    use codex_app_server_sdk::{ModelSummary, QueuedSubmission, ReasoningEffortSummary};
     use codex_app_server_state::{
         CanonicalItem, CanonicalMutation, CanonicalStateReducer, StateCoverage,
     };
@@ -1290,5 +1333,22 @@ mod tests {
         assert_eq!(projected.selected_model, "model");
         assert_eq!(projected.selected_effort, "medium");
         assert_eq!(projected.models[0].efforts[0].description, "Balanced");
+    }
+
+    #[test]
+    fn queue_projection_preserves_order_and_summarizes_nontext_inputs() {
+        let projected = project_queue(&QueuePage {
+            data: vec![QueuedSubmission {
+                id: "queued".to_owned(),
+                client_user_message_id: "client".to_owned(),
+                input: vec![
+                    serde_json::json!({"type": "text", "text": "Follow up"}),
+                    serde_json::json!({"type": "image", "url": "https://example.com"}),
+                ],
+            }],
+            next_cursor: None,
+        });
+        assert_eq!(projected.rows[0].id, "queued");
+        assert_eq!(projected.rows[0].text, "Follow up [image]");
     }
 }

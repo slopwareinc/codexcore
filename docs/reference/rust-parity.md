@@ -36,7 +36,7 @@ roadmap: **Complete** requires compiling production code plus relevant tests;
 | Commands | Partial | Bounded UTF-8 output, exit state, monospace card | ANSI styling, expand/copy, internal scrolling |
 | File changes | Partial | Stable semantic changes and bounded colored diff preview | Full unified parser, gutters/hunks, expansion/review actions |
 | Tool calls/unknown items | Partial | Semantic cards, bounded JSON, visible unknown fallback | Product renderer registry and structured result views |
-| Composer | Partial | Bounded native IME, grapheme/UTF-16 selection, clipboard, submit/steer/stop | Multiline layout, attachments, mentions, slash commands, queue editor |
+| Composer | Partial | Bounded native IME, grapheme/UTF-16 selection, clipboard, submit, default durable queue, explicit steer, stop, ordered queue strip with move/remove | Multiline layout, attachments, mentions, slash commands, queued-text editing |
 | Approval and user-input prompts | Complete | Exact identity, approval decisions, choice/free-form/secret answers | Visual/accessibility interaction baselines |
 | MCP elicitation | Partial | URL opening and primitive JSON Schema forms; unsupported fields block submit | Nested arrays/objects and external URL completion lifecycle |
 | Task navigation | Partial | Virtual list, status attention, mode-aware host switching | Search/pagination, pin/archive/rename/fork/copy, project grouping |

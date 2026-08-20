@@ -58,9 +58,18 @@ pub fn init(cx: &mut App) {
 }
 
 /// Composer submission routed to the host.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActiveSubmitBehavior {
+    Queue,
+    Steer,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ComposerEvent {
-    Submit { text: String },
+    Submit {
+        text: String,
+        active_behavior: ActiveSubmitBehavior,
+    },
     Interrupt,
 }
 
@@ -688,6 +697,7 @@ pub struct CodexComposer {
     input: Entity<ComposerInput>,
     theme: CodexTheme,
     turn_active: bool,
+    active_submit_behavior: ActiveSubmitBehavior,
     _input_subscription: gpui::Subscription,
 }
 
@@ -705,6 +715,7 @@ impl CodexComposer {
             input,
             theme,
             turn_active: false,
+            active_submit_behavior: ActiveSubmitBehavior::Queue,
             _input_subscription: subscription,
         }
     }
@@ -746,7 +757,18 @@ impl CodexComposer {
             return;
         }
         self.input.update(cx, ComposerInput::reset);
-        cx.emit(ComposerEvent::Submit { text });
+        cx.emit(ComposerEvent::Submit {
+            text,
+            active_behavior: self.active_submit_behavior,
+        });
+    }
+
+    fn toggle_active_behavior(&mut self, cx: &mut Context<Self>) {
+        self.active_submit_behavior = match self.active_submit_behavior {
+            ActiveSubmitBehavior::Queue => ActiveSubmitBehavior::Steer,
+            ActiveSubmitBehavior::Steer => ActiveSubmitBehavior::Queue,
+        };
+        cx.notify();
     }
 
     fn interrupt(&mut self, cx: &mut Context<Self>) {
@@ -762,6 +784,14 @@ impl Render for CodexComposer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let can_submit = !self.input.read(cx).text().trim().is_empty();
         let theme = self.theme;
+        let submit_label = if self.turn_active {
+            match self.active_submit_behavior {
+                ActiveSubmitBehavior::Queue => "Queue",
+                ActiveSubmitBehavior::Steer => "Steer",
+            }
+        } else {
+            "Send"
+        };
         div()
             .id("codex-composer")
             .role(Role::Form)
@@ -776,13 +806,34 @@ impl Render for CodexComposer {
             .bg(theme.elevated_surface)
             .p_2()
             .child(div().flex_1().overflow_hidden().child(self.input.clone()))
+            .when(self.turn_active, |view| {
+                view.child(
+                    div()
+                        .id("codex-composer-active-behavior")
+                        .focusable()
+                        .tab_stop(true)
+                        .role(Role::Button)
+                        .aria_label("Toggle between queue and steer")
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme.border)
+                        .px_3()
+                        .py_2()
+                        .text_xs()
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_active_behavior(cx);
+                        }))
+                        .child(submit_label),
+                )
+            })
             .child(
                 div()
                     .id("codex-composer-submit")
                     .focusable()
                     .tab_stop(true)
                     .role(Role::Button)
-                    .aria_label("Send message")
+                    .aria_label(format!("{submit_label} message"))
                     .rounded_lg()
                     .px_3()
                     .py_2()
@@ -800,7 +851,7 @@ impl Render for CodexComposer {
                     .when(can_submit, |button| {
                         button.on_click(cx.listener(|this, _, _, cx| this.submit(cx)))
                     })
-                    .child("Send"),
+                    .child(submit_label),
             )
             .when(self.turn_active, |view| {
                 view.child(

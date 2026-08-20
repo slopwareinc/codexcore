@@ -14,13 +14,15 @@ use codex_app_server_sdk::{
 use codex_app_server_state::{StateObservationScope, ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
-    CodexComposer, CodexModelPicker, CodexPrompt, CodexThreadList, CodexTranscript, ComposerEvent,
-    ModelSelectionEvent, PromptIntent, ThreadSelectionEvent,
+    ActiveSubmitBehavior, CodexComposer, CodexModelPicker, CodexPrompt, CodexQueue,
+    CodexThreadList, CodexTranscript, ComposerEvent, ModelSelectionEvent, PromptIntent, QueueEvent,
+    ThreadSelectionEvent,
 };
 use codex_presentation::{
-    ModelPickerPresentation, PromptActionKind, PromptPresentation, StandardItemPolicy,
-    TaskStatusPresentation, ThreadListPresentation, ThreadListRow, TranscriptPresentation,
-    TranscriptProjector, project_model_picker, project_prompt, project_thread_list,
+    ModelPickerPresentation, PromptActionKind, PromptPresentation, QueuePresentation,
+    StandardItemPolicy, TaskStatusPresentation, ThreadListPresentation, ThreadListRow,
+    TranscriptPresentation, TranscriptProjector, project_model_picker, project_prompt,
+    project_queue, project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -77,15 +79,21 @@ fn run_headless(config: RunConfiguration) -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .block_on(async move {
             let (updates, receiver) = async_channel::bounded(UPDATE_CAPACITY);
-            let (_commands, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
-            let printer = tokio::spawn(print_updates(receiver));
+            let (commands, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
+            let queued_prompt = config.queued_prompt.clone();
+            let printer = tokio::spawn(print_updates(receiver, commands, queued_prompt));
             let result = run_session(config, updates, command_receiver).await;
             printer.await.map_err(|error| error.to_string())?;
             result
         })
 }
 
-async fn print_updates(receiver: Receiver<AppUpdate>) {
+async fn print_updates(
+    receiver: Receiver<AppUpdate>,
+    commands: Sender<HostCommand>,
+    queued_prompt: Option<String>,
+) {
+    let mut queued = false;
     while let Ok(update) = receiver.recv().await {
         match update {
             AppUpdate::Status(status) => println!("status: {status}"),
@@ -104,7 +112,22 @@ async fn print_updates(receiver: Receiver<AppUpdate>) {
             AppUpdate::ThreadList(presentation) => {
                 println!("tasks: {}", presentation.rows.len());
             }
-            AppUpdate::TurnActive(active) => println!("turn-active: {active}"),
+            AppUpdate::Queue(presentation) => println!("queue: {}", presentation.rows.len()),
+            AppUpdate::TurnActive(active) => {
+                println!("turn-active: {active}");
+                if active
+                    && !queued
+                    && let Some(text) = queued_prompt.clone()
+                {
+                    queued = true;
+                    let _ = commands
+                        .send(HostCommand::Submit {
+                            text,
+                            active_behavior: ActiveSubmitBehavior::Queue,
+                        })
+                        .await;
+                }
+            }
             AppUpdate::Failed(error) => eprintln!("session failed: {error}"),
         }
     }
@@ -116,6 +139,7 @@ enum AppUpdate {
     Prompt(Option<PromptPresentation>),
     ModelPicker(ModelPickerPresentation),
     ThreadList(ThreadListPresentation),
+    Queue(QueuePresentation),
     TurnActive(bool),
     Failed(String),
 }
@@ -123,10 +147,14 @@ enum AppUpdate {
 #[derive(Clone, Debug)]
 enum HostCommand {
     Prompt(PromptIntent),
-    Submit(String),
+    Submit {
+        text: String,
+        active_behavior: ActiveSubmitBehavior,
+    },
     Interrupt,
     SelectThread(ThreadId),
     SelectModel(ModelSelectionEvent),
+    Queue(QueueEvent),
     Shutdown,
 }
 
@@ -134,12 +162,14 @@ struct CodexApp {
     transcript: Entity<CodexTranscript>,
     thread_list: Entity<CodexThreadList>,
     model_picker: Entity<CodexModelPicker>,
+    queue: Entity<CodexQueue>,
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
     _composer_subscription: Subscription,
     _thread_list_subscription: Subscription,
     _model_picker_subscription: Subscription,
+    _queue_subscription: Subscription,
     _quit_subscription: Subscription,
     status: String,
     command_sender: Sender<HostCommand>,
@@ -147,36 +177,68 @@ struct CodexApp {
     _update_task: Task<()>,
 }
 
-impl CodexApp {
-    fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
-        let pending = TranscriptPresentation {
-            revision: codex_app_server_state::StateRevision::ZERO,
-            thread_id: ThreadId::from("pending"),
-            turns: Vec::new(),
-        };
-        let transcript = cx.new(|_| CodexTranscript::new(&pending));
-        let thread_list = cx.new(|_| {
+struct InitialViews {
+    transcript: Entity<CodexTranscript>,
+    thread_list: Entity<CodexThreadList>,
+    model_picker: Entity<CodexModelPicker>,
+    queue: Entity<CodexQueue>,
+    composer: Entity<CodexComposer>,
+}
+
+fn initial_views(cx: &mut Context<CodexApp>) -> InitialViews {
+    let pending = TranscriptPresentation {
+        revision: codex_app_server_state::StateRevision::ZERO,
+        thread_id: ThreadId::from("pending"),
+        turns: Vec::new(),
+    };
+    InitialViews {
+        transcript: cx.new(|_| CodexTranscript::new(&pending)),
+        thread_list: cx.new(|_| {
             CodexThreadList::new(ThreadListPresentation {
                 rows: Vec::new(),
                 next_cursor: None,
                 backwards_cursor: None,
             })
-        });
-        let model_picker = cx.new(|_| {
+        }),
+        model_picker: cx.new(|_| {
             CodexModelPicker::new(ModelPickerPresentation {
                 models: Vec::new(),
                 selected_model: String::new(),
                 selected_effort: String::new(),
             })
-        });
-        let composer = cx.new(CodexComposer::new);
+        }),
+        queue: cx.new(|_| {
+            CodexQueue::new(QueuePresentation {
+                rows: Vec::new(),
+                next_cursor: None,
+            })
+        }),
+        composer: cx.new(CodexComposer::new),
+    }
+}
+
+impl CodexApp {
+    fn new(config: RunConfiguration, cx: &mut Context<Self>) -> Self {
+        let InitialViews {
+            transcript,
+            thread_list,
+            model_picker,
+            queue,
+            composer,
+        } = initial_views(cx);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
         let composer_sender = command_sender.clone();
         let composer_subscription =
             cx.subscribe(&composer, move |_, _, event: &ComposerEvent, _| {
                 let command = match event {
-                    ComposerEvent::Submit { text } => HostCommand::Submit(text.clone()),
+                    ComposerEvent::Submit {
+                        text,
+                        active_behavior,
+                    } => HostCommand::Submit {
+                        text: text.clone(),
+                        active_behavior: *active_behavior,
+                    },
                     ComposerEvent::Interrupt => HostCommand::Interrupt,
                 };
                 let _ = composer_sender.try_send(command);
@@ -196,6 +258,10 @@ impl CodexApp {
                 let _ = model_sender.try_send(HostCommand::SelectModel(event.clone()));
             },
         );
+        let queue_sender = command_sender.clone();
+        let queue_subscription = cx.subscribe(&queue, move |_, _, event: &QueueEvent, _| {
+            let _ = queue_sender.try_send(HostCommand::Queue(event.clone()));
+        });
         let quit_sender = command_sender.clone();
         let quit_subscription = cx.on_app_quit(move |_, _| {
             let quit_sender = quit_sender.clone();
@@ -223,12 +289,14 @@ impl CodexApp {
             transcript,
             thread_list,
             model_picker,
+            queue,
             composer,
             prompt: None,
             prompt_subscription: None,
             _composer_subscription: composer_subscription,
             _thread_list_subscription: thread_list_subscription,
             _model_picker_subscription: model_picker_subscription,
+            _queue_subscription: queue_subscription,
             _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
             command_sender,
@@ -254,6 +322,11 @@ impl CodexApp {
             AppUpdate::ThreadList(presentation) => {
                 self.thread_list.update(cx, |thread_list, cx| {
                     thread_list.set_presentation(presentation, cx);
+                });
+            }
+            AppUpdate::Queue(presentation) => {
+                self.queue.update(cx, |queue, cx| {
+                    queue.set_presentation(presentation, cx);
                 });
             }
             AppUpdate::TurnActive(active) => {
@@ -346,6 +419,7 @@ impl Render for CodexApp {
             .when_some(self.prompt.clone(), |view, prompt| {
                 view.child(div().flex_shrink_0().w_full().px_5().pb_5().child(prompt))
             })
+            .child(self.queue.clone())
             .child(
                 div()
                     .flex_shrink_0()
@@ -376,13 +450,14 @@ async fn run_session(
         .await
         .map_err(|error| error.to_string())?;
     let mut canonical_observation = observe_thread(&codex, &thread_id).await?;
-    let mut next_input = Some(config.prompt.clone());
+    let mut next_launch = Some(TurnLaunch::Input(config.prompt.clone()));
+    let mut next_queue_id = 1_u64;
     let mut shutdown = false;
     while !shutdown {
-        let input = match next_input.take() {
-            Some(input) => input,
+        let launch = match next_launch.take() {
+            Some(launch) => launch,
             None => match next_idle_action(codex.client(), &commands).await? {
-                IdleAction::Submit(input) => input,
+                IdleAction::Submit(input) => TurnLaunch::Input(input),
                 IdleAction::Select(selected) => {
                     if selected != thread_id {
                         let replacement =
@@ -398,6 +473,14 @@ async fn run_session(
                     send_status(&updates, "Model selection updated for the next turn").await;
                     continue;
                 }
+                IdleAction::Queue(event) => {
+                    let current = thread
+                        .as_ref()
+                        .ok_or_else(|| "selected thread lease is missing".to_owned())?;
+                    handle_queue_event(current, event).await?;
+                    publish_queue(current, &updates).await?;
+                    continue;
+                }
                 IdleAction::Shutdown => break,
             },
         };
@@ -407,52 +490,78 @@ async fn run_session(
                 .as_ref()
                 .ok_or_else(|| "selected thread lease is missing".to_owned())?,
             &thread_id,
-            input,
+            launch,
             &turn_options,
             TurnDriver {
                 session_observation: &mut session_observation,
                 canonical_observation: &mut canonical_observation,
                 commands: &commands,
                 updates: &updates,
+                next_queue_id: &mut next_queue_id,
             },
         )
         .await?;
         shutdown = outcome.shutdown;
-        if let Some(selection) = outcome.pending_model {
-            apply_model_selection(&mut turn_options, &selection);
+        if let Some(selection) = &outcome.pending_model {
+            apply_model_selection(&mut turn_options, selection);
         }
-        if config.headless || shutdown {
+        if shutdown {
             break;
         }
-        if let Some(selected) = outcome.pending_selection
-            && selected != thread_id
+        if let Some(selected) = &outcome.pending_selection
+            && selected != &thread_id
         {
-            let replacement = switch_thread(&codex, &mut thread, selected, &updates).await?;
+            let replacement =
+                switch_thread(&codex, &mut thread, selected.clone(), &updates).await?;
             thread_id = replacement.id().clone();
             thread = Some(replacement);
             canonical_observation = observe_thread(&codex, &thread_id).await?;
             continue;
         }
-        refresh_thread_list(
-            &codex,
-            &thread_id,
-            None,
-            TaskStatusPresentation::Idle,
-            &updates,
-        )
-        .await?;
-        send_status(&updates, "Ready for another message").await;
+        if schedule_queued_follow_up(thread.as_ref(), &outcome, &updates).await? {
+            next_launch = Some(TurnLaunch::Queued);
+            continue;
+        }
+        if config.headless {
+            break;
+        }
+        publish_idle(&codex, &thread_id, &updates).await?;
     }
 
-    if config.headless && !shutdown {
-        send_status(&updates, "Turn complete").await;
+    finish_session(&codex, &mut thread, config.headless && !shutdown, &updates).await
+}
+
+async fn publish_idle(
+    codex: &Codex,
+    thread_id: &ThreadId,
+    updates: &Sender<AppUpdate>,
+) -> Result<(), String> {
+    refresh_thread_list(
+        codex,
+        thread_id,
+        None,
+        TaskStatusPresentation::Idle,
+        updates,
+    )
+    .await?;
+    send_status(updates, "Ready for another message").await;
+    Ok(())
+}
+
+async fn finish_session(
+    codex: &Codex,
+    thread: &mut Option<CodexThread>,
+    completed: bool,
+    updates: &Sender<AppUpdate>,
+) -> Result<(), String> {
+    if completed {
+        send_status(updates, "Turn complete").await;
     }
     updates.send(AppUpdate::Prompt(None)).await.ok();
     if let Some(thread) = thread.take() {
         thread.close().await.map_err(|error| error.to_string())?;
     }
-    codex.close().await.map_err(|error| error.to_string())?;
-    Ok(())
+    codex.close().await.map_err(|error| error.to_string())
 }
 
 async fn observe_thread(
@@ -464,6 +573,25 @@ async fn observe_thread(
         .observe_canonical(StateObservationScope::thread(thread_id.clone()))
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn schedule_queued_follow_up(
+    thread: Option<&CodexThread>,
+    outcome: &TurnOutcome,
+    updates: &Sender<AppUpdate>,
+) -> Result<bool, String> {
+    let has_queue = if outcome.queue_changed {
+        true
+    } else if outcome.check_queue_after {
+        queue_has_items(thread.ok_or_else(|| "selected thread lease is missing".to_owned())?)
+            .await?
+    } else {
+        false
+    };
+    if has_queue {
+        send_status(updates, "Starting queued follow-up…").await;
+    }
+    Ok(has_queue)
 }
 
 async fn start_initial_thread(
@@ -498,6 +626,13 @@ struct TurnOutcome {
     shutdown: bool,
     pending_selection: Option<ThreadId>,
     pending_model: Option<ModelSelectionEvent>,
+    queue_changed: bool,
+    check_queue_after: bool,
+}
+
+enum TurnLaunch {
+    Input(String),
+    Queued,
 }
 
 struct TurnDriver<'a> {
@@ -505,22 +640,97 @@ struct TurnDriver<'a> {
     canonical_observation: &'a mut CanonicalObservation,
     commands: &'a Receiver<HostCommand>,
     updates: &'a Sender<AppUpdate>,
+    next_queue_id: &'a mut u64,
+}
+
+impl TurnDriver<'_> {
+    async fn handle_command(
+        &mut self,
+        command: Result<HostCommand, async_channel::RecvError>,
+        codex: &Codex,
+        thread: &CodexThread,
+        turn: &codex_app_server_sdk::CodexTurn,
+        outcome: &mut TurnOutcome,
+    ) -> Result<(), String> {
+        match command {
+            Ok(HostCommand::Prompt(intent)) => handle_prompt(codex.client(), intent).await?,
+            Ok(HostCommand::Submit {
+                text,
+                active_behavior,
+            }) => match active_behavior {
+                ActiveSubmitBehavior::Steer => turn
+                    .steer(vec![CodexInput::text(text)])
+                    .await
+                    .map_err(|error| error.to_string())?,
+                ActiveSubmitBehavior::Queue => {
+                    let queue_id = *self.next_queue_id;
+                    *self.next_queue_id = self
+                        .next_queue_id
+                        .checked_add(1)
+                        .ok_or_else(|| "queue client identity exhausted".to_owned())?;
+                    match thread
+                        .queue_add(
+                            vec![CodexInput::text(text)],
+                            format!("codex-gpui-{}-{queue_id}", thread.id()),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            outcome.queue_changed = true;
+                            publish_queue(thread, self.updates).await?;
+                        }
+                        Err(error) => {
+                            send_status(self.updates, &format!("Queue failed: {error}")).await;
+                        }
+                    }
+                }
+            },
+            Ok(HostCommand::Interrupt) => {
+                turn.interrupt().await.map_err(|error| error.to_string())?;
+            }
+            Ok(HostCommand::SelectThread(selected)) => {
+                outcome.pending_selection = Some(selected);
+                send_status(
+                    self.updates,
+                    "Task switch queued until the active turn completes…",
+                )
+                .await;
+            }
+            Ok(HostCommand::SelectModel(selection)) => {
+                outcome.pending_model = Some(selection);
+                send_status(self.updates, "Model change queued for the next turn…").await;
+            }
+            Ok(HostCommand::Queue(event)) => {
+                handle_queue_event(thread, event).await?;
+                publish_queue(thread, self.updates).await?;
+            }
+            Ok(HostCommand::Shutdown) | Err(_) => outcome.shutdown = true,
+        }
+        Ok(())
+    }
 }
 
 async fn drive_turn(
     codex: &Codex,
     thread: &CodexThread,
     thread_id: &ThreadId,
-    input: String,
+    launch: TurnLaunch,
     options: &TurnOptions,
-    driver: TurnDriver<'_>,
+    mut driver: TurnDriver<'_>,
 ) -> Result<TurnOutcome, String> {
     send_status(driver.updates, "Running turn…").await;
-    let turn = thread
-        .start_turn(vec![CodexInput::text(input)], options.clone())
-        .await
-        .map_err(|error| error.to_string())?;
+    let launched_from_queue = matches!(&launch, TurnLaunch::Queued);
+    let turn = match launch {
+        TurnLaunch::Input(input) => {
+            thread
+                .start_turn(vec![CodexInput::text(input)], options.clone())
+                .await
+        }
+        TurnLaunch::Queued => thread.queue_start(None).await,
+    }
+    .map_err(|error| error.to_string())?;
     driver.updates.send(AppUpdate::TurnActive(true)).await.ok();
+    publish_queue(thread, driver.updates).await?;
     let turn_key = TurnKey {
         thread_id: thread_id.clone(),
         turn_id: turn.id().clone(),
@@ -529,6 +739,8 @@ async fn drive_turn(
         shutdown: false,
         pending_selection: None,
         pending_model: None,
+        queue_changed: false,
+        check_queue_after: launched_from_queue,
     };
     let (mut terminal, mut projected_revision) =
         publish_current(codex.client(), thread_id, &turn_key, driver.updates).await?;
@@ -549,30 +761,9 @@ async fn drive_turn(
                 publish_pending(codex.client(), driver.updates).await?;
             }
             command = driver.commands.recv() => {
-                match command {
-                    Ok(HostCommand::Prompt(intent)) => {
-                        handle_prompt(codex.client(), intent).await?;
-                    }
-                    Ok(HostCommand::Submit(text)) => {
-                        turn.steer(vec![CodexInput::text(text)])
-                            .await
-                            .map_err(|error| error.to_string())?;
-                    }
-                    Ok(HostCommand::Interrupt) => {
-                        turn.interrupt().await.map_err(|error| error.to_string())?;
-                    }
-                    Ok(HostCommand::SelectThread(selected)) => {
-                        outcome.pending_selection = Some(selected);
-                        send_status(driver.updates, "Task switch queued until the active turn completes…").await;
-                    }
-                    Ok(HostCommand::SelectModel(selection)) => {
-                        outcome.pending_model = Some(selection);
-                        send_status(driver.updates, "Model change queued for the next turn…").await;
-                    }
-                    Ok(HostCommand::Shutdown) | Err(_) => {
-                        outcome.shutdown = true;
-                        break;
-                    }
+                driver.handle_command(command, codex, thread, &turn, &mut outcome).await?;
+                if outcome.shutdown {
+                    break;
                 }
             }
         }
@@ -680,6 +871,41 @@ fn apply_model_selection(options: &mut TurnOptions, selection: &ModelSelectionEv
     options.effort = Some(selection.effort.clone());
 }
 
+async fn queue_has_items(thread: &CodexThread) -> Result<bool, String> {
+    thread
+        .queue_list(None, Some(1))
+        .await
+        .map(|page| !page.data.is_empty())
+        .map_err(|error| error.to_string())
+}
+
+async fn publish_queue(thread: &CodexThread, updates: &Sender<AppUpdate>) -> Result<(), String> {
+    let page = thread
+        .queue_list(None, Some(100))
+        .await
+        .map_err(|error| error.to_string())?;
+    updates
+        .send(AppUpdate::Queue(project_queue(&page)))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())
+}
+
+async fn handle_queue_event(thread: &CodexThread, event: QueueEvent) -> Result<(), String> {
+    match event {
+        QueueEvent::Remove { id } => {
+            thread
+                .queue_delete(&id)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        QueueEvent::Reorder { ids } => thread
+            .queue_reorder(ids)
+            .await
+            .map_err(|error| error.to_string())?,
+    }
+    Ok(())
+}
+
 async fn publish_current(
     client: &AppServerClient,
     thread_id: &ThreadId,
@@ -757,6 +983,7 @@ enum IdleAction {
     Submit(String),
     Select(ThreadId),
     SelectModel(ModelSelectionEvent),
+    Queue(QueueEvent),
     Shutdown,
 }
 
@@ -766,13 +993,14 @@ async fn next_idle_action(
 ) -> Result<IdleAction, String> {
     loop {
         match commands.recv().await {
-            Ok(HostCommand::Submit(text)) => return Ok(IdleAction::Submit(text)),
+            Ok(HostCommand::Submit { text, .. }) => return Ok(IdleAction::Submit(text)),
             Ok(HostCommand::SelectThread(thread_id)) => {
                 return Ok(IdleAction::Select(thread_id));
             }
             Ok(HostCommand::SelectModel(selection)) => {
                 return Ok(IdleAction::SelectModel(selection));
             }
+            Ok(HostCommand::Queue(event)) => return Ok(IdleAction::Queue(event)),
             Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
             Ok(HostCommand::Interrupt) => {}
             Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),

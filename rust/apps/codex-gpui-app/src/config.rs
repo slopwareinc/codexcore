@@ -7,6 +7,7 @@ pub(crate) struct RunConfiguration {
     pub(crate) prompt: String,
     pub(crate) ephemeral: bool,
     pub(crate) headless: bool,
+    pub(crate) queued_prompt: Option<String>,
 }
 
 impl RunConfiguration {
@@ -15,8 +16,9 @@ impl RunConfiguration {
             env::var_os("CODEX_BINARY").map_or_else(|| PathBuf::from("codex"), PathBuf::from);
         let mut cwd = env::current_dir().map_err(|error| error.to_string())?;
         let mut prompt = "Introduce yourself in one short sentence. Do not use tools.".to_owned();
-        let mut ephemeral = true;
+        let mut ephemeral = false;
         let mut headless = false;
+        let mut queued_prompt = None;
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -26,7 +28,9 @@ impl RunConfiguration {
                 "--cwd" => cwd = PathBuf::from(next_value(&mut arguments, &argument)?),
                 "--prompt" => prompt = next_value(&mut arguments, &argument)?,
                 "--persist" => ephemeral = false,
+                "--ephemeral" => ephemeral = true,
                 "--headless" => headless = true,
+                "--queue" => queued_prompt = Some(next_value(&mut arguments, &argument)?),
                 "--help" | "-h" => return Err(usage().to_owned()),
                 value => return Err(format!("unknown argument {value:?}\n{}", usage())),
             }
@@ -40,6 +44,7 @@ impl RunConfiguration {
             prompt,
             ephemeral,
             headless,
+            queued_prompt,
         })
     }
 }
@@ -54,7 +59,7 @@ fn next_value(
 }
 
 const fn usage() -> &'static str {
-    "usage: codex-gpui-app [--codex-binary PATH] [--cwd PATH] [--prompt TEXT] [--persist] [--headless]"
+    "usage: codex-gpui-app [--codex-binary PATH] [--cwd PATH] [--prompt TEXT] [--ephemeral] [--headless] [--queue TEXT]"
 }
 
 #[cfg(test)]
@@ -62,7 +67,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_safe_ephemeral_defaults_and_explicit_overrides() {
+    fn parses_explicit_overrides() {
         let config = RunConfiguration::parse([
             "--codex-binary".to_owned(),
             "/bin/codex".to_owned(),
@@ -72,6 +77,8 @@ mod tests {
             "hello".to_owned(),
             "--persist".to_owned(),
             "--headless".to_owned(),
+            "--queue".to_owned(),
+            "follow up".to_owned(),
         ])
         .expect("configuration");
         assert_eq!(config.codex_binary, PathBuf::from("/bin/codex"));
@@ -79,5 +86,15 @@ mod tests {
         assert_eq!(config.prompt, "hello");
         assert!(!config.ephemeral);
         assert!(config.headless);
+        assert_eq!(config.queued_prompt.as_deref(), Some("follow up"));
+    }
+
+    #[test]
+    fn reference_host_persists_threads_unless_ephemeral_is_explicit() {
+        let persistent = RunConfiguration::parse(Vec::<String>::new()).expect("defaults");
+        assert!(!persistent.ephemeral);
+        let ephemeral =
+            RunConfiguration::parse(["--ephemeral".to_owned()]).expect("ephemeral override");
+        assert!(ephemeral.ephemeral);
     }
 }
