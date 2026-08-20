@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -17,8 +18,8 @@ use codex_presentation::{
     },
 };
 use gpui::{
-    AnyElement, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment, ListState, Render,
-    Role, Task, WeakEntity, Window, div, list, prelude::*, px,
+    AnyElement, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment, ListState,
+    ObjectFit, Render, Role, Task, WeakEntity, Window, div, img, list, prelude::*, px,
 };
 
 use crate::{
@@ -1209,6 +1210,9 @@ fn work_row_content(row: &WorkRowV2) -> (String, Option<String>) {
         WorkRowV2::McpToolCall(call) => {
             let label = format!("Called {} · {}", call.app_name, call.tool);
             let mut detail = Vec::new();
+            if let Some(progress) = &call.progress {
+                detail.push(format!("Progress\n{}", bounded_label(progress.clone())));
+            }
             if let Some(error) = &call.error_first_line {
                 detail.push(format!("Error\n{error}"));
             }
@@ -1218,7 +1222,12 @@ fn work_row_content(row: &WorkRowV2) -> (String, Option<String>) {
             if let Some(result) = &call.result {
                 detail.push(format!("Result\n{}", compact_json(result)));
             }
-            (label, nonempty_detail(detail))
+            (
+                call.progress.as_ref().map_or(label.clone(), |progress| {
+                    format!("{label} · {}", bounded_label(progress.clone()))
+                }),
+                nonempty_detail(detail),
+            )
         }
         WorkRowV2::WebSearch(search) => (format!("Searched for {}", search.query), None),
         WorkRowV2::Collaboration(collaboration) => {
@@ -1404,13 +1413,73 @@ fn render_generated_image(id: String, image: &GeneratedImageV2, theme: CodexThem
         || image.source.clone(),
         |prompt| format!("{}\n\n{prompt}", image.source),
     );
-    render_card(
-        id,
-        "Generated image",
-        "Generated image".to_owned(),
-        detail,
-        theme,
-    )
+    let local_path = local_image_path(&image.source);
+    div()
+        .id(id)
+        .role(Role::Article)
+        .aria_label(bounded_label(format!("Generated image: {detail}")))
+        .w_full()
+        .max_w(px(TranscriptLayoutMetrics::CARD_MAX_WIDTH))
+        .mb(px(TranscriptLayoutMetrics::ITEM_GAP))
+        .rounded_lg()
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .px_3()
+        .py_2()
+        .child(div().text_sm().child("Generated image"))
+        .when_some(local_path, |view, path| {
+            view.child(
+                div()
+                    .mt_2()
+                    .w_full()
+                    .h(px(240.))
+                    .rounded_md()
+                    .overflow_hidden()
+                    .bg(theme.background)
+                    .child(
+                        img(path)
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .with_fallback({
+                                let source = image.source.clone();
+                                move || {
+                                    div()
+                                        .size_full()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_color(theme.muted_text)
+                                        .text_xs()
+                                        .child(format!("Unable to load {source}"))
+                                        .into_any()
+                                }
+                            }),
+                    ),
+            )
+        })
+        .child(
+            div()
+                .mt_1()
+                .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                .text_color(theme.muted_text)
+                .whitespace_normal()
+                .child(detail),
+        )
+        .into_any()
+}
+
+/// GPUI can load local paths through its resource loader. Remote/data payloads
+/// remain a textual fallback because the transcript renderer never fetches
+/// media or interprets untrusted image data.
+fn local_image_path(source: &str) -> Option<PathBuf> {
+    let source = source.trim();
+    let path = source
+        .strip_prefix("file://")
+        .map_or_else(|| PathBuf::from(source), PathBuf::from);
+    path.is_absolute()
+        .then_some(path)
+        .filter(|path| path.is_file())
 }
 
 fn render_lifecycle(id: String, _status: &TurnStatusV2, _theme: CodexTheme) -> AnyElement {
@@ -1942,6 +2011,22 @@ mod tests {
         }
     }
 
+    fn mcp_row(progress: Option<&str>) -> WorkRowV2 {
+        WorkRowV2::McpToolCall(codex_presentation::transcript_v2::McpToolCallRowV2 {
+            id: "mcp".to_owned(),
+            app_name: "GitHub".to_owned(),
+            server: "github".to_owned(),
+            tool: "search".to_owned(),
+            status: WorkItemStatusV2::InProgress,
+            progress: progress.map(str::to_owned),
+            duration_ms: None,
+            error_first_line: None,
+            arguments: None,
+            result: None,
+            read_only_hint: Some(true),
+        })
+    }
+
     #[test]
     fn command_rows_surface_command_metadata_while_running_and_after_exit() {
         let running = command_row(WorkItemStatusV2::InProgress, None);
@@ -2009,6 +2094,17 @@ mod tests {
         assert!(is_disclosure_key_name("space"));
         assert!(is_disclosure_key_name(" "));
         assert!(!is_disclosure_key_name("escape"));
+    }
+
+    #[test]
+    fn mcp_progress_is_visible_in_compact_and_expanded_content() {
+        let (label, detail) = work_row_content(&mcp_row(Some("Fetching issue 42")));
+        assert!(label.contains("Fetching issue 42"));
+        assert!(
+            detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("Progress\nFetching issue 42"))
+        );
     }
 
     #[test]

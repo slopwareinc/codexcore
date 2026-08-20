@@ -18,7 +18,6 @@ pub(crate) fn render_markdown<E>(
 where
     E: EventEmitter<TranscriptEvent>,
 {
-    let links = document.links();
     div()
         .id("assistant-markdown")
         .role(Role::Document)
@@ -32,54 +31,28 @@ where
             document
                 .blocks
                 .iter()
-                .map(|block| render_block(&block.node, block.ordinal, theme)),
+                .map(|block| render_block(&block.node, block.ordinal, theme, emitter)),
         )
-        .when(!links.is_empty(), |view| {
-            view.child(
-                div()
-                    .id("assistant-markdown-links")
-                    .role(Role::List)
-                    .aria_label("Links in assistant response")
-                    .flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .children(links.into_iter().enumerate().map(|(index, link)| {
-                        let event = TranscriptEvent::OpenLink {
-                            destination: link.destination,
-                            label: link.label.clone(),
-                        };
-                        let emitter = emitter.clone();
-                        div()
-                            .id(("assistant-markdown-link", index))
-                            .role(Role::Link)
-                            .aria_label(format!("Open link {}", link.label))
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(theme.border)
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .text_color(theme.accent)
-                            .cursor_pointer()
-                            .on_click(move |_, _, cx| {
-                                emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
-                            })
-                            .child(link.label)
-                    })),
-            )
-        })
         .into_any()
 }
 
 #[allow(clippy::too_many_lines)]
-fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyElement {
+fn render_block<E>(
+    node: &MarkdownNode,
+    ordinal: usize,
+    theme: CodexTheme,
+    emitter: &WeakEntity<E>,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
     let id = ("markdown-block", ordinal);
     match node {
         MarkdownNode::Paragraph(children) => div()
             .id(id)
             .whitespace_normal()
             .line_height(px(TranscriptLayoutMetrics::CHAT_LINE_HEIGHT))
-            .child(styled_inline(children, theme))
+            .child(render_inline(children, theme, emitter, ordinal))
             .into_any(),
         MarkdownNode::Heading { level, children } => div()
             .id(id)
@@ -88,7 +61,7 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
             .text_size(px(heading_size(*level)))
             .font_weight(FontWeight::SEMIBOLD)
             .whitespace_normal()
-            .child(styled_inline(children, theme))
+            .child(render_inline(children, theme, emitter, ordinal))
             .into_any(),
         MarkdownNode::BlockQuote { kind, children } => div()
             .id(id)
@@ -106,7 +79,7 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
                 children
                     .iter()
                     .enumerate()
-                    .map(|(index, child)| render_block(child, index, theme)),
+                    .map(|(index, child)| render_block(child, index, theme, emitter)),
             )
             .into_any(),
         MarkdownNode::CodeBlock {
@@ -169,6 +142,7 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
                     }),
                     index,
                     theme,
+                    emitter,
                 )
             }))
             .into_any(),
@@ -183,12 +157,9 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
             .border_1()
             .border_color(theme.border)
             .overflow_hidden()
-            .children(
-                children
-                    .iter()
-                    .enumerate()
-                    .map(|(index, child)| render_table_section(child, index, alignments, theme)),
-            )
+            .children(children.iter().enumerate().map(|(index, child)| {
+                render_table_section(child, index, alignments, theme, emitter)
+            }))
             .into_any(),
         MarkdownNode::Rule => div()
             .id(id)
@@ -211,13 +182,14 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
             .whitespace_normal()
             .child(html.clone())
             .into_any(),
-        MarkdownNode::Item(_) => render_list_item(node, "•".to_owned(), ordinal, theme),
+        MarkdownNode::Item(_) => render_list_item(node, "•".to_owned(), ordinal, theme, emitter),
         MarkdownNode::TableHead(children) | MarkdownNode::TableRow(children) => render_table_row(
             children,
             ordinal,
             matches!(node, MarkdownNode::TableHead(_)),
             &[],
             theme,
+            emitter,
         ),
         MarkdownNode::TableCell(children) => div()
             .id(id)
@@ -226,22 +198,31 @@ fn render_block(node: &MarkdownNode, ordinal: usize, theme: CodexTheme) -> AnyEl
             .px_3()
             .py_2()
             .whitespace_normal()
-            .child(styled_inline(children, theme))
+            .child(render_inline(children, theme, emitter, ordinal))
             .into_any(),
         _ => div()
             .id(id)
             .whitespace_normal()
-            .child(styled_inline(std::slice::from_ref(node), theme))
+            .child(render_inline(
+                std::slice::from_ref(node),
+                theme,
+                emitter,
+                ordinal,
+            ))
             .into_any(),
     }
 }
 
-fn render_list_item(
+fn render_list_item<E>(
     item: &MarkdownNode,
     default_marker: String,
     index: usize,
     theme: CodexTheme,
-) -> AnyElement {
+    emitter: &WeakEntity<E>,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
     let children = match item {
         MarkdownNode::Item(children) => children.as_slice(),
         _ => std::slice::from_ref(item),
@@ -271,36 +252,44 @@ fn render_list_item(
                     .iter()
                     .filter(|node| !matches!(node, MarkdownNode::TaskMarker { .. }))
                     .enumerate()
-                    .map(|(child_index, child)| render_block(child, child_index, theme)),
+                    .map(|(child_index, child)| render_block(child, child_index, theme, emitter)),
             ),
         )
         .into_any()
 }
 
-fn render_table_section(
+fn render_table_section<E>(
     node: &MarkdownNode,
     index: usize,
     alignments: &[MarkdownAlignment],
     theme: CodexTheme,
-) -> AnyElement {
+    emitter: &WeakEntity<E>,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
     match node {
         MarkdownNode::TableHead(children) => {
-            render_table_row(children, index, true, alignments, theme)
+            render_table_row(children, index, true, alignments, theme, emitter)
         }
         MarkdownNode::TableRow(children) => {
-            render_table_row(children, index, false, alignments, theme)
+            render_table_row(children, index, false, alignments, theme, emitter)
         }
-        _ => render_block(node, index, theme),
+        _ => render_block(node, index, theme, emitter),
     }
 }
 
-fn render_table_row(
+fn render_table_row<E>(
     children: &[MarkdownNode],
     index: usize,
     heading: bool,
     alignments: &[MarkdownAlignment],
     theme: CodexTheme,
-) -> AnyElement {
+    emitter: &WeakEntity<E>,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
     div()
         .id(("markdown-table-row", index))
         .role(Role::Row)
@@ -333,12 +322,14 @@ fn render_table_row(
                         }),
                 )
                 .whitespace_normal()
-                .child(styled_inline(
+                .child(render_inline(
                     match cell {
                         MarkdownNode::TableCell(children) => children,
                         _ => std::slice::from_ref(cell),
                     },
                     theme,
+                    emitter,
+                    cell_index,
                 ))
         }))
         .into_any()
@@ -352,7 +343,7 @@ const fn markdown_text_alignment(alignment: MarkdownAlignment) -> TextAlign {
     }
 }
 
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct InlineStyle(u8);
 
 impl InlineStyle {
@@ -362,6 +353,8 @@ impl InlineStyle {
     const CODE: u8 = 1 << 3;
     const LINK: u8 = 1 << 4;
     const HTML: u8 = 1 << 5;
+    const SUPERSCRIPT: u8 = 1 << 6;
+    const SUBSCRIPT: u8 = 1 << 7;
 
     const fn with(self, flag: u8) -> Self {
         Self(self.0 | flag)
@@ -372,59 +365,205 @@ impl InlineStyle {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InlineLink {
+    range: Range<usize>,
+    destination: String,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct InlineProjection {
     text: String,
     highlights: Vec<(Range<usize>, InlineStyle)>,
     code_ranges: Vec<Range<usize>>,
+    links: Vec<InlineLink>,
+    superscript_ranges: Vec<Range<usize>>,
+    subscript_ranges: Vec<Range<usize>>,
 }
 
-fn styled_inline(nodes: &[MarkdownNode], theme: CodexTheme) -> StyledText {
-    let mut projection = InlineProjection {
-        text: String::new(),
-        highlights: Vec::new(),
-        code_ranges: Vec::new(),
-    };
+fn project_inline(nodes: &[MarkdownNode]) -> InlineProjection {
+    let mut projection = InlineProjection::default();
     for node in nodes {
         flatten_inline(node, InlineStyle::default(), &mut projection);
     }
-    let highlights = projection.highlights.into_iter().map(|(range, style)| {
-        let mut highlight = HighlightStyle::default();
-        if style.has(InlineStyle::STRONG) {
-            highlight.font_weight = Some(FontWeight::BOLD);
-        }
-        if style.has(InlineStyle::EMPHASIS) {
-            highlight.font_style = Some(FontStyle::Italic);
-        }
-        if style.has(InlineStyle::STRIKETHROUGH) {
-            highlight.strikethrough = Some(StrikethroughStyle {
-                thickness: px(1.),
-                color: Some(theme.muted_text.into()),
-            });
-        }
-        if style.has(InlineStyle::CODE) {
-            highlight.background_color = Some(theme.surface.into());
-        }
-        if style.has(InlineStyle::LINK) {
-            highlight.color = Some(theme.accent.into());
-            highlight.underline = Some(UnderlineStyle {
-                thickness: px(1.),
-                color: Some(theme.accent.into()),
-                wavy: false,
-            });
-        }
-        if style.has(InlineStyle::HTML) {
-            highlight.color = Some(theme.warning.into());
-        }
-        (range, highlight)
-    });
-    StyledText::new(projection.text)
+    projection
+}
+
+fn styled_inline(nodes: &[MarkdownNode], theme: CodexTheme) -> StyledText {
+    styled_projection(&project_inline(nodes), theme)
+}
+
+fn styled_projection(projection: &InlineProjection, theme: CodexTheme) -> StyledText {
+    let highlights = projection
+        .highlights
+        .iter()
+        .map(|(range, style)| (range.clone(), highlight_style(*style, theme)));
+    StyledText::new(projection.text.clone())
         .with_highlights(highlights)
         .with_font_family_overrides(
             projection
                 .code_ranges
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|range| (range, "monospace".into())),
         )
+}
+
+fn styled_projection_range(
+    projection: &InlineProjection,
+    theme: CodexTheme,
+    range: Range<usize>,
+) -> StyledText {
+    let highlights = projection.highlights.iter().filter_map(|(source, style)| {
+        let start = source.start.max(range.start);
+        let end = source.end.min(range.end);
+        (start < end).then_some((
+            start - range.start..end - range.start,
+            highlight_style(*style, theme),
+        ))
+    });
+    let code_ranges = projection.code_ranges.iter().filter_map(|source| {
+        let start = source.start.max(range.start);
+        let end = source.end.min(range.end);
+        (start < end).then_some((start - range.start..end - range.start, "monospace".into()))
+    });
+    StyledText::new(projection.text[range.clone()].to_owned())
+        .with_highlights(highlights)
+        .with_font_family_overrides(code_ranges)
+}
+
+fn highlight_style(style: InlineStyle, theme: CodexTheme) -> HighlightStyle {
+    let mut highlight = HighlightStyle::default();
+    if style.has(InlineStyle::STRONG) {
+        highlight.font_weight = Some(FontWeight::BOLD);
+    }
+    if style.has(InlineStyle::EMPHASIS) {
+        highlight.font_style = Some(FontStyle::Italic);
+    }
+    if style.has(InlineStyle::STRIKETHROUGH) {
+        highlight.strikethrough = Some(StrikethroughStyle {
+            thickness: px(1.),
+            color: Some(theme.muted_text.into()),
+        });
+    }
+    if style.has(InlineStyle::CODE) {
+        highlight.background_color = Some(theme.surface.into());
+    }
+    if style.has(InlineStyle::LINK) {
+        highlight.color = Some(theme.accent.into());
+        highlight.underline = Some(UnderlineStyle {
+            thickness: px(1.),
+            color: Some(theme.accent.into()),
+            wavy: false,
+        });
+    }
+    if style.has(InlineStyle::HTML) {
+        highlight.color = Some(theme.warning.into());
+    }
+    highlight
+}
+
+fn render_inline<E>(
+    nodes: &[MarkdownNode],
+    theme: CodexTheme,
+    emitter: &WeakEntity<E>,
+    ordinal: usize,
+) -> AnyElement
+where
+    E: EventEmitter<TranscriptEvent>,
+{
+    let projection = project_inline(nodes);
+    if projection.links.is_empty()
+        && projection.superscript_ranges.is_empty()
+        && projection.subscript_ranges.is_empty()
+    {
+        return div()
+            .id(format!("markdown-inline:{ordinal}"))
+            .child(styled_inline(nodes, theme))
+            .into_any();
+    }
+
+    let mut boundaries = vec![0, projection.text.len()];
+    for link in &projection.links {
+        boundaries.extend([link.range.start, link.range.end]);
+    }
+    boundaries.extend(
+        projection
+            .superscript_ranges
+            .iter()
+            .flat_map(|range| [range.start, range.end]),
+    );
+    boundaries.extend(
+        projection
+            .subscript_ranges
+            .iter()
+            .flat_map(|range| [range.start, range.end]),
+    );
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    let fragments = boundaries
+        .windows(2)
+        .enumerate()
+        .filter_map(|(index, bounds)| {
+            let start = bounds[0];
+            let end = bounds[1];
+            if start == end {
+                return None;
+            }
+            let range = start..end;
+            let link = projection
+                .links
+                .iter()
+                .find(|link| link.range.start <= start && end <= link.range.end);
+            let is_superscript = projection
+                .superscript_ranges
+                .iter()
+                .any(|script| script.start <= start && end <= script.end);
+            let is_subscript = projection
+                .subscript_ranges
+                .iter()
+                .any(|script| script.start <= start && end <= script.end);
+            let mut fragment = div()
+                .id(format!("markdown-inline:{ordinal}:{index}"))
+                .child(styled_projection_range(&projection, theme, range));
+            if is_superscript || is_subscript {
+                fragment = fragment
+                    .text_size(px(TranscriptLayoutMetrics::CHAT_TEXT_SIZE * 0.75))
+                    .relative()
+                    .top(px(if is_superscript { -3. } else { 3. }));
+            }
+            if let Some(link) = link {
+                let event = TranscriptEvent::OpenLink {
+                    destination: link.destination.clone(),
+                    label: link.label.clone(),
+                };
+                let emitter = emitter.clone();
+                fragment = fragment
+                    .role(Role::Link)
+                    .aria_label(format!("Open link {}", link.label))
+                    .focusable()
+                    .tab_stop(true)
+                    .text_color(theme.accent)
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| {
+                        emitter.update(cx, |_, cx| cx.emit(event.clone())).ok();
+                    });
+            }
+            Some(fragment)
+        })
+        .collect::<Vec<_>>();
+
+    div()
+        .id(format!("markdown-inline:{ordinal}:root"))
+        .w_full()
+        .flex()
+        .flex_wrap()
+        .items_baseline()
+        .whitespace_normal()
+        .children(fragments)
+        .into_any()
 }
 
 fn flatten_inline(node: &MarkdownNode, mut style: InlineStyle, output: &mut InlineProjection) {
@@ -446,9 +585,22 @@ fn flatten_inline(node: &MarkdownNode, mut style: InlineStyle, output: &mut Inli
             style = style.with(InlineStyle::STRIKETHROUGH);
             flatten_children(children, style, output);
         }
-        MarkdownNode::Link { children, .. } => {
+        MarkdownNode::Link {
+            destination,
+            children,
+            ..
+        } => {
+            let start = output.text.len();
             style = style.with(InlineStyle::LINK);
             flatten_children(children, style, output);
+            let end = output.text.len();
+            if start < end {
+                output.links.push(InlineLink {
+                    range: start..end,
+                    destination: destination.clone(),
+                    label: output.text[start..end].to_owned(),
+                });
+            }
         }
         MarkdownNode::Image { alt, .. } => {
             style = style.with(InlineStyle::EMPHASIS);
@@ -464,9 +616,23 @@ fn flatten_inline(node: &MarkdownNode, mut style: InlineStyle, output: &mut Inli
             append_inline(if *checked { "☑ " } else { "☐ " }, style, output);
         }
         MarkdownNode::Rule => append_inline("—", style, output),
-        MarkdownNode::Superscript(children)
-        | MarkdownNode::Subscript(children)
-        | MarkdownNode::Paragraph(children)
+        MarkdownNode::Superscript(children) => {
+            let start = output.text.len();
+            flatten_children(children, style.with(InlineStyle::SUPERSCRIPT), output);
+            let end = output.text.len();
+            if start < end {
+                output.superscript_ranges.push(start..end);
+            }
+        }
+        MarkdownNode::Subscript(children) => {
+            let start = output.text.len();
+            flatten_children(children, style.with(InlineStyle::SUBSCRIPT), output);
+            let end = output.text.len();
+            if start < end {
+                output.subscript_ranges.push(start..end);
+            }
+        }
+        MarkdownNode::Paragraph(children)
         | MarkdownNode::Heading { children, .. }
         | MarkdownNode::BlockQuote { children, .. }
         | MarkdownNode::Item(children)
@@ -530,11 +696,7 @@ mod tests {
         let MarkdownNode::Paragraph(nodes) = &document.blocks[0].node else {
             panic!("paragraph expected");
         };
-        let mut projection = InlineProjection {
-            text: String::new(),
-            highlights: Vec::new(),
-            code_ranges: Vec::new(),
-        };
+        let mut projection = InlineProjection::default();
         flatten_children(nodes, InlineStyle::default(), &mut projection);
         for (index, (range, _)) in projection.highlights.iter().enumerate() {
             assert!(projection.text.is_char_boundary(range.start));
@@ -543,5 +705,27 @@ mod tests {
                 assert!(projection.highlights[index - 1].0.end <= range.start);
             }
         }
+    }
+
+    #[test]
+    fn inline_projection_keeps_links_inline_and_records_scripts() {
+        let nodes = vec![
+            MarkdownNode::Link {
+                destination: "https://example.com".to_owned(),
+                title: String::new(),
+                children: vec![MarkdownNode::Text("docs".to_owned())],
+            },
+            MarkdownNode::Text(" H".to_owned()),
+            MarkdownNode::Subscript(vec![MarkdownNode::Text("2".to_owned())]),
+            MarkdownNode::Text("O x".to_owned()),
+            MarkdownNode::Superscript(vec![MarkdownNode::Text("2".to_owned())]),
+        ];
+        let projection = project_inline(&nodes);
+        assert_eq!(projection.links.len(), 1);
+        assert_eq!(projection.links[0].label, "docs");
+        assert_eq!(projection.links[0].destination, "https://example.com");
+        assert_eq!(projection.superscript_ranges.len(), 1);
+        assert_eq!(projection.subscript_ranges.len(), 1);
+        assert_eq!(projection.text, "docs H2O x2");
     }
 }
