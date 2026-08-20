@@ -166,6 +166,26 @@ enum TranscriptFooterAction {
     Fork,
 }
 
+/// Host capabilities that control which mutating transcript actions are
+/// exposed. Copying is always local and does not require a capability.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TranscriptActionCapabilities {
+    pub edit_user_message: bool,
+    pub retry_turn: bool,
+    pub fork_turn: bool,
+}
+
+impl TranscriptActionCapabilities {
+    fn allows(self, action: TranscriptFooterAction) -> bool {
+        match action {
+            TranscriptFooterAction::Copy => true,
+            TranscriptFooterAction::Edit => self.edit_user_message,
+            TranscriptFooterAction::Retry => self.retry_turn,
+            TranscriptFooterAction::Fork => self.fork_turn,
+        }
+    }
+}
+
 /// Pure footer data shared by the renderer and its action tests.
 ///
 /// The message identity is deliberately retained separately from display-row
@@ -427,6 +447,7 @@ pub struct CodexTranscriptV2 {
     expanded_work_rows: BTreeSet<String>,
     selected_file_indices: BTreeMap<String, usize>,
     hovered_rows: BTreeSet<String>,
+    action_capabilities: TranscriptActionCapabilities,
 }
 
 impl CodexTranscriptV2 {
@@ -452,12 +473,20 @@ impl CodexTranscriptV2 {
             expanded_work_rows: BTreeSet::new(),
             selected_file_indices: BTreeMap::new(),
             hovered_rows: BTreeSet::new(),
+            action_capabilities: TranscriptActionCapabilities::default(),
         }
     }
 
     #[must_use]
     pub fn with_theme(mut self, theme: CodexTheme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    /// Configure host-owned transcript mutations exposed in hover footers.
+    #[must_use]
+    pub fn with_action_capabilities(mut self, capabilities: TranscriptActionCapabilities) -> Self {
+        self.action_capabilities = capabilities;
         self
     }
 
@@ -710,6 +739,7 @@ impl Render for CodexTranscriptV2 {
         let hovered_rows = self.hovered_rows.clone();
         let opening_user_messages = opening_user_messages(&self.presentation);
         let turn_statuses = turn_statuses(&self.presentation);
+        let action_capabilities = self.action_capabilities;
         let show_jump_to_latest = state.item_count() > 0 && !state.is_following_tail();
         div()
             .id("codex-transcript-v2")
@@ -749,6 +779,7 @@ impl Render for CodexTranscriptV2 {
                                                     &hovered_rows,
                                                     &opening_user_messages,
                                                     &turn_statuses,
+                                                    action_capabilities,
                                                     now_unix_seconds,
                                                     &working_client_started_unix_seconds,
                                                 )
@@ -880,6 +911,7 @@ fn render_row(
     hovered_rows: &BTreeSet<String>,
     opening_user_messages: &BTreeMap<String, UserMessageV2>,
     turn_statuses: &BTreeMap<String, TurnStatusV2>,
+    action_capabilities: TranscriptActionCapabilities,
     now_unix_seconds: i64,
     working_client_started_unix_seconds: &BTreeMap<String, i64>,
 ) -> AnyElement {
@@ -893,7 +925,15 @@ fn render_row(
             else {
                 unreachable!("user row pattern already matched")
             };
-            render_user(&row_id, turn_id, message, theme, emitter, is_hovered)
+            render_user(
+                &row_id,
+                turn_id,
+                message,
+                theme,
+                emitter,
+                is_hovered,
+                action_capabilities,
+            )
         }
         TranscriptV2Row::WorkDisclosure {
             turn_id,
@@ -914,7 +954,16 @@ fn render_row(
                 .copied(),
         ),
         TranscriptV2Row::Prose { turn_id, prose, .. } => render_assistant(
-            &row_id, turn_id, prose, false, None, None, theme, emitter, is_hovered,
+            &row_id,
+            turn_id,
+            prose,
+            false,
+            None,
+            None,
+            theme,
+            emitter,
+            is_hovered,
+            action_capabilities,
         ),
         TranscriptV2Row::FinalAnswer { turn_id, answer } => render_assistant(
             &row_id,
@@ -926,6 +975,7 @@ fn render_row(
             theme,
             emitter,
             is_hovered,
+            action_capabilities,
         ),
         _ => render_non_message_row(
             row,
@@ -1001,6 +1051,7 @@ fn render_user(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
     is_hovered: bool,
+    action_capabilities: TranscriptActionCapabilities,
 ) -> AnyElement {
     let text = message.display_text();
     let hover_id = id.to_owned();
@@ -1036,7 +1087,13 @@ fn render_user(
                 .ok();
         });
     if is_hovered {
-        view = view.child(render_footer(id, &footer, theme, emitter));
+        view = view.child(render_footer(
+            id,
+            &footer,
+            theme,
+            emitter,
+            action_capabilities,
+        ));
     }
     view.into_any()
 }
@@ -1052,6 +1109,7 @@ fn render_assistant(
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
     is_hovered: bool,
+    action_capabilities: TranscriptActionCapabilities,
 ) -> AnyElement {
     let hover_id = id.to_owned();
     let hover_emitter = emitter.clone();
@@ -1080,7 +1138,13 @@ fn render_assistant(
                 .ok();
         });
     if is_hovered {
-        view = view.child(render_footer(id, &footer, theme, emitter));
+        view = view.child(render_footer(
+            id,
+            &footer,
+            theme,
+            emitter,
+            action_capabilities,
+        ));
     }
     view.into_any()
 }
@@ -1090,9 +1154,13 @@ fn render_footer(
     footer: &TranscriptFooterProjection,
     theme: CodexTheme,
     emitter: &WeakEntity<CodexTranscriptV2>,
+    action_capabilities: TranscriptActionCapabilities,
 ) -> AnyElement {
     let mut action_buttons = Vec::new();
     for action in &footer.actions {
+        if !action_capabilities.allows(*action) {
+            continue;
+        }
         match action {
             TranscriptFooterAction::Copy => {
                 let copy_text = footer.copy_text.clone();
@@ -2699,5 +2767,26 @@ mod tests {
             format_timestamp(86_400 * 10 + 23 * 3_600 + 59 * 60),
             "23:59"
         );
+    }
+
+    #[test]
+    fn transcript_mutation_actions_are_hidden_without_explicit_host_capabilities() {
+        let capabilities = TranscriptActionCapabilities::default();
+        assert!(capabilities.allows(TranscriptFooterAction::Copy));
+        assert!(!capabilities.allows(TranscriptFooterAction::Edit));
+        assert!(!capabilities.allows(TranscriptFooterAction::Retry));
+        assert!(!capabilities.allows(TranscriptFooterAction::Fork));
+    }
+
+    #[test]
+    fn hosts_can_enable_only_the_mutation_they_handle() {
+        let capabilities = TranscriptActionCapabilities {
+            edit_user_message: true,
+            ..TranscriptActionCapabilities::default()
+        };
+        assert!(capabilities.allows(TranscriptFooterAction::Copy));
+        assert!(capabilities.allows(TranscriptFooterAction::Edit));
+        assert!(!capabilities.allows(TranscriptFooterAction::Retry));
+        assert!(!capabilities.allows(TranscriptFooterAction::Fork));
     }
 }

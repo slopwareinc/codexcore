@@ -42,4 +42,6 @@ pub use transcript::{
     CodexTheme, CodexTranscript, GPUI_REVISION, TranscriptEvent, TranscriptLayoutMetrics,
     TranscriptRow, transcript_rows,
 };
-pub use transcript_v2::{CodexTranscriptV2, TranscriptV2Row, transcript_v2_rows};
+pub use transcript_v2::{
+    CodexTranscriptV2, TranscriptActionCapabilities, TranscriptV2Row, transcript_v2_rows,
+};
