@@ -1030,6 +1030,7 @@ dependencies = [
  "codex-app-server-state",
  "codex-app-server-transport",
  "codex-app-server-types",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
@@ -1116,6 +1117,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "codex-app-server-client",
  "codex-app-server-interaction",
+ "codex-app-server-sdk",
  "codex-app-server-state",
  "codex-app-server-wire",
  "serde_json",
