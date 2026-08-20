@@ -18,6 +18,7 @@ use codex_gpui::{
     CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList,
     CodexTranscriptV2, ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent,
     QueueEvent, SubagentSelectionEvent, ThreadListCommand, ThreadSelectionEvent, TranscriptEvent,
+    display_reasoning_effort,
 };
 use codex_presentation::{
     AuthenticationPresentation, GoalPresentation, ModelPickerPresentation, PromptActionKind,
@@ -1842,38 +1843,6 @@ fn composer_model_label(presentation: &ModelPickerPresentation) -> String {
         return display_name.to_owned();
     }
     format!("{display_name} · {effort}")
-}
-
-fn display_reasoning_effort(value: &str) -> String {
-    let normalized = value.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "" => String::new(),
-        "none" => "None".to_owned(),
-        "minimal" => "Minimal".to_owned(),
-        "low" => "Low".to_owned(),
-        "medium" => "Medium".to_owned(),
-        "high" => "High".to_owned(),
-        "xhigh" => "Extra High".to_owned(),
-        "max" | "maximum" => "Maximum".to_owned(),
-        "ultra" => "Ultra".to_owned(),
-        _ => normalized
-            .split(['-', '_', ' '])
-            .filter(|part| !part.is_empty())
-            .map(title_case_word)
-            .collect::<Vec<_>>()
-            .join(" "),
-    }
-}
-
-fn title_case_word(word: &str) -> String {
-    let mut characters = word.chars();
-    let Some(first) = characters.next() else {
-        return String::new();
-    };
-    first
-        .to_uppercase()
-        .chain(characters.flat_map(char::to_lowercase))
-        .collect()
 }
 
 fn current_unix_seconds() -> i64 {

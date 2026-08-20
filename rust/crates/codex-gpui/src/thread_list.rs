@@ -75,7 +75,7 @@ impl Render for CodexThreadList {
             .bg(self.theme.surface)
             .child(
                 div()
-                    .h(px(78.))
+                    .h(px(54.))
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
@@ -100,24 +100,6 @@ impl Render for CodexThreadList {
                                 cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::NewChat)),
                             )
                             .child("＋   New chat"),
-                    )
-                    .child(
-                        div()
-                            .id("codex-search-chats")
-                            .role(Role::Button)
-                            .focusable()
-                            .tab_stop(true)
-                            .h(px(28.))
-                            .rounded_lg()
-                            .px_2()
-                            .flex()
-                            .items_center()
-                            .text_xs()
-                            .text_color(self.theme.tertiary_text)
-                            .cursor_pointer()
-                            .aria_label("Search chats")
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ThreadListCommand::Search)))
-                            .child("⌕   Search chats"),
                     ),
             )
             .child(

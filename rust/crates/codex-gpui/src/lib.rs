@@ -19,7 +19,7 @@ mod transcript_v2;
 pub use auth::{CodexAuthentication, LoginEvent};
 pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as init_composer};
 pub use goal::{CodexGoal, GoalEvent};
-pub use model_picker::{CodexModelPicker, ModelSelectionEvent};
+pub use model_picker::{CodexModelPicker, ModelSelectionEvent, display_reasoning_effort};
 pub use prompt::{CodexPrompt, PromptIntent};
 pub use queue::{CodexQueue, QueueEvent};
 pub use subagent_navigator::{CodexSubagentNavigator, SubagentSelectionEvent};

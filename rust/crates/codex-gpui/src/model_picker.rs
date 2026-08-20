@@ -187,7 +187,10 @@ impl Render for CodexModelPicker {
     }
 }
 
-fn display_reasoning_effort(value: &str) -> String {
+/// Convert a wire reasoning-effort value to the human-readable label used by
+/// the model picker and compact composer control.
+#[must_use]
+pub fn display_reasoning_effort(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "" => String::new(),

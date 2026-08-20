@@ -13,6 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::CodexTheme;
 
 const MAXIMUM_DRAFT_BYTES: usize = 256 * 1_024;
+const MAXIMUM_INPUT_LINES: usize = 6;
 
 actions!(
     codex_composer,
@@ -30,6 +31,7 @@ actions!(
         Cut,
         Copy,
         Submit,
+        Steer,
     ]
 );
 
@@ -53,7 +55,13 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-x", Cut, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
-        KeyBinding::new("enter", Submit, context),
+        // Plain Enter is intentionally left to GPUI's native input handler so
+        // it inserts a newline. Command/Ctrl+Enter remains the explicit send
+        // gesture, and Command/Ctrl+Shift+Enter steers an active turn.
+        KeyBinding::new("cmd-enter", Submit, context),
+        KeyBinding::new("ctrl-enter", Submit, context),
+        KeyBinding::new("cmd-shift-enter", Steer, context),
+        KeyBinding::new("ctrl-shift-enter", Steer, context),
     ]);
 }
 
@@ -74,9 +82,36 @@ pub enum ComposerEvent {
     OpenModelPicker,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComposerControl {
+    Send,
+    Stop,
+}
+
+fn composer_control_order(turn_active: bool) -> &'static [ComposerControl] {
+    if turn_active {
+        &[ComposerControl::Send, ComposerControl::Stop]
+    } else {
+        &[ComposerControl::Send]
+    }
+}
+
 pub(crate) enum InputEvent {
     Submit,
     Changed,
+}
+
+pub(crate) struct SteerInputEvent;
+
+#[derive(Clone)]
+struct InputLineLayout {
+    range: Range<usize>,
+    line: ShapedLine,
+}
+
+#[derive(Clone, Default)]
+struct InputLayout {
+    lines: Vec<InputLineLayout>,
 }
 
 pub(crate) struct ComposerInput {
@@ -87,8 +122,9 @@ pub(crate) struct ComposerInput {
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
-    last_layout: Option<ShapedLine>,
+    last_layout: Option<InputLayout>,
     last_bounds: Option<Bounds<Pixels>>,
+    last_line_height: Pixels,
     is_selecting: bool,
     theme: CodexTheme,
     secret: bool,
@@ -111,6 +147,7 @@ impl ComposerInput {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
+            last_line_height: px(20.),
             is_selecting: false,
             theme,
             secret,
@@ -235,6 +272,12 @@ impl ComposerInput {
         }
     }
 
+    fn steer(&mut self, _: &Steer, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.content.trim().is_empty() {
+            cx.emit(SteerInputEvent);
+        }
+    }
+
     fn on_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -317,7 +360,18 @@ impl ComposerInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        let line_index = line_index_for_position(position.y, bounds.top(), self.last_line_height);
+        let Some(line) = line
+            .lines
+            .get(line_index.min(line.lines.len().saturating_sub(1)))
+        else {
+            return self.content.len();
+        };
+        line.range.start
+            + line
+                .line
+                .closest_index_for_x(position.x - bounds.left())
+                .min(line.range.len())
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
@@ -338,6 +392,7 @@ impl ComposerInput {
 }
 
 impl EventEmitter<InputEvent> for ComposerInput {}
+impl EventEmitter<SteerInputEvent> for ComposerInput {}
 
 impl EntityInputHandler for ComposerInput {
     fn text_for_range(
@@ -435,14 +490,13 @@ impl EntityInputHandler for ComposerInput {
     ) -> Option<Bounds<Pixels>> {
         let layout = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range);
+        let start = input_position_for_offset(layout, range.start, self.last_line_height);
+        let end = input_position_for_offset(layout, range.end, self.last_line_height);
         Some(Bounds::from_corners(
+            point(bounds.left() + start.x, bounds.top() + start.y),
             point(
-                bounds.left() + layout.x_for_index(range.start),
-                bounds.top(),
-            ),
-            point(
-                bounds.left() + layout.x_for_index(range.end),
-                bounds.bottom(),
+                bounds.left() + end.x,
+                bounds.top() + end.y + self.last_line_height,
             ),
         ))
     }
@@ -455,9 +509,57 @@ impl EntityInputHandler for ComposerInput {
     ) -> Option<usize> {
         let bounds = self.last_bounds?;
         let layout = self.last_layout.as_ref()?;
-        let index = layout.index_for_x(point.x - bounds.left())?;
-        Some(self.offset_to_utf16(index))
+        if point.y < bounds.top() {
+            return Some(0);
+        }
+        if point.y > bounds.bottom() {
+            return Some(self.offset_to_utf16(self.content.len()));
+        }
+        let line_index = line_index_for_position(point.y, bounds.top(), self.last_line_height);
+        let line = layout
+            .lines
+            .get(line_index.min(layout.lines.len().saturating_sub(1)))?;
+        let index = line
+            .line
+            .closest_index_for_x(point.x - bounds.left())
+            .min(line.range.len());
+        Some(self.offset_to_utf16(line.range.start + index))
     }
+}
+
+fn input_position_for_offset(
+    layout: &InputLayout,
+    offset: usize,
+    line_height: Pixels,
+) -> Point<Pixels> {
+    let line_index = line_index_for_offset(layout, offset);
+    let line = &layout.lines[line_index];
+    point(
+        line.line.x_for_index(
+            offset
+                .saturating_sub(line.range.start)
+                .min(line.range.len()),
+        ),
+        line_y(line_height, line_index),
+    )
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn line_index_for_position(y: Pixels, top: Pixels, line_height: Pixels) -> usize {
+    (((y - top) / line_height).floor()).max(0.) as usize
+}
+
+fn line_y(line_height: Pixels, line_index: usize) -> Pixels {
+    line_height * f32::from(u16::try_from(line_index).unwrap_or(u16::MAX))
+}
+
+fn line_index_for_offset(layout: &InputLayout, offset: usize) -> usize {
+    layout
+        .lines
+        .iter()
+        .enumerate()
+        .find_map(|(index, line)| (offset <= line.range.end).then_some(index))
+        .unwrap_or_else(|| layout.lines.len().saturating_sub(1))
 }
 
 impl Focusable for ComposerInput {
@@ -467,7 +569,8 @@ impl Focusable for ComposerInput {
 }
 
 impl Render for ComposerInput {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let input_height = composer_input_height(&self.content, window.line_height());
         div()
             .id("codex-composer-input")
             .key_context("CodexComposerInput")
@@ -480,7 +583,7 @@ impl Render for ComposerInput {
             .aria_label(self.accessibility_label.clone())
             .aria_placeholder(self.placeholder.clone())
             .aria_value(if self.secret {
-                SharedString::from("*".repeat(self.content.len()))
+                masked_text(&self.content).into()
             } else {
                 self.content.clone()
             })
@@ -498,16 +601,19 @@ impl Render for ComposerInput {
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::submit))
+            .on_action(cx.listener(Self::steer))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .h(px(36.))
+            .h(input_height)
+            .min_h(px(36.))
             .w_full()
             .overflow_hidden()
             .px_2()
+            .py_1()
             .flex()
-            .items_center()
+            .items_start()
             .child(InputTextElement { input: cx.entity() })
     }
 }
@@ -517,9 +623,9 @@ struct InputTextElement {
 }
 
 struct InputPrepaint {
-    line: Option<ShapedLine>,
+    layout: InputLayout,
     cursor: Option<PaintQuad>,
-    selection: Option<PaintQuad>,
+    selections: Vec<PaintQuad>,
 }
 
 impl IntoElement for InputTextElement {
@@ -549,9 +655,10 @@ impl Element for InputTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        let input = self.input.read(cx);
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        style.size.height = window.line_height().into();
+        style.size.height = composer_input_height(&input.content, window.line_height()).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -573,14 +680,12 @@ impl Element for InputTextElement {
         let (display, color) = if content.is_empty() {
             (input.placeholder.clone(), theme.muted_text.into())
         } else if input.secret {
-            (
-                SharedString::from("*".repeat(content.len())),
-                text_style.color,
-            )
+            (masked_text(&content).into(), text_style.color)
         } else {
             (content, text_style.color)
         };
-        let run = TextRun {
+        let font_size = text_style.font_size.to_pixels(window.rem_size());
+        let base_run = TextRun {
             len: display.len(),
             font: text_style.font(),
             color,
@@ -588,45 +693,47 @@ impl Element for InputTextElement {
             underline: None,
             strikethrough: None,
         };
-        let runs = marked_runs(&run, display.len(), input.marked_range.as_ref());
-        let font_size = text_style.font_size.to_pixels(window.rem_size());
-        let line = window
-            .text_system()
-            .shape_line(display, font_size, &runs, None);
-        let cursor_x = line.x_for_index(cursor_index);
-        let (selection, cursor) = if selected.is_empty() {
-            (
-                None,
-                Some(fill(
-                    Bounds::new(
-                        point(bounds.left() + cursor_x, bounds.top()),
-                        size(px(2.), bounds.size.height),
+        let mut layout = InputLayout::default();
+        for range in input_line_ranges(&display) {
+            let line_text: SharedString = display[range.clone()].into();
+            let marked = input
+                .marked_range
+                .as_ref()
+                .and_then(|marked| intersect_ranges(marked, &range));
+            let runs = marked_runs_for_line(&base_run, range.clone(), marked.as_ref());
+            let line = window
+                .text_system()
+                .shape_line(line_text, font_size, &runs, None);
+            layout.lines.push(InputLineLayout { range, line });
+        }
+
+        let cursor = if selected.is_empty() {
+            let cursor_position =
+                input_position_for_offset(&layout, cursor_index, window.line_height());
+            Some(fill(
+                Bounds::new(
+                    point(
+                        bounds.left() + cursor_position.x,
+                        bounds.top() + cursor_position.y,
                     ),
-                    theme.accent,
-                )),
-            )
+                    size(px(2.), window.line_height()),
+                ),
+                theme.accent,
+            ))
         } else {
-            (
-                Some(fill(
-                    Bounds::from_corners(
-                        point(
-                            bounds.left() + line.x_for_index(selected.start),
-                            bounds.top(),
-                        ),
-                        point(
-                            bounds.left() + line.x_for_index(selected.end),
-                            bounds.bottom(),
-                        ),
-                    ),
-                    theme.accent.opacity(0.25),
-                )),
-                None,
-            )
+            None
         };
+        let selections = selection_quads(
+            &layout,
+            &selected,
+            bounds.origin,
+            window.line_height(),
+            theme.accent.opacity(0.25),
+        );
         InputPrepaint {
-            line: Some(line),
+            layout,
             cursor,
-            selection,
+            selections,
         }
     }
 
@@ -646,39 +753,69 @@ impl Element for InputTextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
-        if let Some(selection) = prepaint.selection.take() {
+        for selection in prepaint.selections.drain(..) {
             window.paint_quad(selection);
         }
-        let line = prepaint.line.take().expect("prepaint produces a line");
-        line.paint(
-            bounds.origin,
-            window.line_height(),
-            gpui::TextAlign::Left,
-            None,
-            window,
-            cx,
-        )
-        .expect("paint composer text");
+        for (index, line) in prepaint.layout.lines.iter().enumerate() {
+            line.line
+                .paint(
+                    point(
+                        bounds.left(),
+                        bounds.top() + line_y(window.line_height(), index),
+                    ),
+                    window.line_height(),
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .expect("paint composer text");
+        }
         if focus.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
         {
             window.paint_quad(cursor);
         }
         self.input.update(cx, |input, _| {
-            input.last_layout = Some(line);
+            input.last_layout = Some(prepaint.layout.clone());
             input.last_bounds = Some(bounds);
+            input.last_line_height = window.line_height();
         });
     }
 }
 
-fn marked_runs(
+fn input_line_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    for (index, byte) in text.bytes().enumerate() {
+        if byte == b'\n' {
+            ranges.push(start..index);
+            start = index + 1;
+        }
+    }
+    ranges.push(start..text.len());
+    ranges
+}
+
+fn intersect_ranges(left: &Range<usize>, right: &Range<usize>) -> Option<Range<usize>> {
+    let start = left.start.max(right.start);
+    let end = left.end.min(right.end);
+    (start < end).then_some(start..end)
+}
+
+fn marked_runs_for_line(
     base: &TextRun,
-    display_length: usize,
+    line_range: Range<usize>,
     marked: Option<&Range<usize>>,
 ) -> Vec<TextRun> {
-    let Some(marked) = marked else {
-        return vec![base.clone()];
+    let base = TextRun {
+        len: line_range.len(),
+        ..base.clone()
     };
+    let Some(marked) = marked else {
+        return vec![base];
+    };
+    let marked = marked.start - line_range.start..marked.end - line_range.start;
     [
         TextRun {
             len: marked.start,
@@ -694,7 +831,7 @@ fn marked_runs(
             ..base.clone()
         },
         TextRun {
-            len: display_length - marked.end,
+            len: line_range.len() - marked.end,
             ..base.clone()
         },
     ]
@@ -703,7 +840,61 @@ fn marked_runs(
     .collect()
 }
 
-/// Controlled single-line composer with native IME and clipboard behavior.
+fn selection_quads(
+    layout: &InputLayout,
+    selected: &Range<usize>,
+    origin: Point<Pixels>,
+    line_height: Pixels,
+    color: gpui::Rgba,
+) -> Vec<PaintQuad> {
+    if selected.is_empty() {
+        return Vec::new();
+    }
+    layout
+        .lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let start = selected.start.max(line.range.start).min(line.range.end);
+            let end = selected.end.min(line.range.end);
+            if start >= end {
+                return None;
+            }
+            let left = line.line.x_for_index(start - line.range.start);
+            let right = line
+                .line
+                .x_for_index(end - line.range.start)
+                .max(left + px(2.));
+            Some(fill(
+                Bounds::new(
+                    point(origin.x + left, origin.y + line_y(line_height, index)),
+                    size(right - left, line_height),
+                ),
+                color,
+            ))
+        })
+        .collect()
+}
+
+fn masked_text(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| if byte == b'\n' { '\n' } else { '*' })
+        .collect()
+}
+
+fn composer_input_height(content: &str, line_height: Pixels) -> Pixels {
+    let line_count = content
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        .saturating_add(1)
+        .min(MAXIMUM_INPUT_LINES);
+    px(36.)
+        + line_height * f32::from(u16::try_from(line_count.saturating_sub(1)).unwrap_or(u16::MAX))
+}
+
+/// Controlled multiline composer with native IME and clipboard behavior.
 pub struct CodexComposer {
     input: Entity<ComposerInput>,
     theme: CodexTheme,
@@ -712,6 +903,7 @@ pub struct CodexComposer {
     queue_enabled: bool,
     active_submit_behavior: ActiveSubmitBehavior,
     _input_subscription: gpui::Subscription,
+    _steer_subscription: gpui::Subscription,
 }
 
 impl CodexComposer {
@@ -719,10 +911,12 @@ impl CodexComposer {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let theme = CodexTheme::default();
         let input = cx.new(|cx| ComposerInput::new("Message Codex…".into(), theme, false, cx));
-        let subscription = cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Submit) {
-                this.submit(cx);
-            }
+        let subscription = cx.subscribe(&input, |this, _, event: &InputEvent, cx| match event {
+            InputEvent::Submit => this.submit(cx),
+            InputEvent::Changed => {}
+        });
+        let steer_subscription = cx.subscribe(&input, |this, _, _: &SteerInputEvent, cx| {
+            this.submit_with_behavior(ActiveSubmitBehavior::Steer, cx);
         });
         Self {
             input,
@@ -732,6 +926,7 @@ impl CodexComposer {
             queue_enabled: true,
             active_submit_behavior: ActiveSubmitBehavior::Queue,
             _input_subscription: subscription,
+            _steer_subscription: steer_subscription,
         }
     }
 
@@ -790,6 +985,14 @@ impl CodexComposer {
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
+        self.submit_with_behavior(self.active_submit_behavior, cx);
+    }
+
+    fn submit_with_behavior(
+        &mut self,
+        active_behavior: ActiveSubmitBehavior,
+        cx: &mut Context<Self>,
+    ) {
         let text = self.input.read(cx).text().trim().to_owned();
         if text.is_empty() {
             return;
@@ -797,16 +1000,8 @@ impl CodexComposer {
         self.input.update(cx, ComposerInput::reset);
         cx.emit(ComposerEvent::Submit {
             text,
-            active_behavior: self.active_submit_behavior,
+            active_behavior,
         });
-    }
-
-    fn toggle_active_behavior(&mut self, cx: &mut Context<Self>) {
-        self.active_submit_behavior = match self.active_submit_behavior {
-            ActiveSubmitBehavior::Queue => ActiveSubmitBehavior::Steer,
-            ActiveSubmitBehavior::Steer => ActiveSubmitBehavior::Queue,
-        };
-        cx.notify();
     }
 
     fn interrupt(&mut self, cx: &mut Context<Self>) {
@@ -824,13 +1019,12 @@ impl Render for CodexComposer {
         let can_submit = !self.input.read(cx).text().trim().is_empty();
         let theme = self.theme;
         let model_label = self.model_label.clone();
-        let submit_label = if self.turn_active {
-            match self.active_submit_behavior {
-                ActiveSubmitBehavior::Queue => "Queue",
-                ActiveSubmitBehavior::Steer => "Steer",
-            }
+        let show_interrupt =
+            composer_control_order(self.turn_active).contains(&ComposerControl::Stop);
+        let submit_accessibility_label = if self.turn_active && self.queue_enabled {
+            "Send message; Command/Ctrl+Shift+Enter steers the active turn"
         } else {
-            "Send"
+            "Send message"
         };
         div()
             .id("codex-composer")
@@ -859,30 +1053,7 @@ impl Render for CodexComposer {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(composer_icon_button("＋", "Add files and more", theme))
                     .child(div().flex_1())
-                    .when(self.turn_active && self.queue_enabled, |view| {
-                        view.child(
-                            div()
-                                .id("codex-composer-active-behavior")
-                                .focusable()
-                                .tab_stop(true)
-                                .role(Role::Button)
-                                .aria_label("Toggle between queue and steer")
-                                .rounded_lg()
-                                .border_1()
-                                .border_color(theme.border)
-                                .px_3()
-                                .py_2()
-                                .text_xs()
-                                .text_color(theme.muted_text)
-                                .cursor_pointer()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_active_behavior(cx);
-                                }))
-                                .child(submit_label),
-                        )
-                    })
                     .child(
                         div()
                             .id("codex-composer-model")
@@ -911,7 +1082,7 @@ impl Render for CodexComposer {
                             .focusable()
                             .tab_stop(true)
                             .role(Role::Button)
-                            .aria_label(format!("{submit_label} message"))
+                            .aria_label(submit_accessibility_label)
                             .size(px(32.))
                             .rounded_full()
                             .flex()
@@ -933,7 +1104,7 @@ impl Render for CodexComposer {
                             })
                             .child("↑"),
                     )
-                    .when(self.turn_active, |view| {
+                    .when(show_interrupt, |view| {
                         view.child(
                             div()
                                 .id("codex-composer-interrupt")
@@ -958,29 +1129,8 @@ impl Render for CodexComposer {
     }
 }
 
-fn composer_icon_button(
-    glyph: &'static str,
-    label: &'static str,
-    theme: CodexTheme,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(label)
-        .focusable()
-        .tab_stop(true)
-        .role(Role::Button)
-        .aria_label(label)
-        .size(px(28.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_xs()
-        .text_color(theme.muted_text)
-        .cursor_pointer()
-        .child(glyph)
-}
-
 fn bounded_replacement(value: &str, maximum_bytes: usize) -> String {
-    let normalized = value.replace(['\r', '\n'], " ");
+    let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
     if normalized.len() <= maximum_bytes {
         return normalized;
     }
@@ -1017,14 +1167,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replacement_is_single_line_bounded_and_utf8_safe() {
-        assert_eq!(bounded_replacement("one\ntwo", 32), "one two");
+    fn replacement_preserves_newlines_and_is_utf8_safe() {
+        assert_eq!(bounded_replacement("one\ntwo", 32), "one\ntwo");
         assert_eq!(bounded_replacement("界界", 4), "界");
+    }
+
+    #[test]
+    fn multiline_height_grows_and_caps_at_six_lines() {
+        let line_height = px(20.);
+        assert_eq!(composer_input_height("one", line_height), px(36.));
+        assert_eq!(composer_input_height("one\ntwo", line_height), px(56.));
+        assert_eq!(
+            composer_input_height("1\n2\n3\n4\n5\n6\n7", line_height),
+            px(136.)
+        );
+    }
+
+    #[test]
+    fn line_ranges_keep_empty_trailing_lines_for_newline_insertion() {
+        assert_eq!(input_line_ranges("one\n"), vec![0..3, 4..4]);
+        assert_eq!(input_line_ranges("\n"), vec![0..0, 1..1]);
     }
 
     #[test]
     fn utf16_offsets_round_trip_surrogate_pairs() {
         assert_eq!(offset_to_utf16("a😀b", 5), 3);
         assert_eq!(offset_from_utf16("a😀b", 3), 5);
+    }
+
+    #[test]
+    fn active_composer_controls_keep_send_before_stop() {
+        assert_eq!(
+            composer_control_order(true),
+            &[ComposerControl::Send, ComposerControl::Stop]
+        );
+        assert_eq!(composer_control_order(false), &[ComposerControl::Send]);
     }
 }
