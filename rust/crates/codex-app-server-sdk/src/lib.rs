@@ -287,6 +287,23 @@ impl Codex {
         history::resume_paginated(self, thread_id, options).await
     }
 
+    /// Resume and atomically hydrate either server-declared history mode.
+    ///
+    /// The SDK reads the declared mode first; it never infers paginated versus
+    /// legacy behavior from missing cursors or response shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for read, resume, schema, paging, adaptation, or
+    /// lease failures.
+    pub async fn resume_thread_hydrated(
+        &self,
+        thread_id: ThreadId,
+        options: PaginatedResumeOptions,
+    ) -> Result<CodexThread, SdkError> {
+        history::resume_hydrated(self, thread_id, options).await
+    }
+
     async fn adopt_thread_result(
         &self,
         method: &'static str,

@@ -133,6 +133,27 @@ thread.close().await?;
 # }
 ```
 
+Navigation hosts that can encounter either history mode should call
+`resume_thread_hydrated`. It performs a typed `thread/read`, follows the
+server-declared mode, installs legacy resume history atomically, and delegates
+paginated history to the cut/page coordinator:
+
+```rust
+use codex_app_server_sdk::PaginatedResumeOptions;
+use codex_app_server_state::ThreadId;
+
+# async fn open(codex: &codex_app_server_sdk::Codex) -> Result<(), Box<dyn std::error::Error>> {
+let thread = codex
+    .resume_thread_hydrated(
+        ThreadId::from("thread-id"),
+        PaginatedResumeOptions::default(),
+    )
+    .await?;
+# thread.close().await?;
+# Ok(())
+# }
+```
+
 Run the live authenticated smoke test on the GCP host with:
 
 ```bash

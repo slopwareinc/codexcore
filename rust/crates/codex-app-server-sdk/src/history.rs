@@ -45,6 +45,83 @@ pub(crate) async fn resume_paginated(
     runner.run(effects).await
 }
 
+pub(crate) async fn resume_hydrated(
+    codex: &Codex,
+    thread_id: ThreadId,
+    options: PaginatedResumeOptions,
+) -> Result<CodexThread, SdkError> {
+    let read = codex
+        .client
+        .request(
+            "thread/read",
+            json!({"threadId": thread_id.as_str(), "includeTurns": false}),
+        )
+        .await?;
+    codex_app_server_types::validate_thread_read_response(&read.value).map_err(|error| {
+        SdkError::ResponseValidation {
+            method: "thread/read",
+            message: error.to_string(),
+        }
+    })?;
+    let mode = read
+        .value
+        .pointer("/thread/historyMode")
+        .and_then(Value::as_str)
+        .unwrap_or("legacy");
+    match mode {
+        "paginated" => resume_paginated(codex, thread_id, options).await,
+        "legacy" => resume_legacy(codex, thread_id, options.resume).await,
+        mode => Err(SdkError::History(format!(
+            "thread declares unknown history mode {mode:?}"
+        ))),
+    }
+}
+
+async fn resume_legacy(
+    codex: &Codex,
+    thread_id: ThreadId,
+    options: ResumeThreadOptions,
+) -> Result<CodexThread, SdkError> {
+    let mut params = options.extra;
+    params.insert("threadId".to_owned(), Value::String(thread_id.to_string()));
+    params.insert("excludeTurns".to_owned(), Value::Bool(false));
+    if let Some(permissions) = options.permissions {
+        params.insert("permissions".to_owned(), Value::String(permissions));
+    }
+    let response = codex
+        .client
+        .request("thread/resume", object(params))
+        .await?;
+    codex_app_server_types::validate_thread_resume_response(&response.value).map_err(|error| {
+        SdkError::ResponseValidation {
+            method: "thread/resume",
+            message: error.to_string(),
+        }
+    })?;
+    let thread = response
+        .value
+        .get("thread")
+        .ok_or(SdkError::MissingResponseField {
+            method: "thread/resume",
+            field: "thread",
+        })?;
+    let mutations =
+        adapt_thread_snapshot(thread).map_err(|error| SdkError::ResponseValidation {
+            method: "thread/resume",
+            message: error.to_string(),
+        })?;
+    codex.client.apply_canonical(mutations).await?;
+    let lease = codex
+        .client
+        .adopt_thread(thread_id.clone(), LeaseReason::Selected)
+        .await?;
+    Ok(CodexThread {
+        client: codex.client.clone(),
+        id: thread_id,
+        lease: Some(lease),
+    })
+}
+
 struct Runner<'a> {
     codex: &'a Codex,
     thread_id: ThreadId,

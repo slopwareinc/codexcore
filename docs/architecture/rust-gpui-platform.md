@@ -121,6 +121,11 @@ validates the complete response against generated bindings and projects stable
 `project_thread_list` supplies compact titles and attention states;
 `CodexThreadList` virtualizes uniform rows and emits only a stable `ThreadId`.
 The host owns resume, lease transfer, pagination, search, and selection races.
+The reference host implements that ownership: task selection is deferred while
+a turn is active, then `resume_thread_hydrated` reads the declared history mode,
+installs its canonical snapshot, transfers the selected lease, and republishes
+the sidebar selection. The old lease remains live until the replacement resume
+succeeds.
 
 Run the executable embedding example on a graphical machine:
 

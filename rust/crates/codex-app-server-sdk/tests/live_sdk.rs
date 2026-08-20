@@ -59,6 +59,44 @@ async fn list_stored_threads_through_stable_sdk_page() {
 
 #[tokio::test]
 #[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
+async fn resume_legacy_thread_through_declared_history_mode() {
+    let executable = std::env::var_os("CODEX_BINARY")
+        .map(PathBuf::from)
+        .expect("CODEX_BINARY must point to codex-cli 0.148.0");
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let codex = Codex::connect_local(LocalSessionConfig::app_server(executable))
+        .await
+        .expect("connect SDK");
+    let thread = codex
+        .start_thread(StartThreadOptions {
+            cwd: Some(workspace.path().to_owned()),
+            ..StartThreadOptions::default()
+        })
+        .await
+        .expect("start legacy thread");
+    let thread_id = thread.id().clone();
+    thread.close().await.expect("release initial lease");
+    let resumed = codex
+        .resume_thread_hydrated(thread_id.clone(), PaginatedResumeOptions::default())
+        .await
+        .expect("read mode and hydrate legacy thread");
+    let canonical = codex
+        .client()
+        .canonical_snapshot()
+        .await
+        .expect("canonical snapshot");
+    assert!(canonical.threads.contains_key(&thread_id));
+    resumed.close().await.expect("release resumed lease");
+    codex
+        .client()
+        .request("thread/delete", json!({"threadId": thread_id.as_str()}))
+        .await
+        .expect("delete test thread");
+    codex.close().await.expect("close SDK");
+}
+
+#[tokio::test]
+#[ignore = "requires CODEX_BINARY pointing to authenticated codex-cli 0.148.0"]
 async fn resume_empty_paginated_thread_into_canonical_state() {
     let executable = std::env::var_os("CODEX_BINARY")
         .map(PathBuf::from)
@@ -118,7 +156,7 @@ async fn resume_empty_paginated_thread_into_canonical_state() {
     thread.close().await.expect("release initial lease");
 
     let resumed = codex
-        .resume_thread_paginated(thread_id.clone(), PaginatedResumeOptions::default())
+        .resume_thread_hydrated(thread_id.clone(), PaginatedResumeOptions::default())
         .await
         .expect("resume and install paginated history");
     let canonical = codex

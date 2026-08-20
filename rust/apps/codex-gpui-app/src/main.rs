@@ -5,17 +5,24 @@ use std::{
 };
 
 use async_channel::{Receiver, Sender};
-use codex_app_server_client::{AppServerClient, LocalSessionConfig};
+use codex_app_server_client::{AppServerClient, LocalSessionConfig, SessionObservation};
 use codex_app_server_interaction::{
     ServerRequestBody, ServerRequestReply, TypedServerRequest, default_resolution, parse_pending,
 };
-use codex_app_server_sdk::{Codex, CodexInput, StartThreadOptions, TurnOptions};
+use codex_app_server_sdk::{
+    Codex, CodexInput, CodexThread, ListThreadsOptions, PaginatedResumeOptions, StartThreadOptions,
+    TurnOptions,
+};
 use codex_app_server_state::{ThreadId, TurnKey};
 use codex_app_server_wire::JsonRpcErrorObject;
-use codex_gpui::{CodexComposer, CodexPrompt, CodexTranscript, ComposerEvent, PromptIntent};
+use codex_gpui::{
+    CodexComposer, CodexPrompt, CodexThreadList, CodexTranscript, ComposerEvent, PromptIntent,
+    ThreadSelectionEvent,
+};
 use codex_presentation::{
-    PromptActionKind, PromptPresentation, StandardItemPolicy, TranscriptPresentation,
-    TranscriptProjector, project_prompt,
+    PromptActionKind, PromptPresentation, StandardItemPolicy, TaskStatusPresentation,
+    ThreadListPresentation, ThreadListRow, TranscriptPresentation, TranscriptProjector,
+    project_prompt, project_thread_list,
 };
 use gpui::{
     App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
@@ -146,6 +153,9 @@ async fn print_updates(receiver: Receiver<AppUpdate>) {
             ),
             AppUpdate::Prompt(Some(prompt)) => println!("prompt: {}", prompt.title),
             AppUpdate::Prompt(None) => {}
+            AppUpdate::ThreadList(presentation) => {
+                println!("tasks: {}", presentation.rows.len());
+            }
             AppUpdate::Failed(error) => eprintln!("session failed: {error}"),
         }
     }
@@ -155,6 +165,7 @@ enum AppUpdate {
     Status(String),
     Transcript(TranscriptPresentation),
     Prompt(Option<PromptPresentation>),
+    ThreadList(ThreadListPresentation),
     Failed(String),
 }
 
@@ -162,15 +173,18 @@ enum AppUpdate {
 enum HostCommand {
     Prompt(PromptIntent),
     Submit(String),
+    SelectThread(ThreadId),
     Shutdown,
 }
 
 struct CodexApp {
     transcript: Entity<CodexTranscript>,
+    thread_list: Entity<CodexThreadList>,
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
     _composer_subscription: Subscription,
+    _thread_list_subscription: Subscription,
     _quit_subscription: Subscription,
     status: String,
     command_sender: Sender<HostCommand>,
@@ -186,6 +200,13 @@ impl CodexApp {
             turns: Vec::new(),
         };
         let transcript = cx.new(|_| CodexTranscript::new(&pending));
+        let thread_list = cx.new(|_| {
+            CodexThreadList::new(ThreadListPresentation {
+                rows: Vec::new(),
+                next_cursor: None,
+                backwards_cursor: None,
+            })
+        });
         let composer = cx.new(CodexComposer::new);
         let (update_sender, update_receiver) = async_channel::bounded(UPDATE_CAPACITY);
         let (command_sender, command_receiver) = async_channel::bounded(COMMAND_CAPACITY);
@@ -194,6 +215,14 @@ impl CodexApp {
             cx.subscribe(&composer, move |_, _, event: &ComposerEvent, _| {
                 let _ = composer_sender.try_send(HostCommand::Submit(event.text.clone()));
             });
+        let selection_sender = command_sender.clone();
+        let thread_list_subscription = cx.subscribe(
+            &thread_list,
+            move |_, _, event: &ThreadSelectionEvent, _| {
+                let _ =
+                    selection_sender.try_send(HostCommand::SelectThread(event.thread_id.clone()));
+            },
+        );
         let quit_sender = command_sender.clone();
         let quit_subscription = cx.on_app_quit(move |_, _| {
             let quit_sender = quit_sender.clone();
@@ -219,10 +248,12 @@ impl CodexApp {
 
         Self {
             transcript,
+            thread_list,
             composer,
             prompt: None,
             prompt_subscription: None,
             _composer_subscription: composer_subscription,
+            _thread_list_subscription: thread_list_subscription,
             _quit_subscription: quit_subscription,
             status: "Starting Codex App Server…".to_owned(),
             command_sender,
@@ -240,6 +271,11 @@ impl CodexApp {
                 });
             }
             AppUpdate::Prompt(presentation) => self.install_prompt(presentation, cx),
+            AppUpdate::ThreadList(presentation) => {
+                self.thread_list.update(cx, |thread_list, cx| {
+                    thread_list.set_presentation(presentation, cx);
+                });
+            }
             AppUpdate::Failed(error) => {
                 self.status = format!("Session failed: {error}");
                 self.install_prompt(None, cx);
@@ -287,8 +323,25 @@ impl Render for CodexApp {
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
+                    .flex()
                     .overflow_hidden()
-                    .child(self.transcript.clone()),
+                    .child(
+                        div()
+                            .w(px(280.))
+                            .h_full()
+                            .flex_shrink_0()
+                            .border_r_1()
+                            .border_color(rgb(0x003a_3a3a))
+                            .child(self.thread_list.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(self.transcript.clone()),
+                    ),
             )
             .when_some(self.prompt.clone(), |view, prompt| {
                 view.child(div().flex_shrink_0().w_full().px_5().pb_5().child(prompt))
@@ -314,7 +367,8 @@ async fn run_session(
         .await
         .map_err(|error| error.to_string())?;
     send_status(&updates, "Starting thread…").await;
-    let thread = codex
+    let initial_cwd = config.cwd.clone();
+    let started_thread = codex
         .start_thread(StartThreadOptions {
             cwd: Some(config.cwd),
             ephemeral: Some(config.ephemeral),
@@ -322,7 +376,16 @@ async fn run_session(
         })
         .await
         .map_err(|error| error.to_string())?;
-    let thread_id = thread.id().clone();
+    let mut thread_id = started_thread.id().clone();
+    let mut thread = Some(started_thread);
+    refresh_thread_list(
+        &codex,
+        &thread_id,
+        Some(&initial_cwd),
+        TaskStatusPresentation::Running,
+        &updates,
+    )
+    .await?;
     let mut observation = codex
         .client()
         .observe()
@@ -333,52 +396,52 @@ async fn run_session(
     while !shutdown {
         let input = match next_input.take() {
             Some(input) => input,
-            None => match next_submission(codex.client(), &commands).await? {
-                Some(input) => input,
-                None => break,
+            None => match next_idle_action(codex.client(), &commands).await? {
+                IdleAction::Submit(input) => input,
+                IdleAction::Select(selected) => {
+                    if selected != thread_id {
+                        let replacement =
+                            switch_thread(&codex, &mut thread, selected, &updates).await?;
+                        thread_id = replacement.id().clone();
+                        thread = Some(replacement);
+                    }
+                    continue;
+                }
+                IdleAction::Shutdown => break,
             },
         };
-        send_status(&updates, "Running turn…").await;
-        let turn = thread
-            .start_turn(vec![CodexInput::text(input)], TurnOptions::default())
-            .await
-            .map_err(|error| error.to_string())?;
-        let turn_key = TurnKey {
-            thread_id: thread_id.clone(),
-            turn_id: turn.id().clone(),
-        };
-
-        loop {
-            let terminal = publish_current(codex.client(), &thread_id, &turn_key, &updates).await?;
-            if terminal {
-                break;
-            }
-            tokio::select! {
-                changed = observation.changed() => {
-                    changed.map_err(|error| error.to_string())?;
-                }
-                command = commands.recv() => {
-                    match command {
-                        Ok(HostCommand::Prompt(intent)) => {
-                            handle_prompt(codex.client(), intent).await?;
-                        }
-                        Ok(HostCommand::Submit(text)) => {
-                            turn.steer(vec![CodexInput::text(text)])
-                                .await
-                                .map_err(|error| error.to_string())?;
-                        }
-                        Ok(HostCommand::Shutdown) | Err(_) => {
-                            shutdown = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        turn.close().await.map_err(|error| error.to_string())?;
+        let outcome = drive_turn(
+            &codex,
+            thread
+                .as_ref()
+                .ok_or_else(|| "selected thread lease is missing".to_owned())?,
+            &thread_id,
+            input,
+            &mut observation,
+            &commands,
+            &updates,
+        )
+        .await?;
+        shutdown = outcome.shutdown;
         if config.headless || shutdown {
             break;
         }
+        if let Some(selected) = outcome.pending_selection
+            && selected != thread_id
+        {
+            let replacement = switch_thread(&codex, &mut thread, selected, &updates).await?;
+            thread_id = replacement.id().clone();
+            thread = Some(replacement);
+            continue;
+        }
+        refresh_thread_list(
+            &codex,
+            &thread_id,
+            None,
+            TaskStatusPresentation::Idle,
+            &updates,
+        )
+        .await?;
         send_status(&updates, "Ready for another message").await;
     }
 
@@ -386,9 +449,139 @@ async fn run_session(
         send_status(&updates, "Turn complete").await;
     }
     updates.send(AppUpdate::Prompt(None)).await.ok();
-    thread.close().await.map_err(|error| error.to_string())?;
+    if let Some(thread) = thread.take() {
+        thread.close().await.map_err(|error| error.to_string())?;
+    }
     codex.close().await.map_err(|error| error.to_string())?;
     Ok(())
+}
+
+struct TurnOutcome {
+    shutdown: bool,
+    pending_selection: Option<ThreadId>,
+}
+
+async fn drive_turn(
+    codex: &Codex,
+    thread: &CodexThread,
+    thread_id: &ThreadId,
+    input: String,
+    observation: &mut SessionObservation,
+    commands: &Receiver<HostCommand>,
+    updates: &Sender<AppUpdate>,
+) -> Result<TurnOutcome, String> {
+    send_status(updates, "Running turn…").await;
+    let turn = thread
+        .start_turn(vec![CodexInput::text(input)], TurnOptions::default())
+        .await
+        .map_err(|error| error.to_string())?;
+    let turn_key = TurnKey {
+        thread_id: thread_id.clone(),
+        turn_id: turn.id().clone(),
+    };
+    let mut outcome = TurnOutcome {
+        shutdown: false,
+        pending_selection: None,
+    };
+    loop {
+        if publish_current(codex.client(), thread_id, &turn_key, updates).await? {
+            break;
+        }
+        tokio::select! {
+            changed = observation.changed() => {
+                changed.map_err(|error| error.to_string())?;
+            }
+            command = commands.recv() => {
+                match command {
+                    Ok(HostCommand::Prompt(intent)) => {
+                        handle_prompt(codex.client(), intent).await?;
+                    }
+                    Ok(HostCommand::Submit(text)) => {
+                        turn.steer(vec![CodexInput::text(text)])
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    }
+                    Ok(HostCommand::SelectThread(selected)) => {
+                        outcome.pending_selection = Some(selected);
+                        send_status(updates, "Task switch queued until the active turn completes…").await;
+                    }
+                    Ok(HostCommand::Shutdown) | Err(_) => {
+                        outcome.shutdown = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    turn.close().await.map_err(|error| error.to_string())?;
+    Ok(outcome)
+}
+
+async fn switch_thread(
+    codex: &Codex,
+    previous: &mut Option<CodexThread>,
+    selected: ThreadId,
+    updates: &Sender<AppUpdate>,
+) -> Result<CodexThread, String> {
+    send_status(updates, "Loading selected task…").await;
+    let replacement = codex
+        .resume_thread_hydrated(selected.clone(), PaginatedResumeOptions::default())
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(previous) = previous.take() {
+        previous.close().await.map_err(|error| error.to_string())?;
+    }
+    publish_selected(codex.client(), &selected, updates).await?;
+    refresh_thread_list(
+        codex,
+        &selected,
+        None,
+        TaskStatusPresentation::Idle,
+        updates,
+    )
+    .await?;
+    send_status(updates, "Ready for another message").await;
+    Ok(replacement)
+}
+
+async fn refresh_thread_list(
+    codex: &Codex,
+    selected: &ThreadId,
+    selected_cwd: Option<&std::path::Path>,
+    selected_status: TaskStatusPresentation,
+    updates: &Sender<AppUpdate>,
+) -> Result<(), String> {
+    let page = codex
+        .list_threads(ListThreadsOptions {
+            limit: Some(100),
+            ..ListThreadsOptions::default()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut presentation = project_thread_list(&page, Some(selected));
+    if !presentation
+        .rows
+        .iter()
+        .any(|row| &row.thread_id == selected)
+    {
+        presentation.rows.insert(
+            0,
+            ThreadListRow {
+                thread_id: selected.clone(),
+                title: "Current task".to_owned(),
+                cwd: selected_cwd
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                updated_at: current_unix_seconds(),
+                status: selected_status,
+                is_selected: true,
+            },
+        );
+    }
+    updates
+        .send(AppUpdate::ThreadList(presentation))
+        .await
+        .map_err(|_| "GPUI update receiver closed".to_owned())
 }
 
 async fn publish_current(
@@ -397,6 +590,18 @@ async fn publish_current(
     turn_key: &TurnKey,
     updates: &Sender<AppUpdate>,
 ) -> Result<bool, String> {
+    let state = publish_selected(client, thread_id, updates).await?;
+    Ok(state
+        .turns
+        .get(turn_key)
+        .is_some_and(|turn| turn.status.is_terminal()))
+}
+
+async fn publish_selected(
+    client: &AppServerClient,
+    thread_id: &ThreadId,
+    updates: &Sender<AppUpdate>,
+) -> Result<codex_app_server_state::CanonicalState, String> {
     resolve_defaults(client).await?;
     let session = client.snapshot().await.map_err(|error| error.to_string())?;
     let pending = parse_pending(&session).map_err(|error| error.to_string())?;
@@ -408,16 +613,12 @@ async fn publish_current(
         .canonical_snapshot()
         .await
         .map_err(|error| error.to_string())?;
-    let terminal = state
-        .turns
-        .get(turn_key)
-        .is_some_and(|turn| turn.status.is_terminal());
     let projection = TranscriptProjector::project(&state, thread_id, &StandardItemPolicy);
     updates
         .send(AppUpdate::Transcript(projection))
         .await
         .map_err(|_| "GPUI update receiver closed".to_owned())?;
-    Ok(terminal)
+    Ok(state)
 }
 
 async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
@@ -434,15 +635,24 @@ async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
     Ok(())
 }
 
-async fn next_submission(
+enum IdleAction {
+    Submit(String),
+    Select(ThreadId),
+    Shutdown,
+}
+
+async fn next_idle_action(
     client: &AppServerClient,
     commands: &Receiver<HostCommand>,
-) -> Result<Option<String>, String> {
+) -> Result<IdleAction, String> {
     loop {
         match commands.recv().await {
-            Ok(HostCommand::Submit(text)) => return Ok(Some(text)),
+            Ok(HostCommand::Submit(text)) => return Ok(IdleAction::Submit(text)),
+            Ok(HostCommand::SelectThread(thread_id)) => {
+                return Ok(IdleAction::Select(thread_id));
+            }
             Ok(HostCommand::Prompt(intent)) => handle_prompt(client, intent).await?,
-            Ok(HostCommand::Shutdown) | Err(_) => return Ok(None),
+            Ok(HostCommand::Shutdown) | Err(_) => return Ok(IdleAction::Shutdown),
         }
     }
 }
