@@ -143,7 +143,17 @@ pub fn adapt_notification(
             };
             Ok(NotificationDisposition::Mutations(vec![
                 CanonicalMutation::ItemUpsert(map_item(
-                    method, thread_id, turn_id, item, fallback,
+                    method,
+                    thread_id,
+                    turn_id,
+                    item,
+                    fallback,
+                    (method == "item/started")
+                        .then(|| integer_field(method, params, "startedAtMs"))
+                        .transpose()?,
+                    (method == "item/completed")
+                        .then(|| integer_field(method, params, "completedAtMs"))
+                        .transpose()?,
                 )?),
             ]))
         }
@@ -152,6 +162,7 @@ pub fn adapt_notification(
         | "item/commandExecution/outputDelta"
         | "item/fileChange/outputDelta"
         | "item/fileChange/patchUpdated"
+        | "item/commandExecution/terminalInteraction"
         | "item/mcpToolCall/progress"
         | "item/reasoning/summaryTextDelta"
         | "item/reasoning/summaryPartAdded"
@@ -194,6 +205,14 @@ fn adapt_live_item_notification(
             method,
             params,
             ItemDelta::McpProgress(string_field(method, params, "message")?.to_owned()),
+        ),
+        "item/commandExecution/terminalInteraction" => item_delta(
+            method,
+            params,
+            ItemDelta::TerminalInteraction {
+                process_id: string_field(method, params, "processId")?.to_owned(),
+                stdin: string_field(method, params, "stdin")?.to_owned(),
+            },
         ),
         "item/reasoning/summaryTextDelta" => item_delta(
             method,
@@ -451,6 +470,8 @@ pub fn adapt_item_entry(
         turn_id,
         item,
         LifecycleStatus::Completed,
+        None,
+        None,
     )?))
 }
 
@@ -629,6 +650,8 @@ fn map_turn_with_items(
             id,
             item,
             status.clone(),
+            None,
+            None,
         )?));
     }
     Ok(mutations)
@@ -640,6 +663,8 @@ fn map_item(
     turn_id: &str,
     value: &Map<String, Value>,
     fallback_status: LifecycleStatus,
+    started_at_ms: Option<i64>,
+    completed_at_ms: Option<i64>,
 ) -> Result<CanonicalItem, AdapterError> {
     let id = value
         .get("id")
@@ -668,6 +693,9 @@ fn map_item(
             .collect(),
         duration_ms: value.get("durationMs").and_then(Value::as_i64),
         error: value.get("error").filter(|value| !value.is_null()).cloned(),
+        started_at_ms: started_at_ms.or_else(|| value.get("startedAtMs").and_then(Value::as_i64)),
+        completed_at_ms: completed_at_ms
+            .or_else(|| value.get("completedAtMs").and_then(Value::as_i64)),
         live_overlay: ItemLiveOverlay::default(),
         live_fields: BTreeMap::new(),
         content_revision: 0,

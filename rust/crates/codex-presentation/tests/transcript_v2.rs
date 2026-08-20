@@ -214,6 +214,64 @@ fn live_overlays_feed_streaming_answer_reasoning_tail_and_command_output() {
 }
 
 #[test]
+fn running_commands_show_bounded_actual_text_and_keep_full_command() {
+    let command = "/bin/zsh -lc 'cargo test --workspace --all-targets --locked'".to_owned();
+    let state = one_turn_state(
+        LifecycleStatus::InProgress,
+        vec![item(
+            "command",
+            "commandExecution",
+            LifecycleStatus::InProgress,
+            json!({
+                "command": command.clone(),
+                "commandActions": [{"type": "unknown", "command": command.clone()}],
+                "status": "inProgress"
+            }),
+        )],
+        json!({}),
+    );
+
+    let projected = TranscriptV2Projector::project(&state, &thread_id(), &StandardItemPolicy);
+    let NarrativeEntryV2::WorkGroup(group) = &projected.turns[0].narrative[0] else {
+        panic!("expected work group");
+    };
+    let WorkRowV2::Command(row) = &group.rows[0] else {
+        panic!("expected command row");
+    };
+    assert_eq!(row.command, command);
+    assert_eq!(row.label, "Running cargo test --workspace --all-targets --locked");
+}
+
+#[test]
+fn malformed_nonempty_command_actions_use_one_raw_command_fallback() {
+    let state = one_turn_state(
+        LifecycleStatus::Completed,
+        vec![item(
+            "command",
+            "commandExecution",
+            LifecycleStatus::Completed,
+            json!({
+                "command": "swift test",
+                "commandActions": [null],
+                "status": "completed"
+            }),
+        )],
+        json!({}),
+    );
+
+    let projected = TranscriptV2Projector::project(&state, &thread_id(), &StandardItemPolicy);
+    let NarrativeEntryV2::WorkGroup(group) = &projected.turns[0].narrative[0] else {
+        panic!("expected work group");
+    };
+    assert_eq!(group.rows.len(), 1);
+    let WorkRowV2::Command(row) = &group.rows[0] else {
+        panic!("expected command row");
+    };
+    assert_eq!(row.command, "swift test");
+    assert_eq!(row.label, "Ran swift test");
+}
+
+#[test]
 fn unphased_assistant_messages_promote_latest_and_demote_previous_to_prose() {
     let state = one_turn_state(
         LifecycleStatus::Completed,
@@ -478,6 +536,8 @@ fn item(id: &str, kind: &str, status: LifecycleStatus, payload: Value) -> Canoni
         payload: object_map(payload),
         duration_ms: None,
         error: None,
+        started_at_ms: None,
+        completed_at_ms: None,
         live_overlay: ItemLiveOverlay::default(),
         live_fields: BTreeMap::new(),
         content_revision: 0,
@@ -492,7 +552,8 @@ fn overlay(overrides: Value) -> ItemLiveOverlay {
         "reasoning_content": {},
         "command_output": [],
         "file_change_output": [],
-        "mcp_progress": []
+        "mcp_progress": [],
+        "terminal_interactions": []
     });
     let Value::Object(overrides) = overrides else {
         panic!("overlay overrides must be an object");

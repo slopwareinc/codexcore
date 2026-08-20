@@ -1202,6 +1202,8 @@ mod tests {
                     payload,
                     duration_ms: None,
                     error: None,
+                    started_at_ms: None,
+                    completed_at_ms: None,
                     live_overlay: ItemLiveOverlay::default(),
                     live_fields: BTreeMap::new(),
                     content_revision: 0,

@@ -934,15 +934,14 @@ fn command_actions(item: &CanonicalItem, fallback: &str) -> Vec<CommandAction> {
         .and_then(Value::as_array)
         .filter(|actions| !actions.is_empty())
     else {
-        return vec![CommandAction {
-            command: fallback.to_owned(),
-            kind: CommandActionKind::Run,
-        }];
+        return fallback_command_action(fallback);
     };
-    actions
+
+    let projected = actions
         .iter()
-        .filter_map(Value::as_object)
+        .map(|value| value.as_object())
         .map(|action| {
+            let action = action?;
             let command = string_in(action, "command").unwrap_or_else(|| fallback.to_owned());
             let kind = match string_in(action, "type")
                 .unwrap_or_default()
@@ -973,9 +972,20 @@ fn command_actions(item: &CanonicalItem, fallback: &str) -> Vec<CommandAction> {
                 },
                 _ => CommandActionKind::Run,
             };
-            CommandAction { command, kind }
+            Some(CommandAction { command, kind })
         })
-        .collect()
+        .collect::<Option<Vec<_>>>();
+
+    projected
+        .filter(|actions| !actions.is_empty())
+        .unwrap_or_else(|| fallback_command_action(fallback))
+}
+
+fn fallback_command_action(command: &str) -> Vec<CommandAction> {
+    vec![CommandAction {
+        command: command.to_owned(),
+        kind: CommandActionKind::Run,
+    }]
 }
 
 fn command_action_category(kind: &CommandActionKind) -> WorkCategoryV2 {
@@ -1023,19 +1033,28 @@ fn command_action_label(action: &CommandAction, in_progress: bool) -> String {
             }
         }
         CommandActionKind::Run => {
+            let command = short_command(&action.command);
             if in_progress {
-                "Running command".to_owned()
+                format!("Running {command}")
             } else {
-                format!("Ran {}", short_command(&action.command))
+                format!("Ran {command}")
             }
         }
     }
 }
 
-fn short_command(command: &str) -> &str {
-    command.find("-lc ").map_or(command, |index| {
+fn short_command(command: &str) -> String {
+    const MAXIMUM_COMMAND_LABEL_CHARS: usize = 120;
+    let command = command.find("-lc ").map_or(command, |index| {
         command[index + 4..].trim_matches([' ', '\'', '"'])
-    })
+    });
+    let Some((end, _)) = command
+        .char_indices()
+        .nth(MAXIMUM_COMMAND_LABEL_CHARS)
+    else {
+        return command.to_owned();
+    };
+    format!("{}…", &command[..end])
 }
 
 fn skill_display_name(name: &str, path: Option<&str>) -> Option<String> {

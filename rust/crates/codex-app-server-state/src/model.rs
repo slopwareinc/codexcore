@@ -290,6 +290,13 @@ pub enum ItemDelta {
     FileChangeOutput(String),
     /// Human-readable MCP tool progress.
     McpProgress(String),
+    /// Input sent to a running command's terminal process.
+    TerminalInteraction {
+        /// Underlying process identity.
+        process_id: String,
+        /// Exact stdin payload sent to the process.
+        stdin: String,
+    },
 }
 
 impl ItemDelta {
@@ -302,8 +309,18 @@ impl ItemDelta {
             | Self::McpProgress(value)
             | Self::ReasoningSummary { text: value, .. }
             | Self::ReasoningContent { text: value, .. } => value.len(),
+            Self::TerminalInteraction { process_id, stdin } => process_id.len() + stdin.len(),
         }
     }
+}
+
+/// One terminal input event associated with a running command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CanonicalTerminalInteraction {
+    /// Underlying process identity.
+    pub process_id: String,
+    /// Exact stdin payload sent to the process.
+    pub stdin: String,
 }
 
 /// Ordered chunks from one live protocol text stream.
@@ -348,6 +365,8 @@ pub struct ItemLiveOverlay {
     pub command_output: TextChunkBuffer,
     pub file_change_output: TextChunkBuffer,
     pub mcp_progress: TextChunkBuffer,
+    #[serde(default)]
+    pub terminal_interactions: Vec<CanonicalTerminalInteraction>,
 }
 
 impl ItemLiveOverlay {
@@ -368,6 +387,10 @@ impl ItemLiveOverlay {
             ItemDelta::CommandOutput(text) => self.command_output.append(text),
             ItemDelta::FileChangeOutput(text) => self.file_change_output.append(text),
             ItemDelta::McpProgress(text) => self.mcp_progress.append(text),
+            ItemDelta::TerminalInteraction { process_id, stdin } => {
+                self.terminal_interactions
+                    .push(CanonicalTerminalInteraction { process_id, stdin });
+            }
         }
     }
 
@@ -387,6 +410,7 @@ impl ItemLiveOverlay {
             && self.command_output.is_empty()
             && self.file_change_output.is_empty()
             && self.mcp_progress.is_empty()
+            && self.terminal_interactions.is_empty()
     }
 }
 
@@ -409,6 +433,12 @@ pub struct CanonicalItem {
     /// Structured item error promoted without narrowing future fields.
     #[serde(default)]
     pub error: Option<Value>,
+    /// Millisecond timestamp from the authoritative `item/started` event.
+    #[serde(default)]
+    pub started_at_ms: Option<i64>,
+    /// Millisecond timestamp from the authoritative `item/completed` event.
+    #[serde(default)]
+    pub completed_at_ms: Option<i64>,
     /// Ordered live delta content separate from authoritative payload fields.
     #[serde(default)]
     pub live_overlay: ItemLiveOverlay,

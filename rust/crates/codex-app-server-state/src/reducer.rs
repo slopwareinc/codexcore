@@ -368,12 +368,24 @@ impl CanonicalStateReducer {
                     existing.payload = incoming.payload;
                     existing.duration_ms = incoming.duration_ms;
                     existing.error = incoming.error;
+                    if incoming.started_at_ms.is_some() {
+                        existing.started_at_ms = incoming.started_at_ms;
+                    }
+                    if incoming.completed_at_ms.is_some() {
+                        existing.completed_at_ms = incoming.completed_at_ms;
+                    }
                     existing.live_overlay = ItemLiveOverlay::default();
                     existing.live_fields.clear();
                 } else if !existing_is_terminal {
                     existing.kind = incoming.kind;
                     existing.status = incoming.status;
                     existing.payload.append(&mut incoming.payload);
+                    if incoming.started_at_ms.is_some() {
+                        existing.started_at_ms = incoming.started_at_ms;
+                    }
+                    if incoming.completed_at_ms.is_some() {
+                        existing.completed_at_ms = incoming.completed_at_ms;
+                    }
                     if incoming.duration_ms.is_some() {
                         existing.duration_ms = incoming.duration_ms;
                     }
@@ -381,6 +393,10 @@ impl CanonicalStateReducer {
                         existing.error = incoming.error;
                     }
                     existing.live_fields.extend(incoming.live_fields);
+                } else if existing.started_at_ms.is_none() && incoming.started_at_ms.is_some() {
+                    // A late start notification may fill timing metadata but
+                    // must never regress an already-authoritative terminal item.
+                    existing.started_at_ms = incoming.started_at_ms;
                 }
                 if *existing != before {
                     existing.content_revision = existing
@@ -723,6 +739,8 @@ mod tests {
             payload: BTreeMap::from([("text".to_owned(), json!("hello"))]),
             duration_ms: None,
             error: None,
+            started_at_ms: None,
+            completed_at_ms: None,
             live_overlay: ItemLiveOverlay::default(),
             live_fields: BTreeMap::new(),
             content_revision: 0,

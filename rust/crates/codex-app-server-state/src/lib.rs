@@ -12,9 +12,9 @@ mod reducer;
 
 pub use model::{
     CanonicalChange, CanonicalChangeBatch, CanonicalItem, CanonicalPlanStep, CanonicalState,
-    CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemDelta, ItemLiveOverlay,
-    LifecycleStatus, PlanStepStatus, StateEntityScope, StateFieldMask, StateInvalidation,
-    StateObservationScope, TextChunkBuffer, ThreadGoalStatus, ThreadStatus,
+    CanonicalTerminalInteraction, CanonicalThread, CanonicalThreadGoal, CanonicalTurn, ItemDelta,
+    ItemLiveOverlay, LifecycleStatus, PlanStepStatus, StateEntityScope, StateFieldMask,
+    StateInvalidation, StateObservationScope, TextChunkBuffer, ThreadGoalStatus, ThreadStatus,
 };
 pub use reducer::{CanonicalMutation, CanonicalStateReducer, ReducerConfiguration, ReducerError};
 
