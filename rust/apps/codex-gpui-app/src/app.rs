@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_channel::{Receiver, Sender};
 use codex_app_server_client::{
@@ -16,9 +19,9 @@ use codex_app_server_wire::JsonRpcErrorObject;
 use codex_gpui::{
     ActiveSubmitBehavior, CodexAuthentication, CodexComposer, CodexGoal, CodexModelPicker,
     CodexPrompt, CodexQueue, CodexSubagentNavigator, CodexTheme, CodexThreadList,
-    CodexTranscriptV2, ComposerEvent, GoalEvent, LoginEvent, ModelSelectionEvent, PromptIntent,
-    QueueEvent, SubagentSelectionEvent, ThreadListCommand, ThreadSelectionEvent, TranscriptEvent,
-    display_reasoning_effort,
+    CodexTranscriptV2, ComposerAttachment, ComposerEvent, GoalEvent, LoginEvent,
+    ModelSelectionEvent, PromptIntent, QueueEvent, SubagentSelectionEvent, ThreadListCommand,
+    ThreadSelectionEvent, TranscriptEvent, display_reasoning_effort,
 };
 use codex_presentation::{
     AuthenticationPresentation, GoalPresentation, ModelPickerPresentation, PromptActionKind,
@@ -29,8 +32,8 @@ use codex_presentation::{
     transcript_v2::{TranscriptV2Presentation, TranscriptV2Projector},
 };
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, size,
+    App, AppContext, Bounds, Context, Entity, PathPromptOptions, Render, Subscription, Task,
+    Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 use gpui_platform::application;
 use gpui_tokio::Tokio;
@@ -154,6 +157,7 @@ async fn print_updates(
                     let _ = commands
                         .send(HostCommand::Submit {
                             text,
+                            attachments: Vec::new(),
                             active_behavior: ActiveSubmitBehavior::Queue,
                         })
                         .await;
@@ -186,6 +190,7 @@ enum HostCommand {
     Prompt(PromptIntent),
     Submit {
         text: String,
+        attachments: Vec<ComposerAttachment>,
         active_behavior: ActiveSubmitBehavior,
     },
     Interrupt,
@@ -212,6 +217,7 @@ struct CodexApp {
     composer: Entity<CodexComposer>,
     prompt: Option<Entity<CodexPrompt>>,
     prompt_subscription: Option<Subscription>,
+    attachment_picker_task: Option<Task<()>>,
     _composer_subscription: Subscription,
     _transcript_subscription: Subscription,
     _thread_list_subscription: Subscription,
@@ -392,11 +398,18 @@ fn subscribe_composer(
         let command = match event {
             ComposerEvent::Submit {
                 text,
+                attachments,
                 active_behavior,
             } => HostCommand::Submit {
                 text: text.clone(),
+                attachments: attachments.clone(),
                 active_behavior: *active_behavior,
             },
+            ComposerEvent::OpenAttachmentPicker => {
+                this.open_attachment_picker(cx);
+                return;
+            }
+            ComposerEvent::RemoveAttachment { .. } => return,
             ComposerEvent::Interrupt => HostCommand::Interrupt,
             ComposerEvent::OpenModelPicker => {
                 this.inspector_visible = true;
@@ -480,6 +493,7 @@ impl CodexApp {
             composer,
             prompt: None,
             prompt_subscription: None,
+            attachment_picker_task: None,
             _composer_subscription: composer_subscription,
             _transcript_subscription: transcript_subscription,
             _thread_list_subscription: thread_list_subscription,
@@ -557,6 +571,20 @@ impl CodexApp {
             }
         }
         cx.notify();
+    }
+
+    fn open_attachment_picker(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(attachment_picker_options());
+        let composer = self.composer.clone();
+        self.attachment_picker_task = Some(cx.spawn(async move |_, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            if paths.is_empty() {
+                return;
+            }
+            composer.update(cx, |composer, cx| composer.add_attachments(paths, cx));
+        }));
     }
 
     fn install_prompt(&mut self, presentation: Option<PromptPresentation>, cx: &mut Context<Self>) {
@@ -949,8 +977,10 @@ async fn run_session(
         &updates,
     )
     .await;
-    let mut next_launch = (config.headless || config.prompt_explicit)
-        .then(|| TurnLaunch::Input(config.prompt.clone()));
+    let mut next_launch = (config.headless || config.prompt_explicit).then(|| TurnLaunch::Input {
+        text: config.prompt.clone(),
+        attachments: Vec::new(),
+    });
     let mut next_queue_id = 1_u64;
     let mut shutdown = false;
     while !shutdown {
@@ -965,7 +995,7 @@ async fn run_session(
             )
             .await?
             {
-                IdleAction::Submit(input) => TurnLaunch::Input(input),
+                IdleAction::Submit { text, attachments } => TurnLaunch::Input { text, attachments },
                 IdleAction::Select(selected) => {
                     if selected != thread_id {
                         let replacement =
@@ -1234,7 +1264,10 @@ struct TurnOutcome {
 }
 
 enum TurnLaunch {
-    Input(String),
+    Input {
+        text: String,
+        attachments: Vec<ComposerAttachment>,
+    },
     Queued {
         after: codex_app_server_state::TurnId,
     },
@@ -1263,10 +1296,11 @@ impl TurnDriver<'_> {
             Ok(HostCommand::Prompt(intent)) => handle_prompt(codex.client(), intent).await?,
             Ok(HostCommand::Submit {
                 text,
+                attachments,
                 active_behavior,
             }) => match active_behavior {
                 ActiveSubmitBehavior::Steer => turn
-                    .steer(vec![CodexInput::text(text)])
+                    .steer(composer_submission_inputs(text, &attachments))
                     .await
                     .map_err(|error| error.to_string())?,
                 ActiveSubmitBehavior::Queue => {
@@ -1285,7 +1319,7 @@ impl TurnDriver<'_> {
                         .ok_or_else(|| "queue client identity exhausted".to_owned())?;
                     match thread
                         .queue_add(
-                            vec![CodexInput::text(text)],
+                            composer_submission_inputs(text, &attachments),
                             format!("codex-gpui-{}-{queue_id}", thread.id()),
                         )
                         .await
@@ -1361,11 +1395,14 @@ async fn drive_turn(
     mut driver: TurnDriver<'_>,
 ) -> Result<TurnOutcome, String> {
     send_status(driver.updates, "Running turn…").await;
-    let check_queue_after = !matches!(&launch, TurnLaunch::Input(_));
+    let check_queue_after = !matches!(&launch, TurnLaunch::Input { .. });
     let turn = match launch {
-        TurnLaunch::Input(input) => {
+        TurnLaunch::Input { text, attachments } => {
             thread
-                .start_turn(vec![CodexInput::text(input)], options.clone())
+                .start_turn(
+                    composer_submission_inputs(text, &attachments),
+                    options.clone(),
+                )
                 .await
         }
         TurnLaunch::Queued { after } => match thread.queue_start(None).await {
@@ -1684,7 +1721,10 @@ async fn resolve_defaults(client: &AppServerClient) -> Result<(), String> {
 }
 
 enum IdleAction {
-    Submit(String),
+    Submit {
+        text: String,
+        attachments: Vec<ComposerAttachment>,
+    },
     Select(ThreadId),
     NewChat,
     Search,
@@ -1708,7 +1748,9 @@ async fn next_idle_action(
                 publish_transcript(client, thread_id, None, updates).await?;
             }
             command = commands.recv() => match command {
-                Ok(HostCommand::Submit { text, .. }) => return Ok(IdleAction::Submit(text)),
+                Ok(HostCommand::Submit { text, attachments, .. }) => {
+                    return Ok(IdleAction::Submit { text, attachments });
+                }
                 Ok(HostCommand::SelectThread(thread_id)) => {
                     return Ok(IdleAction::Select(thread_id));
                 }
@@ -1843,6 +1885,67 @@ fn composer_model_label(presentation: &ModelPickerPresentation) -> String {
         return display_name.to_owned();
     }
     format!("{display_name} · {effort}")
+}
+
+fn composer_submission_inputs(
+    text: impl Into<String>,
+    attachments: &[ComposerAttachment],
+) -> Vec<CodexInput> {
+    let text = text.into();
+    let mut inputs = Vec::with_capacity(attachments.len() + 1);
+    if !text.trim().is_empty() {
+        inputs.push(CodexInput::text(text));
+    }
+    inputs.extend(attachments.iter().map(composer_attachment_input));
+    inputs
+}
+
+fn attachment_picker_options() -> PathPromptOptions {
+    PathPromptOptions {
+        files: true,
+        directories: true,
+        multiple: true,
+        prompt: Some("Add files and folders".into()),
+    }
+}
+
+fn composer_attachment_input(attachment: &ComposerAttachment) -> CodexInput {
+    let path = attachment.path().to_path_buf();
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase);
+    if extension.as_deref().is_some_and(is_image_extension) {
+        CodexInput::LocalImage { path, detail: None }
+    } else if extension.as_deref().is_some_and(is_audio_extension) {
+        CodexInput::LocalAudio(path)
+    } else {
+        CodexInput::Mention {
+            name: composer_attachment_name(attachment.path()),
+            path,
+        }
+    }
+}
+
+fn composer_attachment_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| "attachment".to_owned(), str::to_owned)
+}
+
+fn is_image_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "avif" | "bmp" | "gif" | "heic" | "jpeg" | "jpg" | "png" | "tif" | "tiff" | "webp"
+    )
+}
+
+fn is_audio_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "aac" | "flac" | "m4a" | "mp3" | "ogg" | "wav" | "webm"
+    )
 }
 
 fn current_unix_seconds() -> i64 {
@@ -2008,6 +2111,56 @@ mod tests {
                 format!("Model · {label}")
             );
         }
+    }
+
+    #[test]
+    fn composer_submission_inputs_encode_multiline_text_and_typed_paths() {
+        let attachments = vec![
+            ComposerAttachment::new("/tmp/diagram.png"),
+            ComposerAttachment::new("/tmp/notes.md"),
+            ComposerAttachment::new("/tmp/recording.m4a"),
+            ComposerAttachment::new("/tmp/project"),
+        ];
+        let inputs = composer_submission_inputs("first line\nsecond line", &attachments);
+        let values = inputs
+            .into_iter()
+            .map(CodexInput::into_value)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            vec![
+                json!({"type": "text", "text": "first line\nsecond line"}),
+                json!({"type": "localImage", "path": "/tmp/diagram.png"}),
+                json!({"type": "mention", "name": "notes.md", "path": "/tmp/notes.md"}),
+                json!({"type": "localAudio", "path": "/tmp/recording.m4a"}),
+                json!({"type": "mention", "name": "project", "path": "/tmp/project"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn composer_submission_inputs_allow_attachment_only_turns() {
+        let inputs = composer_submission_inputs("", &[ComposerAttachment::new("/tmp/README.md")]);
+        assert_eq!(
+            inputs
+                .into_iter()
+                .map(CodexInput::into_value)
+                .collect::<Vec<_>>(),
+            vec![json!({
+                "type": "mention",
+                "name": "README.md",
+                "path": "/tmp/README.md"
+            })]
+        );
+    }
+
+    #[test]
+    fn attachment_picker_allows_multiple_files_and_directories() {
+        let options = attachment_picker_options();
+        assert!(options.files);
+        assert!(options.directories);
+        assert!(options.multiple);
+        assert_eq!(options.prompt.as_deref(), Some("Add files and folders"));
     }
 
     #[test]

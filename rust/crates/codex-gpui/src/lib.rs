@@ -18,7 +18,9 @@ mod transcript;
 mod transcript_v2;
 
 pub use auth::{CodexAuthentication, LoginEvent};
-pub use composer::{ActiveSubmitBehavior, CodexComposer, ComposerEvent, init as init_composer};
+pub use composer::{
+    ActiveSubmitBehavior, CodexComposer, ComposerAttachment, ComposerEvent, init as init_composer,
+};
 pub use file_change::{
     DIFF_GUTTER_WIDTH, DiffHunkProjection, DiffLineKind, DiffLineProjection, FileChangeLayout,
     FileChangeProjection, FileDiffProjection, MAX_DIFF_BYTES, MAX_DIFF_HEIGHT,

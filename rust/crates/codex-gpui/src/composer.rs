@@ -1,4 +1,7 @@
-use std::ops::Range;
+use std::{
+    ops::Range,
+    path::{Path, PathBuf},
+};
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
@@ -72,11 +75,48 @@ pub enum ActiveSubmitBehavior {
     Steer,
 }
 
+/// A local path selected for the next composer submission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComposerAttachment {
+    path: PathBuf,
+}
+
+impl ComposerAttachment {
+    /// Create an attachment for a local file or directory.
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    /// Return the path that the host should encode for App Server.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Return the compact name used by the attachment chip.
+    #[must_use]
+    pub fn label(&self) -> String {
+        attachment_label(&self.path)
+    }
+}
+
+impl From<PathBuf> for ComposerAttachment {
+    fn from(path: PathBuf) -> Self {
+        Self::new(path)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ComposerEvent {
     Submit {
         text: String,
+        attachments: Vec<ComposerAttachment>,
         active_behavior: ActiveSubmitBehavior,
+    },
+    OpenAttachmentPicker,
+    RemoveAttachment {
+        attachment: ComposerAttachment,
     },
     Interrupt,
     OpenModelPicker,
@@ -98,6 +138,26 @@ fn composer_control_order(turn_active: bool) -> &'static [ComposerControl] {
 
 fn model_control_event() -> ComposerEvent {
     ComposerEvent::OpenModelPicker
+}
+
+fn attachment_label(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned)
+}
+
+fn merge_attachments(
+    current: &[ComposerAttachment],
+    paths: impl IntoIterator<Item = PathBuf>,
+) -> Vec<ComposerAttachment> {
+    let mut merged = current.to_vec();
+    for path in paths {
+        if !merged.iter().any(|attachment| attachment.path == path) {
+            merged.push(ComposerAttachment::new(path));
+        }
+    }
+    merged
 }
 
 pub(crate) enum InputEvent {
@@ -901,6 +961,7 @@ fn composer_input_height(content: &str, line_height: Pixels) -> Pixels {
 /// Controlled multiline composer with native IME and clipboard behavior.
 pub struct CodexComposer {
     input: Entity<ComposerInput>,
+    attachments: Vec<ComposerAttachment>,
     theme: CodexTheme,
     model_label: SharedString,
     turn_active: bool,
@@ -924,6 +985,7 @@ impl CodexComposer {
         });
         Self {
             input,
+            attachments: Vec::new(),
             theme,
             model_label: "Model".into(),
             turn_active: false,
@@ -949,8 +1011,27 @@ impl CodexComposer {
         self.input.read(cx).text().to_owned()
     }
 
+    /// Return the attachments currently held by the draft.
+    #[must_use]
+    pub fn attachments(&self) -> &[ComposerAttachment] {
+        &self.attachments
+    }
+
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         self.input.update(cx, |input, cx| input.set_text(text, cx));
+    }
+
+    /// Add selected paths to the draft, preserving selection order and removing duplicates.
+    pub fn add_attachments(
+        &mut self,
+        paths: impl IntoIterator<Item = PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        let attachments = merge_attachments(&self.attachments, paths);
+        if attachments != self.attachments {
+            self.attachments = attachments;
+            cx.notify();
+        }
     }
 
     pub fn set_turn_active(&mut self, active: bool, cx: &mut Context<Self>) {
@@ -997,21 +1078,33 @@ impl CodexComposer {
         active_behavior: ActiveSubmitBehavior,
         cx: &mut Context<Self>,
     ) {
-        let text = self.input.read(cx).text().trim().to_owned();
-        if text.is_empty() {
+        let text = self.input.read(cx).text().to_owned();
+        if text.trim().is_empty() && self.attachments.is_empty() {
             return;
         }
         self.input.update(cx, ComposerInput::reset);
+        let attachments = std::mem::take(&mut self.attachments);
         cx.emit(ComposerEvent::Submit {
             text,
+            attachments,
             active_behavior,
         });
+        cx.notify();
     }
 
     fn interrupt(&mut self, cx: &mut Context<Self>) {
         if self.turn_active {
             cx.emit(ComposerEvent::Interrupt);
         }
+    }
+
+    fn remove_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.attachments.len() {
+            return;
+        }
+        let attachment = self.attachments.remove(index);
+        cx.emit(ComposerEvent::RemoveAttachment { attachment });
+        cx.notify();
     }
 }
 
@@ -1020,7 +1113,10 @@ impl EventEmitter<ComposerEvent> for CodexComposer {}
 impl Render for CodexComposer {
     #[allow(clippy::too_many_lines)]
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_submit = !self.input.read(cx).text().trim().is_empty();
+        let can_submit =
+            !self.input.read(cx).text().trim().is_empty() || !self.attachments.is_empty();
+        let attachments = self.attachments.clone();
+        let composer_entity = cx.entity();
         let theme = self.theme;
         let model_label = self.model_label.clone();
         let show_interrupt =
@@ -1044,6 +1140,58 @@ impl Render for CodexComposer {
             .border_color(theme.border)
             .bg(theme.elevated_surface)
             .p(px(10.))
+            .when(!attachments.is_empty(), |view| {
+                view.child(
+                    div()
+                        .id("codex-composer-attachments")
+                        .flex()
+                        .flex_wrap()
+                        .gap_1()
+                        .children(attachments.iter().enumerate().map(|(index, attachment)| {
+                            let label = attachment.label();
+                            let composer_entity = composer_entity.clone();
+                            div()
+                                .id(format!("codex-composer-attachment-{index}"))
+                                .role(Role::Group)
+                                .aria_label(format!("Attached {label}"))
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(theme.border)
+                                .bg(theme.surface)
+                                .px_2()
+                                .py_1()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_xs()
+                                .text_color(theme.muted_text)
+                                .child(label.clone())
+                                .child(
+                                    div()
+                                        .id(format!("codex-composer-remove-attachment-{index}"))
+                                        .focusable()
+                                        .tab_stop(true)
+                                        .role(Role::Button)
+                                        .aria_label(format!("Remove attached {label}"))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.remove_attachment(index, cx);
+                                        }))
+                                        .on_key_down(move |event, window, cx| {
+                                            if crate::transcript::is_activation_key(
+                                                &event.keystroke.key,
+                                            ) {
+                                                window.prevent_default();
+                                                composer_entity.update(cx, |this, cx| {
+                                                    this.remove_attachment(index, cx);
+                                                });
+                                            }
+                                        })
+                                        .child("×"),
+                                )
+                        })),
+                )
+            })
             .child(
                 div()
                     .min_h(px(34.))
@@ -1057,6 +1205,36 @@ impl Render for CodexComposer {
                     .flex()
                     .items_center()
                     .gap_2()
+                    .child(
+                        div()
+                            .id("codex-composer-add-files")
+                            .focusable()
+                            .tab_stop(true)
+                            .role(Role::Button)
+                            .aria_label("Add files and folders")
+                            .size(px(28.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_xs()
+                            .text_color(theme.muted_text)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(ComposerEvent::OpenAttachmentPicker);
+                            }))
+                            .on_key_down({
+                                let composer_entity = composer_entity.clone();
+                                move |event, window, cx| {
+                                    if crate::transcript::is_activation_key(&event.keystroke.key) {
+                                        window.prevent_default();
+                                        composer_entity.update(cx, |_, cx| {
+                                            cx.emit(ComposerEvent::OpenAttachmentPicker);
+                                        });
+                                    }
+                                }
+                            })
+                            .child("＋"),
+                    )
                     .child(div().flex_1())
                     .child(
                         div()
@@ -1214,5 +1392,47 @@ mod tests {
             model_control_event(),
             ComposerEvent::OpenModelPicker
         ));
+    }
+
+    #[test]
+    fn attachment_labels_use_the_last_path_component() {
+        assert_eq!(
+            ComposerAttachment::new("/tmp/report.md").label(),
+            "report.md"
+        );
+        assert_eq!(ComposerAttachment::new("/tmp/project/").label(), "project");
+    }
+
+    #[test]
+    fn merging_attachments_preserves_order_and_deduplicates_paths() {
+        let current = vec![ComposerAttachment::new("/tmp/one.txt")];
+        let merged = merge_attachments(
+            &current,
+            [PathBuf::from("/tmp/two.txt"), PathBuf::from("/tmp/one.txt")],
+        );
+        assert_eq!(
+            merged,
+            vec![
+                ComposerAttachment::new("/tmp/one.txt"),
+                ComposerAttachment::new("/tmp/two.txt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn submit_event_carries_multiline_text_and_attachment_paths() {
+        let event = ComposerEvent::Submit {
+            text: "first line\nsecond line".to_owned(),
+            attachments: vec![ComposerAttachment::new("/tmp/report.md")],
+            active_behavior: ActiveSubmitBehavior::Queue,
+        };
+        assert_eq!(
+            event,
+            ComposerEvent::Submit {
+                text: "first line\nsecond line".to_owned(),
+                attachments: vec![ComposerAttachment::new("/tmp/report.md")],
+                active_behavior: ActiveSubmitBehavior::Queue,
+            }
+        );
     }
 }
