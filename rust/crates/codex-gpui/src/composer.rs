@@ -96,6 +96,10 @@ fn composer_control_order(turn_active: bool) -> &'static [ComposerControl] {
     }
 }
 
+fn model_control_event() -> ComposerEvent {
+    ComposerEvent::OpenModelPicker
+}
+
 pub(crate) enum InputEvent {
     Submit,
     Changed,
@@ -1071,7 +1075,7 @@ impl Render for CodexComposer {
                             .text_color(theme.muted_text)
                             .cursor_pointer()
                             .on_click(cx.listener(|_, _, _, cx| {
-                                cx.emit(ComposerEvent::OpenModelPicker);
+                                cx.emit(model_control_event());
                             }))
                             .child(model_label)
                             .child("⌄"),
@@ -1202,5 +1206,13 @@ mod tests {
             &[ComposerControl::Send, ComposerControl::Stop]
         );
         assert_eq!(composer_control_order(false), &[ComposerControl::Send]);
+    }
+
+    #[test]
+    fn model_control_uses_a_typed_host_event() {
+        assert!(matches!(
+            model_control_event(),
+            ComposerEvent::OpenModelPicker
+        ));
     }
 }

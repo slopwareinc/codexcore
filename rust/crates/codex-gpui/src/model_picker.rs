@@ -106,7 +106,11 @@ impl Render for CodexModelPicker {
                             .focusable()
                             .tab_stop(true)
                             .role(Role::RadioButton)
-                            .aria_label(effort.description.clone())
+                            .aria_label(format!(
+                                "{} reasoning effort: {}",
+                                display_reasoning_effort(&effort.value),
+                                effort.description
+                            ))
                             .aria_selected(selected)
                             .rounded_md()
                             .border_1()

@@ -194,20 +194,26 @@ resolves or cancels it.
 
 The composer uses GPUI's native input-handler contract for IME composition,
 UTF-16 platform ranges, grapheme navigation, selection, and clipboard actions.
-Drafts are single-line and bounded to 256 KiB. Hosts install its scoped key
-bindings once with `init_composer` and subscribe to `ComposerEvent`; sending,
-steering, queueing, and persistence remain host policy. The host also supplies
-the current catalog display name through `set_model_label`; activating that
-compact control emits `OpenModelPicker` so it opens the real picker rather than
-showing an inert placeholder chip.
+Drafts preserve newlines, grow to six visible lines, and remain bounded to 256
+KiB. Plain Enter inserts a newline; Command/Ctrl+Enter submits, while
+Command/Ctrl+Shift+Enter explicitly steers an active turn. Hosts install its
+scoped key bindings once with `init_composer` and subscribe to `ComposerEvent`;
+sending, steering, queueing, and persistence remain host policy. Attachment,
+approval-mode, and microphone controls are omitted until the host supplies a
+real capability. The host also supplies the current catalog display name
+through `set_model_label`; activating that compact control emits
+`OpenModelPicker` so it opens the real picker rather than showing an inert
+placeholder chip.
 
 The reference host supplies that basic policy: Submit starts a new turn while
-idle. During an active turn, Queue is the default and Steer is an explicit
-toggle. Queued submissions use App Server's durable queue, render in an
-accessible ordered strip with move/remove controls, and start one at a time
-after each terminal turn. Composer state exposes an accessible Stop control
-only during an active turn; it calls `turn/interrupt` through the retained
-`CodexTurn` capability rather than a thread-global guess.
+idle. During an active durable turn, Send adds a durable queued submission; the
+explicit Command/Ctrl+Shift+Enter gesture steers the exact retained turn.
+Ephemeral turns steer directly because durable queueing is unavailable. Queued
+submissions render in an accessible ordered strip with move/remove controls and
+start one at a time after each terminal turn. Composer state exposes an
+accessible Stop control beside Send only during an active turn; it calls
+`turn/interrupt` through the retained `CodexTurn` capability rather than a
+thread-global guess.
 
 Interactive startup creates the empty selected task and leaves the composer
 ready, matching the Swift app's new-task surface. The deterministic greeting
