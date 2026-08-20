@@ -454,9 +454,10 @@ fn render_work_group(
         .aria_label(format!("{label}, {} activity item(s)", entries.len()))
         .w_full()
         .px_6()
-        .py_2()
+        .py_1()
         .child(
             div()
+                .h(px(22.))
                 .flex()
                 .items_center()
                 .gap_2()
@@ -488,10 +489,74 @@ fn render_work_group(
             view.children(
                 entries
                     .iter()
-                    .map(|entry| render_entry(entry, theme, emitter)),
+                    .map(|entry| render_work_entry(entry, theme, emitter)),
             )
         })
         .into_any()
+}
+
+fn render_work_entry(
+    entry: &PresentedEntry,
+    theme: CodexTheme,
+    _emitter: &WeakEntity<CodexTranscript>,
+) -> AnyElement {
+    let (label, status) = match &entry.content {
+        TranscriptEntry::Activity(activity) => (activity.label.clone(), entry.status.clone()),
+        TranscriptEntry::Command { command, .. } => (format!("$ {command}"), entry.status.clone()),
+        TranscriptEntry::FileChanges { changes } => {
+            let paths = changes
+                .iter()
+                .take(3)
+                .map(|change| change.destination_path.as_deref().unwrap_or(&change.path))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let suffix = changes.len().saturating_sub(3);
+            (
+                if suffix == 0 {
+                    format!("Edited {paths}")
+                } else {
+                    format!("Edited {paths} · +{suffix} more")
+                },
+                entry.status.clone(),
+            )
+        }
+        TranscriptEntry::ToolCall { server, tool, .. } => (
+            server.as_ref().map_or_else(
+                || format!("Called {tool}"),
+                |server| format!("Called {server} · {tool}"),
+            ),
+            entry.status.clone(),
+        ),
+        _ => ("Activity".to_owned(), entry.status.clone()),
+    };
+    div()
+        .id(format!("work-entry:{}", entry.key.item_id))
+        .role(Role::ListItem)
+        .aria_label(label.clone())
+        .h(px(28.))
+        .w_full()
+        .pl(px(22.))
+        .pr_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .text_xs()
+        .text_color(theme.muted_text)
+        .child(status_glyph(&status, theme))
+        .child(div().min_w_0().flex_1().truncate().child(label))
+        .into_any()
+}
+
+fn status_glyph(status: &LifecycleStatus, theme: CodexTheme) -> gpui::Div {
+    let (glyph, color) = match status {
+        LifecycleStatus::InProgress => ("◌", theme.accent),
+        LifecycleStatus::Completed => ("✓", theme.success),
+        LifecycleStatus::Interrupted => ("Ⅱ", theme.warning),
+        LifecycleStatus::Failed => ("×", theme.danger),
+        LifecycleStatus::Declined => ("—", theme.warning),
+        LifecycleStatus::Unknown(_) => ("?", theme.warning),
+    };
+    div().w(px(14.)).text_color(color).child(glyph)
 }
 
 fn render_entry(
