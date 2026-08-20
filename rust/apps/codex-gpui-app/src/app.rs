@@ -431,6 +431,8 @@ impl Render for CodexApp {
     }
 }
 
+// Keeping the ordered host loop contiguous makes turn/queue/switch precedence auditable.
+#[allow(clippy::too_many_lines)]
 async fn run_session(
     config: RunConfiguration,
     updates: Sender<AppUpdate>,
@@ -518,8 +520,19 @@ async fn run_session(
             canonical_observation = observe_thread(&codex, &thread_id).await?;
             continue;
         }
-        if schedule_queued_follow_up(thread.as_ref(), &outcome, &updates).await? {
-            next_launch = Some(TurnLaunch::Queued);
+        if let Some(launch) = next_queued_launch(
+            &codex,
+            thread
+                .as_ref()
+                .ok_or_else(|| "selected thread lease is missing".to_owned())?,
+            &thread_id,
+            &outcome,
+            &mut canonical_observation,
+            &updates,
+        )
+        .await?
+        {
+            next_launch = Some(launch);
             continue;
         }
         if config.headless {
@@ -575,23 +588,57 @@ async fn observe_thread(
         .map_err(|error| error.to_string())
 }
 
-async fn schedule_queued_follow_up(
-    thread: Option<&CodexThread>,
+async fn next_queued_launch(
+    codex: &Codex,
+    thread: &CodexThread,
+    thread_id: &ThreadId,
     outcome: &TurnOutcome,
+    observation: &mut CanonicalObservation,
     updates: &Sender<AppUpdate>,
-) -> Result<bool, String> {
-    let has_queue = if outcome.queue_changed {
-        true
-    } else if outcome.check_queue_after {
-        queue_has_items(thread.ok_or_else(|| "selected thread lease is missing".to_owned())?)
-            .await?
-    } else {
-        false
-    };
-    if has_queue {
-        send_status(updates, "Starting queued follow-up…").await;
+) -> Result<Option<TurnLaunch>, String> {
+    if !outcome.queue_changed && !outcome.check_queue_after {
+        return Ok(None);
     }
-    Ok(has_queue)
+    if queue_has_items(thread).await? {
+        send_status(updates, "Starting queued follow-up…").await;
+        return Ok(Some(TurnLaunch::Queued));
+    }
+    if outcome.queue_changed
+        && let Some(turn_id) =
+            wait_for_successor_turn(codex, thread_id, &outcome.completed_turn_id, observation)
+                .await?
+    {
+        send_status(updates, "Following auto-started queued turn…").await;
+        return Ok(Some(TurnLaunch::Existing(turn_id)));
+    }
+    Ok(None)
+}
+
+async fn wait_for_successor_turn(
+    codex: &Codex,
+    thread_id: &ThreadId,
+    completed_turn_id: &codex_app_server_state::TurnId,
+    observation: &mut CanonicalObservation,
+) -> Result<Option<codex_app_server_state::TurnId>, String> {
+    for _ in 0..40 {
+        let state = codex
+            .client()
+            .canonical_snapshot()
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Some(thread) = state.threads.get(thread_id)
+            && let Some(index) = thread
+                .turn_ids
+                .iter()
+                .position(|turn_id| turn_id == completed_turn_id)
+            && let Some(successor) = thread.turn_ids.get(index + 1)
+        {
+            return Ok(Some(successor.clone()));
+        }
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(50), observation.changed()).await;
+    }
+    Ok(None)
 }
 
 async fn start_initial_thread(
@@ -628,11 +675,13 @@ struct TurnOutcome {
     pending_model: Option<ModelSelectionEvent>,
     queue_changed: bool,
     check_queue_after: bool,
+    completed_turn_id: codex_app_server_state::TurnId,
 }
 
 enum TurnLaunch {
     Input(String),
     Queued,
+    Existing(codex_app_server_state::TurnId),
 }
 
 struct TurnDriver<'a> {
@@ -719,7 +768,7 @@ async fn drive_turn(
     mut driver: TurnDriver<'_>,
 ) -> Result<TurnOutcome, String> {
     send_status(driver.updates, "Running turn…").await;
-    let launched_from_queue = matches!(&launch, TurnLaunch::Queued);
+    let check_queue_after = !matches!(&launch, TurnLaunch::Input(_));
     let turn = match launch {
         TurnLaunch::Input(input) => {
             thread
@@ -727,6 +776,7 @@ async fn drive_turn(
                 .await
         }
         TurnLaunch::Queued => thread.queue_start(None).await,
+        TurnLaunch::Existing(turn_id) => thread.retain_turn(turn_id).await,
     }
     .map_err(|error| error.to_string())?;
     driver.updates.send(AppUpdate::TurnActive(true)).await.ok();
@@ -740,7 +790,8 @@ async fn drive_turn(
         pending_selection: None,
         pending_model: None,
         queue_changed: false,
-        check_queue_after: launched_from_queue,
+        check_queue_after,
+        completed_turn_id: turn.id().clone(),
     };
     let (mut terminal, mut projected_revision) =
         publish_current(codex.client(), thread_id, &turn_key, driver.updates).await?;

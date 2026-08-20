@@ -366,6 +366,24 @@ impl CodexThread {
         &self.id
     }
 
+    /// Retain a turn already proven live by canonical `turn/started` state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] when active-turn lease acquisition fails.
+    pub async fn retain_turn(&self, turn_id: TurnId) -> Result<CodexTurn, SdkError> {
+        let lease = self
+            .client
+            .acquire_thread(self.id.clone(), LeaseReason::ActiveTurn)
+            .await?;
+        Ok(CodexTurn {
+            client: self.client.clone(),
+            thread_id: self.id.clone(),
+            turn_id,
+            lease: Some(lease),
+        })
+    }
+
     /// Add a durable queued follow-up.
     ///
     /// # Errors
