@@ -1200,6 +1200,10 @@ mod tests {
                     status: LifecycleStatus::Completed,
                     coverage: StateCoverage::Full,
                     payload,
+                    duration_ms: None,
+                    error: None,
+                    live_overlay: Default::default(),
+                    live_fields: BTreeMap::new(),
                     content_revision: 0,
                 })])
                 .expect("reduce");

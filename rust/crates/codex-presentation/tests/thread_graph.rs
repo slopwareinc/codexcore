@@ -497,6 +497,10 @@ fn canonical_item(
             Value::Object(payload) => payload.into_iter().collect(),
             _ => panic!("fixture payload is an object"),
         },
+        duration_ms: None,
+        error: None,
+        live_overlay: Default::default(),
+        live_fields: BTreeMap::new(),
         content_revision: 0,
     }
 }
