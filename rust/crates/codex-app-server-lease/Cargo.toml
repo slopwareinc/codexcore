@@ -1,0 +1,16 @@
+[package]
+name = "codex-app-server-lease"
+description = "Thread subscription and retention reconciliation for Codex App Server clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-state = { path = "../codex-app-server-state" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

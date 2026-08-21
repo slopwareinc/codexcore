@@ -1,0 +1,23 @@
+[package]
+name = "codex-presentation"
+description = "Framework-neutral Codex transcript and interaction presentation models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-client = { path = "../codex-app-server-client" }
+codex-app-server-interaction = { path = "../codex-app-server-interaction" }
+codex-app-server-sdk = { path = "../codex-app-server-sdk" }
+codex-app-server-state = { path = "../codex-app-server-state" }
+pulldown-cmark.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+codex-app-server-wire = { path = "../codex-app-server-wire" }
+
+[lints]
+workspace = true

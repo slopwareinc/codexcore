@@ -1,0 +1,29 @@
+[package]
+name = "codex-app-server-client"
+description = "Ordered Rust client runtime for the Codex App Server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+codex-app-server-adapter = { path = "../codex-app-server-adapter" }
+codex-app-server-lease = { path = "../codex-app-server-lease" }
+codex-app-server-state = { path = "../codex-app-server-state" }
+codex-app-server-transport = { path = "../codex-app-server-transport" }
+codex-app-server-types = { path = "../codex-app-server-types" }
+codex-app-server-wire = { path = "../codex-app-server-wire" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+tempfile.workspace = true
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

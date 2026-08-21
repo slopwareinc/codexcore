@@ -23,6 +23,12 @@ generate_app_server_swift \
     "$ROOT/Sources/CodexCore/Generated/AppServerProtocolMethods.swift" \
     "$ROOT/Sources/CodexCore/Generated/AppServerSchemaTypes.swift" \
     "$ROOT/Sources/CodexCore/Client/CodexSessionCommands.swift"
+generate_app_server_rust_schema \
+    "$SCHEMA_DIR" \
+    "$ROOT/rust/protocol/schema/codex_app_server_protocol.v2.schemas.json"
+generate_app_server_rust_server_request_schemas \
+    "$SCHEMA_DIR" \
+    "$ROOT/rust/protocol/schema/server_requests"
 
 "$CODEX_BIN" --version > "$ROOT/Tools/UPSTREAM_VERSION"
 generate_pinned_runtime_swift \

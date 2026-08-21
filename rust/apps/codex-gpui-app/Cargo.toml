@@ -1,0 +1,28 @@
+[package]
+name = "codex-gpui-app"
+description = "Native GPUI reference host for the Codex App Server Rust SDK"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+codex-app-server-client = { path = "../../crates/codex-app-server-client" }
+codex-app-server-interaction = { path = "../../crates/codex-app-server-interaction" }
+codex-app-server-sdk = { path = "../../crates/codex-app-server-sdk" }
+codex-app-server-state = { path = "../../crates/codex-app-server-state" }
+codex-app-server-wire = { path = "../../crates/codex-app-server-wire" }
+codex-gpui = { path = "../../crates/codex-gpui" }
+codex-presentation = { path = "../../crates/codex-presentation" }
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui_tokio.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

@@ -7,6 +7,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Requirements](getting-started/requirements.md)
 - [Run the reference app](getting-started/run-the-app.md)
 - [SDK quick start](getting-started/sdk-quickstart.md)
+- [Rust SDK quick start](getting-started/rust-sdk-quickstart.md)
 - [Authentication and isolated state](getting-started/authentication.md)
 - [Troubleshooting](getting-started/troubleshooting.md)
 
@@ -34,10 +35,12 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Understand and contribute
 
 - [Architecture overview](architecture/overview.md)
+- [Rust SDK and GPUI platform](architecture/rust-gpui-platform.md)
 - [Integration control-plane seams](architecture/integration-control-plane.md)
 - [Configuration reference](reference/configuration.md)
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)
+- [Rust parity ledger](reference/rust-parity.md)
 - [Support status](reference/support-status.md)
 - [Development](contributing/development.md)
 - [Protocol upgrades](contributing/protocol-upgrades.md)

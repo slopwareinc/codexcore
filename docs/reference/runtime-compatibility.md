@@ -18,6 +18,11 @@ v0.148.0+codexcore.0.11.0
 
 CodexCore requires the generated major/minor line and accepts newer patch releases with a warning. A stable CLI release does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
 
+The Rust ordered client enforces the same compatibility line from the runtime
+version carried in the initialize `userAgent`; it fails the handshake before
+starting its actor when the runtime is older or on a different major/minor
+line.
+
 ## 0.148.0 migration
 
 The stable 0.148.0 schema adds server diagnostics, six durable thread-queue methods, paginated `thread/revert`, queue/revert notifications, scoped account usage, thread cost estimates, section appearance, model multi-agent versioning and retirement time, MCP ownership and OAuth registration selection, asynchronous/MCP hook metadata, and structured image-generation failure detail.
