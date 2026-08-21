@@ -50,6 +50,15 @@ rust-build:
 rust-test:
     cargo test --workspace --locked
 
+# Build and launch the native GPUI reference app. Extra args go to cargo,
+# for example `just rust-run --release`.
+rust-run *ARGS:
+    cargo run --locked -p codex-gpui-app {{ARGS}}
+
+# Run a codex-gpui example scene, for example `just rust-example transcript`.
+rust-example name:
+    cargo run --locked -p codex-gpui --example {{name}}
+
 rust-check:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
