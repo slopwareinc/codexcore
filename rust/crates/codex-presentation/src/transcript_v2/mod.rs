@@ -1,9 +1,14 @@
 //! Swift Transcript V2-equivalent, framework-neutral presentation.
 
+mod minimap;
 mod model;
 mod projector;
 mod work_group;
 
+pub use minimap::{
+    DETAIL_PREVIEW_LIMIT, TITLE_PREVIEW_LIMIT, TurnMinimapEntry, preview_text, status_text,
+    turn_minimap_entries,
+};
 pub use model::{
     AgentDisplayStatusV2, AssistantTextV2, CollaborationActionV2, CollaborationRowV2, CommandRowV2,
     ConversationSegmentV2, FileChangeRowV2, GeneratedImageV2, InlineActivityV2, McpToolCallRowV2,

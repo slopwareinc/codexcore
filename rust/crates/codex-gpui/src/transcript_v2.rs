@@ -1,6 +1,7 @@
 //! Native renderer for the Swift-parity Transcript V2 presentation grammar.
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     rc::Rc,
@@ -14,13 +15,15 @@ use codex_presentation::{
     transcript_v2::{
         AssistantTextV2, CollaborationActionV2, CommandRowV2, ConversationSegmentV2,
         GeneratedImageV2, InlineActivityV2, NarrativeEntryV2, NoticeV2, ProductToolCallV2,
-        TranscriptV2Presentation, TurnStatusV2, TurnV2Presentation, UserMessageV2, WorkCategoryV2,
-        WorkGroupV2, WorkItemStatusV2, WorkRowV2,
+        TranscriptV2Presentation, TurnMinimapEntry, TurnStatusV2, TurnV2Presentation,
+        UserMessageV2, WorkCategoryV2, WorkGroupV2, WorkItemStatusV2, WorkRowV2,
+        turn_minimap_entries,
     },
 };
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, EventEmitter, FollowMode, KeyDownEvent, ListAlignment,
-    ListState, ObjectFit, Render, Role, Task, WeakEntity, Window, div, img, list, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, EventEmitter, FollowMode, FontWeight, KeyDownEvent,
+    ListAlignment, ListState, ObjectFit, Render, Role, SharedString, Task, WeakEntity, Window, div,
+    img, list, prelude::*, px, rgba,
 };
 
 use crate::{
@@ -94,6 +97,26 @@ pub enum TranscriptV2Row {
 }
 
 impl TranscriptV2Row {
+    /// Canonical turn this row belongs to.
+    #[must_use]
+    pub fn turn_id(&self) -> &TurnId {
+        match self {
+            Self::OpeningUser { turn_id, .. }
+            | Self::WorkDisclosure { turn_id, .. }
+            | Self::SteeredUser { turn_id, .. }
+            | Self::Prose { turn_id, .. }
+            | Self::WorkGroup { turn_id, .. }
+            | Self::ProductToolCall { turn_id, .. }
+            | Self::InlineActivity { turn_id, .. }
+            | Self::Notice { turn_id, .. }
+            | Self::LiveTail { turn_id, .. }
+            | Self::Plan { turn_id, .. }
+            | Self::FinalAnswer { turn_id, .. }
+            | Self::GeneratedImage { turn_id, .. }
+            | Self::Lifecycle { turn_id, .. } => turn_id,
+        }
+    }
+
     /// Stable identity used by GPUI splices and expansion-state lookup.
     #[must_use]
     pub fn stable_id(&self) -> String {
@@ -448,6 +471,12 @@ pub struct CodexTranscriptV2 {
     selected_file_indices: BTreeMap<String, usize>,
     hovered_rows: BTreeSet<String>,
     action_capabilities: TranscriptActionCapabilities,
+    /// Turn IDs whose rows intersected the previous frame's viewport.
+    visible_turn_ids: BTreeSet<String>,
+    /// Per-frame collection buffer filled by visible row render closures.
+    frame_visible_turns: Rc<RefCell<BTreeSet<String>>>,
+    /// The minimap marker currently under the pointer, if any.
+    hovered_minimap_turn: Option<String>,
 }
 
 impl CodexTranscriptV2 {
@@ -474,6 +503,9 @@ impl CodexTranscriptV2 {
             selected_file_indices: BTreeMap::new(),
             hovered_rows: BTreeSet::new(),
             action_capabilities: TranscriptActionCapabilities::default(),
+            visible_turn_ids: BTreeSet::new(),
+            frame_visible_turns: Rc::new(RefCell::new(BTreeSet::new())),
+            hovered_minimap_turn: None,
         }
     }
 
@@ -515,6 +547,19 @@ impl CodexTranscriptV2 {
         self.prune_expansion_state();
         self.rebuild_rows();
         self.prune_hover_state();
+        let turn_ids = self
+            .presentation
+            .turns
+            .iter()
+            .map(|turn| turn.turn_id.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        if self
+            .hovered_minimap_turn
+            .as_ref()
+            .is_some_and(|turn_id| !turn_ids.contains(turn_id))
+        {
+            self.hovered_minimap_turn = None;
+        }
         if !self.has_working_turn() {
             self.work_tick_task.take();
         }
@@ -656,6 +701,27 @@ impl CodexTranscriptV2 {
         cx.notify();
     }
 
+    /// Scroll the transcript so the earliest row of one turn is revealed.
+    fn jump_to_turn(&mut self, turn_id: &str, cx: &mut Context<Self>) {
+        let Some(index) = self
+            .rows
+            .iter()
+            .position(|row| row.turn_id().as_str() == turn_id)
+        else {
+            return;
+        };
+        self.list_state.pause_following_tail();
+        self.list_state.scroll_to_reveal_item(index);
+        cx.notify();
+    }
+
+    fn set_minimap_hovered(&mut self, turn_id: Option<String>, cx: &mut Context<Self>) {
+        if self.hovered_minimap_turn != turn_id {
+            self.hovered_minimap_turn = turn_id;
+            cx.notify();
+        }
+    }
+
     fn rebuild_rows(&mut self) {
         let next: Arc<[TranscriptV2Row]> =
             project_rows(&self.presentation, &self.turn_expansion_overrides).into();
@@ -741,6 +807,19 @@ impl Render for CodexTranscriptV2 {
         let turn_statuses = turn_statuses(&self.presentation);
         let action_capabilities = self.action_capabilities;
         let show_jump_to_latest = state.item_count() > 0 && !state.is_following_tail();
+        // Rows rendered last frame are exactly the virtualized viewport (plus
+        // overdraw). Adopt that collection as the visible-turn set; if it
+        // changed, one follow-up frame refreshes marker states.
+        let collected = std::mem::take(&mut *self.frame_visible_turns.borrow_mut());
+        if self.visible_turn_ids != collected {
+            self.visible_turn_ids = collected;
+            cx.notify();
+        }
+        self.frame_visible_turns.borrow_mut().clear();
+        let frame_visible_turns = Rc::clone(&self.frame_visible_turns);
+        let minimap_entries = turn_minimap_entries(&self.presentation);
+        let visible_turn_ids = self.visible_turn_ids.clone();
+        let hovered_minimap_turn = self.hovered_minimap_turn.clone();
         div()
             .id("codex-transcript-v2")
             .role(Role::Log)
@@ -769,6 +848,9 @@ impl Render for CodexTranscriptV2 {
                                         rows.get(index).map_or_else(
                                             || div().into_any(),
                                             |row| {
+                                                frame_visible_turns
+                                                    .borrow_mut()
+                                                    .insert(row.turn_id().to_string());
                                                 render_row(
                                                     row,
                                                     theme,
@@ -789,6 +871,15 @@ impl Render for CodexTranscriptV2 {
                                 })
                                 .size_full(),
                             )
+                            .when(minimap_entries.len() >= 2, |view| {
+                                view.child(render_minimap_rail(
+                                    &minimap_entries,
+                                    &visible_turn_ids,
+                                    hovered_minimap_turn.as_deref(),
+                                    theme,
+                                    &emitter,
+                                ))
+                            })
                             .when(show_jump_to_latest, |view| {
                                 let emitter = emitter.clone();
                                 view.child(
@@ -836,6 +927,173 @@ impl Render for CodexTranscriptV2 {
                     ),
             )
     }
+}
+
+/// Gaussian hover-mount falloff mirroring the Swift minimap: neighboring
+/// markers rise together so the rail reads as one continuous mount.
+fn hover_mount_influence(hovered_index: Option<usize>, index: usize) -> f32 {
+    const SIGMA: f32 = 1.35;
+    let Some(hovered_index) = hovered_index else {
+        return 0.;
+    };
+    let distance = index.abs_diff(hovered_index);
+    #[allow(clippy::cast_precision_loss)]
+    let distance = distance as f32;
+    let influence = (-0.5 * (distance / SIGMA).powi(2)).exp();
+    if influence < 0.025 { 0. } else { influence }
+}
+
+/// Composite `fg` over `bg` at `alpha`, matching the `AppKit`
+/// `withAlphaComponent` behavior over an opaque backdrop.
+fn alpha_over(fg: gpui::Rgba, bg: gpui::Rgba, alpha: f32) -> gpui::Rgba {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    fn blend(fg: f32, bg: f32, alpha: f32) -> u8 {
+        let value = (fg * 255.) * alpha + (bg * 255.) * (1. - alpha);
+        value.round().clamp(0., 255.) as u8
+    }
+    let red = blend(fg.r, bg.r, alpha);
+    let green = blend(fg.g, bg.g, alpha);
+    let blue = blend(fg.b, bg.b, alpha);
+    rgba((u32::from(red) << 24) | (u32::from(green) << 16) | (u32::from(blue) << 8) | 0xff)
+}
+
+/// Vertical turn-marker rail on the leading transcript edge, ported from the
+/// Swift `CodexTranscriptTurnMinimapView`: one rounded tick per turn, a
+/// Gaussian hover mount, click-to-jump, and a bounded preview card.
+fn render_minimap_rail(
+    entries: &[TurnMinimapEntry],
+    visible_turn_ids: &BTreeSet<String>,
+    hovered_turn_id: Option<&str>,
+    theme: CodexTheme,
+    emitter: &WeakEntity<CodexTranscriptV2>,
+) -> AnyElement {
+    let emitter = emitter.clone();
+    let hovered_index = hovered_turn_id
+        .and_then(|turn_id| entries.iter().position(|entry| entry.turn_id == turn_id));
+    let markers = entries.iter().enumerate().map(|(index, entry)| {
+        let influence = hover_mount_influence(hovered_index, index);
+        let is_visible = visible_turn_ids.contains(&entry.turn_id);
+        let line_width = 10. + (20. * influence);
+        let line_height = 2. + (0.7 * influence);
+        let base = if is_visible || influence > 0. {
+            theme.text
+        } else {
+            theme.tertiary_text
+        };
+        let alpha = if is_visible {
+            0.96
+        } else {
+            0.42 + (0.42 * influence)
+        };
+        let marker_color = alpha_over(base, theme.background, alpha);
+        let marker_id = SharedString::from(format!("transcript-turn-marker-{}", entry.turn_id));
+        div()
+            .id(marker_id)
+            .relative()
+            .flex_1()
+            .min_h(px(1.))
+            .cursor_pointer()
+            .role(Role::Button)
+            .aria_label(format!("Jump to turn: {}", entry.title))
+            .aria_description(entry.detail.clone())
+            .on_hover({
+                let emitter = emitter.clone();
+                let turn_id = entry.turn_id.clone();
+                move |hovered, _, cx| {
+                    let next = hovered.then(|| turn_id.clone());
+                    emitter
+                        .update(cx, |transcript, cx| {
+                            transcript.set_minimap_hovered(next, cx);
+                        })
+                        .ok();
+                }
+            })
+            .on_click({
+                let emitter = emitter.clone();
+                let turn_id = entry.turn_id.clone();
+                move |_, _, cx| {
+                    emitter
+                        .update(cx, |transcript, cx| {
+                            transcript.jump_to_turn(&turn_id, cx);
+                        })
+                        .ok();
+                }
+            })
+            .child(
+                div().absolute().inset_0().flex().items_center().child(
+                    div()
+                        .w(px(line_width))
+                        .h(px(line_height))
+                        .rounded_full()
+                        .bg(marker_color),
+                ),
+            )
+            .when(hovered_turn_id == Some(entry.turn_id.as_str()), |slot| {
+                slot.child(render_minimap_preview(entry, theme))
+            })
+    });
+
+    div()
+        .id("codex-transcript-v2-turn-minimap")
+        .absolute()
+        .left(px(10.))
+        .top(px(72.))
+        .bottom(px(72.))
+        .w(px(30.))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .aria_label("Turn minimap")
+        .children(markers)
+        .into_any_element()
+}
+
+/// Hover preview card beside one minimap marker, bounded like the Swift
+/// `CodexTranscriptTurnPreviewView` (single-line title, capped detail).
+fn render_minimap_preview(entry: &TurnMinimapEntry, theme: CodexTheme) -> AnyElement {
+    div()
+        .absolute()
+        .left(px(36.))
+        .top_0()
+        .bottom_0()
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .w(px(280.))
+                .max_h(px(160.))
+                .overflow_hidden()
+                .rounded(px(18.))
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.elevated_surface)
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme.text)
+                        .truncate()
+                        .child(entry.title.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(px(TranscriptLayoutMetrics::CAPTION_TEXT_SIZE))
+                        .line_height(px(16.))
+                        .text_color(theme.muted_text)
+                        .max_h(px(102.))
+                        .overflow_hidden()
+                        .child(entry.detail.clone()),
+                ),
+        )
+        .into_any_element()
 }
 
 fn opening_user_messages(
@@ -2262,6 +2520,64 @@ mod tests {
         PlanStepPresentation,
         transcript_v2::{OtherWorkRowV2, TurnWorkDisclosureV2, UserAttachmentV2, WorkGroupV2},
     };
+
+    #[test]
+    fn hover_mount_peaks_at_the_hovered_marker_and_decays() {
+        assert!(hover_mount_influence(None, 3).abs() < 1e-6);
+        let hovered = Some(4_usize);
+        assert!((hover_mount_influence(hovered, 4) - 1.).abs() < 1e-6);
+        // Neighbors rise together; distant markers fall below the cutoff.
+        let adjacent = hover_mount_influence(hovered, 5);
+        let distant = hover_mount_influence(hovered, 9);
+        assert!(adjacent > 0.5 && adjacent < 1.);
+        assert!(distant.abs() < 1e-6);
+    }
+
+    #[test]
+    fn alpha_over_blends_toward_the_backdrop() {
+        let background = gpui::black().into();
+        let white = gpui::white().into();
+        assert_eq!(alpha_over(white, background, 1.), white);
+        assert_eq!(alpha_over(white, background, 0.), background);
+        let half = alpha_over(white, background, 0.5);
+        assert!(half.r > 0.45 && half.r < 0.55);
+    }
+
+    #[test]
+    fn row_turn_ids_cover_every_row_variant() {
+        let presentation = sample_presentation();
+        for row in transcript_v2_rows(&presentation) {
+            let turn_id = row.turn_id().to_string();
+            assert!(
+                presentation
+                    .turns
+                    .iter()
+                    .any(|turn| turn.turn_id.to_string() == turn_id),
+                "row {row:?} references unknown turn {turn_id}"
+            );
+        }
+    }
+
+    fn sample_presentation() -> TranscriptV2Presentation {
+        TranscriptV2Presentation {
+            revision: StateRevision::ZERO,
+            thread_id: ThreadId::from("thread"),
+            turns: vec![TurnV2Presentation {
+                turn_id: TurnId::from("turn-1"),
+                canonical_status: LifecycleStatus::Completed,
+                status: TurnStatusV2::Done { duration_ms: None },
+                opening_user_message: Some(user("m1", "Hello")),
+                steered_messages: Vec::new(),
+                conversation_segments: Vec::new(),
+                narrative: Vec::new(),
+                final_answer: None,
+                generated_images: Vec::new(),
+                live_tail: None,
+                plan: None,
+                work_disclosure: TurnWorkDisclosureV2::default(),
+            }],
+        }
+    }
 
     fn user(id: &str, text: &str) -> UserMessageV2 {
         UserMessageV2 {
