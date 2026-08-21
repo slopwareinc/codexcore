@@ -418,15 +418,19 @@ fn styled_projection_range(
     let highlights = projection.highlights.iter().filter_map(|(source, style)| {
         let start = source.start.max(range.start);
         let end = source.end.min(range.end);
-        (start < end).then_some((
-            start - range.start..end - range.start,
-            highlight_style(*style, theme),
-        ))
+        // `then` keeps the subtraction lazy; `then_some` would evaluate the
+        // shifted range even when the highlight lies outside `range`.
+        (start < end).then(|| {
+            (
+                start - range.start..end - range.start,
+                highlight_style(*style, theme),
+            )
+        })
     });
     let code_ranges = projection.code_ranges.iter().filter_map(|source| {
         let start = source.start.max(range.start);
         let end = source.end.min(range.end);
-        (start < end).then_some((start - range.start..end - range.start, "monospace".into()))
+        (start < end).then(|| (start - range.start..end - range.start, "monospace".into()))
     });
     StyledText::new(projection.text[range.clone()].to_owned())
         .with_highlights(highlights)
@@ -744,5 +748,32 @@ mod tests {
         assert!(is_activation_key("enter"));
         assert!(is_activation_key("space"));
         assert!(!is_activation_key("tab"));
+    }
+
+    #[test]
+    fn styled_projection_range_ignores_out_of_range_highlights() {
+        // Regression: `then_some` eagerly evaluated the shifted range and
+        // panicked with a subtract-with-overflow when a highlight ended
+        // before the projected slice began.
+        let document = MarkdownDocument::parse("hello **world** tail");
+        let MarkdownNode::Paragraph(nodes) = &document.blocks[0].node else {
+            panic!("paragraph expected");
+        };
+        let projection = project_inline(nodes);
+        assert_eq!(projection.text, "hello world tail");
+        // One strong highlight exactly over "world".
+        assert_eq!(projection.highlights.len(), 1);
+        assert_eq!(
+            projection.highlights[0].0.clone(),
+            6..11,
+            "highlight must sit inside the slice bounds used below"
+        );
+        let theme = CodexTheme::default();
+        // Entirely before, straddling, and after the highlight: none may
+        // overflow while shifting into slice-local coordinates.
+        styled_projection_range(&projection, theme, 12..16);
+        styled_projection_range(&projection, theme, 4..8);
+        styled_projection_range(&projection, theme, 0..3);
+        styled_projection_range(&projection, theme, 6..11);
     }
 }
