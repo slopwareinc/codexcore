@@ -299,6 +299,55 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func projectList(
+        _ params: CodexSchemaProjectListParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectListResponse> {
+        .required(method: .projectList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectRead(
+        _ params: CodexSchemaProjectReadParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectReadResponse> {
+        .required(method: .projectRead, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectCreate(
+        _ params: CodexSchemaProjectCreateParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectCreateResponse> {
+        .required(method: .projectCreate, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectImport(
+        _ params: CodexSchemaProjectImportParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectImportResponse> {
+        .required(method: .projectImport, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectUpdate(
+        _ params: CodexSchemaProjectUpdateParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectUpdateResponse> {
+        .required(method: .projectUpdate, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectMove(
+        _ params: CodexSchemaProjectMoveParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectMoveResponse> {
+        .required(method: .projectMove, params: params)
+    }
+}
+extension CodexRequest {
+    public static func projectDelete(
+        _ params: CodexSchemaProjectDeleteParams
+    ) -> CodexAppServerRequest<CodexSchemaProjectDeleteResponse> {
+        .required(method: .projectDelete, params: params)
+    }
+}
+extension CodexRequest {
     public static func threadSectionList(
         _ params: CodexSchemaThreadSectionListParams
     ) -> CodexAppServerRequest<CodexSchemaThreadSectionListResponse> {
@@ -836,6 +885,20 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func accountBedrockDiscover(
+        _ params: CodexSchemaBedrockDiscoverParams
+    ) -> CodexAppServerRequest<CodexSchemaBedrockDiscoverResponse> {
+        .required(method: .accountBedrockDiscover, params: params)
+    }
+}
+extension CodexRequest {
+    public static func accountBedrockSetup(
+        _ params: CodexSchemaBedrockSetupParams
+    ) -> CodexAppServerRequest<CodexSchemaBedrockSetupResponse> {
+        .required(method: .accountBedrockSetup, params: params)
+    }
+}
+extension CodexRequest {
     static func accountLoginCancel(
         _ params: CodexSchemaCancelLoginAccountParams
     ) -> CodexAppServerRequest<CodexSchemaCancelLoginAccountResponse> {
@@ -1031,7 +1094,7 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 140
+    static let generatedMethodCount = 149
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .serverDiagnostics,
         .threadStart,
@@ -1067,6 +1130,13 @@ public extension CodexRequest {
         .threadRollback,
         .threadRevert,
         .threadList,
+        .projectList,
+        .projectRead,
+        .projectCreate,
+        .projectImport,
+        .projectUpdate,
+        .projectMove,
+        .projectDelete,
         .threadSectionList,
         .threadSectionCreate,
         .threadSectionUpdate,
@@ -1144,6 +1214,8 @@ public extension CodexRequest {
         .windowsSandboxSetupStart,
         .windowsSandboxReadiness,
         .accountLoginStart,
+        .accountBedrockDiscover,
+        .accountBedrockSetup,
         .accountLoginCancel,
         .accountLogout,
         .accountRateLimitsRead,

@@ -343,6 +343,18 @@ private extension ProtocolStateAdapter {
         case .skillsChanged, .threadQueueChanged:
             return operation(method)
 
+        case .projectChanged:
+            return operation(method)
+
+        case .threadProjectUpdated:
+            let value: CodexSchemaThreadProjectUpdatedNotification = try decodeNotification(method, params)
+            return .state([.threadUpsert(CanonicalThread(
+                id: .init(value.threadID),
+                metadata: .init(extensions: [
+                    "projectId": value.projectID.map(CodexJSONValue.string) ?? .null,
+                ])
+            ))])
+
         case .threadNameUpdated:
             let value: CodexSchemaThreadNameUpdatedNotification = try decodeNotification(method, params)
             return .state([.threadNameReplaced(id: .init(value.threadID), name: value.threadName)])
@@ -479,6 +491,14 @@ private extension ProtocolStateAdapter {
             return .state([.turnExtensionReplaced(
                 turn: TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID)),
                 key: "autoApprovalReview:\(value.reviewID)",
+                value: .dictionary(params)
+            )])
+
+        case .autoApprovalReviewStrictReviewRequired:
+            let value: CodexSchemaStrictReviewRequiredNotification = try decodeNotification(method, params)
+            return .state([.turnExtensionReplaced(
+                turn: TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID)),
+                key: "autoApprovalReview:strictReviewRequired",
                 value: .dictionary(params)
             )])
 
