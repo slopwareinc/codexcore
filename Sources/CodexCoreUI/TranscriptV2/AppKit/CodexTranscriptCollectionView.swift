@@ -260,6 +260,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         private var lastRequestedCanonicalIdentity: CanonicalProjectionIdentity?
+        private var lastProjectedCanonicalIdentity: CanonicalProjectionIdentity?
 
         func attach(to container: CodexTranscriptCollectionContainerView) {
             self.container = container
@@ -389,6 +390,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             }
             updateShortTranscriptTopInset()
             if shouldRetry { forceReconfigureAll = true }
+            let previousCanonicalIdentity = lastProjectedCanonicalIdentity
             let identity = renderUpdate.map {
                 CanonicalProjectionIdentity(
                     threadID: $0.threadID,
@@ -403,6 +405,29 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             }
             let canonicalInputChanged = identity != nil && identity != lastRequestedCanonicalIdentity
+            let incrementalDirtyTurnIDs: Set<String>? = {
+                guard let renderUpdate,
+                      lastRequestedCanonicalIdentity == previousCanonicalIdentity,
+                      !renderUpdate.isFullRebuild,
+                      renderUpdate.turnOrder == nil,
+                      renderUpdate.removedTurnIDs.isEmpty,
+                      !forceReconfigureAll,
+                      let previousCanonicalIdentity,
+                      let identity,
+                      previousCanonicalIdentity.threadID == identity.threadID,
+                      previousCanonicalIdentity.expandedWorkTurnIDs == identity.expandedWorkTurnIDs,
+                      previousCanonicalIdentity.expandedRowIDs == identity.expandedRowIDs,
+                      previousCanonicalIdentity.selectedDiffFileIndexByRowID
+                        == identity.selectedDiffFileIndexByRowID,
+                      previousCanonicalIdentity.agentDisplayNameByThreadID
+                        == identity.agentDisplayNameByThreadID,
+                      previousCanonicalIdentity.agentDisplayStatusByThreadID
+                        == identity.agentDisplayStatusByThreadID,
+                      previousCanonicalIdentity.pendingApprovals == identity.pendingApprovals else {
+                    return nil
+                }
+                return Set(renderUpdate.dirtyTurnIDs.map(\.rawValue))
+            }()
             let shouldRequestStandaloneProjection = presentationStore == nil
                 && (standaloneInputChanged
                     || forceReconfigureAll
@@ -411,7 +436,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 || (presentationStore != nil
                     && (identity == nil || canonicalInputChanged || forceReconfigureAll)) {
                 lastRequestedCanonicalIdentity = identity
-                requestProjection(width: max(container.scrollView.contentSize.width, 320))
+                requestProjection(
+                    width: max(container.scrollView.contentSize.width, 320),
+                    dirtyTurnIDs: incrementalDirtyTurnIDs,
+                    canonicalIdentity: identity
+                )
             }
         }
 
@@ -517,7 +546,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             )
         }
 
-        private func requestProjection(width: CGFloat) {
+        private func requestProjection(
+            width: CGFloat,
+            dirtyTurnIDs: Set<String>? = nil,
+            canonicalIdentity: CanonicalProjectionIdentity? = nil
+        ) {
             guard let presentation = currentPresentation, let theme = appKitTheme else { return }
             projectionTask?.cancel()
             projectionGeneration &+= 1
@@ -528,7 +561,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     let snapshot = try await projector.project(
                         presentation: presentation,
                         availableWidth: width,
-                        theme: theme
+                        theme: theme,
+                        dirtyTurnIDs: dirtyTurnIDs
                     )
                     guard !Task.isCancelled else { return }
                     guard self?.projectionGeneration == generation else { return }
@@ -538,6 +572,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                         presentation: presentation,
                         projectionGeneration: generation
                     )
+                    if let canonicalIdentity {
+                        self?.lastProjectedCanonicalIdentity = canonicalIdentity
+                    }
                 } catch is CancellationError {
                     return
                 } catch {
