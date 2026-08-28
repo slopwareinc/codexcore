@@ -46,6 +46,15 @@ public enum CodexWorkspaceTabLifetime: String, Codable, Sendable {
     case pinned
 }
 
+/// Controls whether an adapter keeps its view host alive when another tab is
+/// selected. Lightweight document previews opt into `.activeOnly` so hidden
+/// editors never lay out or parse; retained process-backed adapters keep the
+/// default `.retained` policy.
+public enum CodexWorkspaceTabRetentionPolicy: String, Codable, Sendable {
+    case retained
+    case activeOnly
+}
+
 public struct CodexWorkspaceTabRoute: Hashable, Codable, Sendable {
     public let adapterID: String
     public let version: Int
@@ -87,7 +96,9 @@ public struct CodexWorkspaceTabInstanceSnapshot: Identifiable, Codable, Sendable
     public fileprivate(set) var openMetadata: CodexWorkspaceTabOpenMetadata
     public fileprivate(set) var state: CodexWorkspaceTabState
     public fileprivate(set) var isMaterialized: Bool
-    fileprivate var resourceKey: String
+    /// Adapter-owned stable resource identity used for re-opening an existing
+    /// tab. It is presentation metadata, not canonical protocol state.
+    public fileprivate(set) var resourceKey: String
     fileprivate var restorableRoute: CodexWorkspaceTabRoute?
 }
 
@@ -143,30 +154,52 @@ public protocol CodexWorkspaceTabAdapter {
     var workspaceTabRegistration: CodexWorkspaceTabRegistration { get }
 }
 
+/// The narrow content seam between the tab reducer and a feature adapter. The
+/// reducer supplies both durable tab state and the interaction hook so preview
+/// pinning remains a workspace-tab rule instead of leaking into callers.
+public struct CodexWorkspaceTabContentContext {
+    public let state: Binding<CodexWorkspaceTabState>
+    public let interact: @MainActor () -> Void
+
+    init(
+        state: Binding<CodexWorkspaceTabState>,
+        interact: @escaping @MainActor () -> Void
+    ) {
+        self.state = state
+        self.interact = interact
+    }
+}
+
 public struct CodexWorkspaceTabRegistration {
     let resourceKey: String
     let title: String
     let systemImage: String
     let lifetime: CodexWorkspaceTabLifetime
+    let retentionPolicy: CodexWorkspaceTabRetentionPolicy
+    let pinsOnInteraction: Bool
     let durableRoute: CodexWorkspaceTabRoute?
     let initialState: CodexWorkspaceTabState
     let reopenState: CodexWorkspaceTabState?
-    let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
+    let makeContent: @MainActor (CodexWorkspaceTabContentContext) -> AnyView
 
-    init(
+    public init(
         resourceKey: String,
         title: String,
         systemImage: String,
         lifetime: CodexWorkspaceTabLifetime = .pinned,
+        retentionPolicy: CodexWorkspaceTabRetentionPolicy = .retained,
+        pinsOnInteraction: Bool = false,
         durableRoute: CodexWorkspaceTabRoute? = nil,
         initialState: CodexWorkspaceTabState = .init(),
         reopenState: CodexWorkspaceTabState? = nil,
-        makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
+        makeContent: @escaping @MainActor (CodexWorkspaceTabContentContext) -> AnyView
     ) {
         self.resourceKey = resourceKey
         self.title = title
         self.systemImage = systemImage
         self.lifetime = lifetime
+        self.retentionPolicy = retentionPolicy
+        self.pinsOnInteraction = pinsOnInteraction
         self.durableRoute = durableRoute
         self.initialState = initialState
         self.reopenState = reopenState
@@ -206,6 +239,11 @@ public final class CodexWorkspaceTabs: ObservableObject {
     }
 
     public var lastClosedRoute: CodexWorkspaceTabRoute? { closed?.tab.durableRoute }
+
+    public var hasOpenWorkspaceTabs: Bool {
+        !snapshot.topology.right.orderedTabs.isEmpty
+            || !snapshot.topology.bottom.orderedTabs.isEmpty
+    }
 
     public var restorationState: CodexWorkspaceTabRestorationState {
         let tabs = snapshot.instances.compactMap { tab -> CodexWorkspaceTabInstanceSnapshot? in
@@ -364,13 +402,29 @@ public final class CodexWorkspaceTabs: ObservableObject {
     public func content(for id: CodexWorkspaceTabID) -> AnyView? {
         guard let index = index(of: id), snapshot.instances[index].isMaterialized,
               let registration = registrations[id] else { return nil }
-        return registration.makeContent(Binding(
+        let state = Binding(
             get: { [weak self] in self?.snapshot.instance(id: id)?.state ?? .init() },
             set: { [weak self] in self?.updateState($0, for: id) }
+        )
+        return registration.makeContent(.init(
+            state: state,
+            interact: { [weak self] in self?.interact(id) }
         ))
     }
 
     func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }
+
+    /// Reports user interaction with a tab's content. Preview adapters opt in
+    /// to pinning here; callers never need to duplicate preview lifecycle rules.
+    public func interact(_ id: CodexWorkspaceTabID) {
+        guard let registration = registrations[id], registration.pinsOnInteraction else { return }
+        pin(id)
+    }
+
+    /// Whether the adapter explicitly retains its host while hidden.
+    func retainsContentWhenHidden(_ id: CodexWorkspaceTabID) -> Bool {
+        registrations[id]?.retentionPolicy == .retained
+    }
 
     public func close(_ id: CodexWorkspaceTabID) {
         let handle = CodexWorkspaceTabHandle.workspace(id)
@@ -521,12 +575,12 @@ public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             ),
             initialState: state,
             reopenState: state
-        ) { state in
+        ) { context in
             AnyView(CodexGitReviewWorkbenchHost(
                 workspaceURL: workspaceURL,
                 lastTurnSession: session,
-                selectedFilePath: Self.selectedFilePath(in: state.wrappedValue),
-                onSelectedFilePathChange: { state.wrappedValue = Self.state($0) },
+                selectedFilePath: Self.selectedFilePath(in: context.state.wrappedValue),
+                onSelectedFilePathChange: { context.state.wrappedValue = Self.state($0) },
                 onStartReview: onStartReview
             ).id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)"))
         }

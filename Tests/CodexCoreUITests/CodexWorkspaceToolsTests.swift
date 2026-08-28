@@ -61,17 +61,13 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testMountedToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
+    func testMountedProcessSessionsDeduplicateEachCategoryInFirstSeenOrder() {
         let first = CodexWorkspacePanelState()
         first.terminalSessions = [
             CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp"),
             CodexTerminalSession(id: "terminal-first", workingDirectory: "/tmp"),
         ]
         first.browserSessions = [CodexBrowserSession(id: "browser-shared")]
-        first.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp"))
-        first.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-        ]
 
         let second = CodexWorkspacePanelState()
         second.terminalSessions = [
@@ -82,24 +78,11 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             CodexBrowserSession(id: "browser-shared"),
             CodexBrowserSession(id: "browser-second"),
         ]
-        second.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp/other"))
-        second.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/second.swift")),
-        ]
 
         let mounted = CodexMountedWorkspaceToolSessions(panels: [first, second])
 
         XCTAssertEqual(mounted.terminal.map(\.id), ["terminal-shared", "terminal-first", "terminal-second"])
         XCTAssertEqual(mounted.browser.map(\.id), ["browser-shared", "browser-second"])
-        XCTAssertEqual(mounted.files.map(\.id), ["files-shared"])
-        XCTAssertEqual(
-            mounted.filePreview.map(\.id),
-            [
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/shared.swift"), ref: nil),
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/second.swift"), ref: nil),
-            ]
-        )
     }
 
     @MainActor
@@ -109,8 +92,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         let second = panel.openFiles(workspacePath: "/tmp/other")
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(panel.filesSession?.id, first)
-        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .workspace(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.instance(id: first)?.title, "Files")
         XCTAssertEqual(panel.filesSession?.rootURL.path, "/tmp/workspace")
         XCTAssertTrue(panel.hasOpenTools)
     }
@@ -126,7 +109,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             from: .summary
         )
 
-        panel.workspaceTabs.activateLegacy(files)
+        panel.workspaceTabs.activate(files)
         panel.closeFiles(id: files)
         XCTAssertNil(panel.filesSession)
         XCTAssertEqual(
@@ -149,6 +132,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             panel.workspaceTabs.snapshot.topology.right.activeTab,
             .workspace(planID)
         )
+        panel.workspaceTabs.close(planID)
         XCTAssertFalse(panel.hasOpenTools)
     }
 

@@ -72,18 +72,12 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 struct CodexMountedWorkspaceToolSessions {
     let terminal: [CodexTerminalSession]
     let browser: [CodexBrowserSession]
-    let files: [CodexFilesSession]
-    let filePreview: [CodexFilePreviewSession]
 
     init(panels: [CodexWorkspacePanelState]) {
         var terminalIDs = Set<String>()
         var browserIDs = Set<String>()
-        var filesIDs = Set<String>()
-        var filePreviewIDs = Set<String>()
         var terminal: [CodexTerminalSession] = []
         var browser: [CodexBrowserSession] = []
-        var files: [CodexFilesSession] = []
-        var filePreview: [CodexFilePreviewSession] = []
 
         for panel in panels {
             for session in panel.terminalSessions where terminalIDs.insert(session.id).inserted {
@@ -92,18 +86,10 @@ struct CodexMountedWorkspaceToolSessions {
             for session in panel.browserSessions where browserIDs.insert(session.id).inserted {
                 browser.append(session)
             }
-            if let session = panel.filesSession, filesIDs.insert(session.id).inserted {
-                files.append(session)
-            }
-            for session in panel.filePreviewSessions where filePreviewIDs.insert(session.id).inserted {
-                filePreview.append(session)
-            }
         }
 
         self.terminal = terminal
         self.browser = browser
-        self.files = files
-        self.filePreview = filePreview
     }
 }
 
@@ -699,12 +685,8 @@ public struct CodexChatWorkspaceView: View {
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
-            filesSessions: panel.filesSession.map { [$0] } ?? [],
-            filePreviewSessions: panel.filePreviewSessions,
             mountedTerminalSessions: mountedTools.terminal,
             mountedBrowserSessions: mountedTools.browser,
-            mountedFilesSessions: mountedTools.files,
-            mountedFilePreviewSessions: mountedTools.filePreview,
             modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
@@ -714,11 +696,8 @@ public struct CodexChatWorkspaceView: View {
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
-            onOpenFilePreview: openFilePreviewTab,
             onCloseTerminal: closeTerminalTab,
             onCloseBrowser: closeBrowserTab,
-            onCloseFiles: closeFilesTab,
-            onCloseFilePreview: closeFilePreviewTab,
             onCloseSubagent: closeSubagentTab,
             onSelectSubagentTranscript: onSelectSubagentTranscript,
             showsCloseButton: showsCloseButton,
@@ -781,7 +760,10 @@ public struct CodexChatWorkspaceView: View {
         let review = gitReviewSession.map {
             "\($0.snapshot.revision.sourceID):\($0.snapshot.revision.value)"
         } ?? "no-review"
-        return "\(workspacePath)|\(plan)|\(review)"
+        let routes = workspaceTabs.snapshot.instances.map {
+            "\($0.resourceKey):\($0.durableRoute?.resourceID ?? "")"
+        }.joined(separator: "|")
+        return "\(workspacePath)|\(plan)|\(review)|\(routes)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -793,7 +775,32 @@ public struct CodexChatWorkspaceView: View {
             adapters.append(reviewAdapter(session: session))
             adapters.append(reviewAdapter(session: session, source: .transcript))
         }
+        if let filesSession = panel.filesSession {
+            adapters.append(filesAdapter(session: filesSession))
+        } else {
+            for instance in workspaceTabs.snapshot.instances {
+                guard let route = instance.durableRoute,
+                      route.adapterID == CodexFilesWorkspaceTabAdapter.adapterID else {
+                    continue
+                }
+                let url = URL(fileURLWithPath: route.resourceID)
+                adapters.append(CodexFilesWorkspaceTabAdapter(workspaceURL: url))
+            }
+        }
+        for instance in workspaceTabs.snapshot.instances {
+            guard let route = instance.durableRoute,
+                  let adapter = CodexFilePreviewWorkspaceTabAdapter(route: route) else {
+                continue
+            }
+            adapters.append(adapter)
+        }
         workspaceTabs.register(adapters)
+    }
+
+    private func filesAdapter(session: CodexFilesSession) -> CodexFilesWorkspaceTabAdapter {
+        CodexFilesWorkspaceTabAdapter(session: session) { [weak panel] url in
+            _ = panel?.openFilePreview(fileURL: url)
+        }
     }
 
     private func reviewAdapter(
@@ -870,20 +877,6 @@ public struct CodexChatWorkspaceView: View {
         }
     }
 
-    private func closeFilesTab(_ id: String) {
-        panel.closeFiles(id: id)
-    }
-
-    private func openFilePreviewTab(_ fileURL: URL) {
-        panel.openFilePreview(fileURL: fileURL)
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
-    }
-
-    private func closeFilePreviewTab(_ id: String) {
-        panel.closeFilePreview(id: id)
-    }
 }
 
 public struct CodexThreadLoadingView: View {
