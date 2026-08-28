@@ -46,7 +46,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
     // MARK: - Report assembly
 
     private func makeReport() async throws -> PerformanceReport {
-        let tabActivation = measureTabActivation()
+        let tabActivation = try measureTabActivation()
         let panelOpenClose = measurePanelOpenClose()
         let streaming = try await measureTranscriptStreamingWithHeavyPanels()
         let hiddenSurface = measureHiddenSurfaceLayout()
@@ -82,24 +82,38 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         )
     }
 
-    private func measureTabActivation() -> ScenarioReport {
+    private func measureTabActivation() throws -> ScenarioReport {
         let panel = CodexWorkspacePanelState()
         let terminal = panel.openTerminal(workspacePath: "/tmp")
         let browser = panel.openBrowser()
         let files = panel.openFiles(workspacePath: "/tmp")
         let preview = panel.openFilePreview(fileURL: URL(fileURLWithPath: "/tmp/README.md"))
-        let tabIDs = [terminal, browser, files, preview]
+        let tabHandles: [CodexWorkspaceTabHandle] = [
+            .workspace(try XCTUnwrap(panel.terminalTabID(for: terminal))),
+            .legacy(browser),
+            .legacy(files),
+            .legacy(preview),
+        ]
 
         // Warm the reducer-owned activation path before recording samples.
-        for id in tabIDs { panel.workspaceTabs.activateLegacy(id) }
+        for handle in tabHandles {
+            switch handle {
+            case .workspace(let id): panel.workspaceTabs.activate(id)
+            case .legacy(let id): panel.workspaceTabs.activateLegacy(id)
+            }
+        }
 
         let iterations = scaledIterations(default: 80, minimum: 12)
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
             samples.append(signposted("tab_activation") {
-                panel.workspaceTabs.activateLegacy(tabIDs[index % tabIDs.count])
-                _ = panel.workspaceTabs.snapshot.topology.right.activeTab
+                let handle = tabHandles[index % tabHandles.count]
+                switch handle {
+                case .workspace(let id): panel.workspaceTabs.activate(id)
+                case .legacy(let id): panel.workspaceTabs.activateLegacy(id)
+                }
+                _ = panel.workspaceTabs.snapshot.topology
             })
         }
 
@@ -107,11 +121,11 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             id: "tab_activation",
             operation: "activate each existing workspace tab through CodexWorkspaceTabs",
             iterations: iterations,
-            workload: ["tabCount": tabIDs.count],
+            workload: ["tabCount": tabHandles.count],
             samples: samples,
             notes: [
                 "State-level activation; SwiftUI/AppKit display composition is measured separately.",
-                "Tab identities are terminal, browser, files, and file preview.",
+                "Tab identities are workspace-terminal, browser, files, and file preview.",
             ]
         )
     }

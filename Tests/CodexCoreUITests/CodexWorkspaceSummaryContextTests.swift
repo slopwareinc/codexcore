@@ -50,6 +50,26 @@ struct CodexWorkspaceSummaryContextTests {
         #expect(context.diffStatsLine == "+1 -0 across 1 file(s)")
     }
 
+    @Test func summaryContextCarriesServerOwnedBackgroundTerminals() {
+        let state = CanonicalBackgroundTerminalState(
+            threadID: "thread-1",
+            terminals: [CanonicalBackgroundTerminal(
+                processID: "process-1",
+                command: "/bin/zsh -lc 'swift test'",
+                cwd: .string("/tmp/Project"),
+                itemID: "item-1"
+            )],
+            nextCursor: "next"
+        )
+        let context = CodexWorkspaceSummaryContext(
+            workspacePath: "/tmp/Project",
+            backgroundTerminals: state
+        )
+
+        #expect(context.backgroundTerminals?.terminals.map(\.processID) == ["process-1"])
+        #expect(context.backgroundTerminals?.nextCursor == "next")
+    }
+
     @Test func diffStatsLineCountsChangesAcrossMultipleFilesWithoutHeaders() {
         let context = CodexWorkspaceSummaryContext(
             workspacePath: "/tmp/Project",

@@ -120,6 +120,7 @@ public struct CodexChatWorkspaceView: View {
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
+    private let backgroundTerminalActions: CodexBackgroundTerminalActions?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let leadingTitlebarInset: CGFloat
@@ -205,6 +206,7 @@ public struct CodexChatWorkspaceView: View {
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
+        backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
         leadingTitlebarInset: CGFloat = 0,
@@ -282,6 +284,7 @@ public struct CodexChatWorkspaceView: View {
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
+        self.backgroundTerminalActions = backgroundTerminalActions
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.leadingTitlebarInset = max(0, leadingTitlebarInset)
@@ -688,6 +691,7 @@ public struct CodexChatWorkspaceView: View {
             subagents: subagents,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
+            backgroundTerminalActions: backgroundTerminalActions,
             chatTitle: chatTitle,
             onEnvironmentHandoffCompletion: { completion in
                 onEnvironmentHandoffCompletion?(completion)

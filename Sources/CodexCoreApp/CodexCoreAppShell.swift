@@ -427,6 +427,13 @@ struct CodexCoreAppShell: View {
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
+                backgroundTerminalActions: CodexBackgroundTerminalActions(
+                    refresh: { Task { await model.refreshBackgroundTerminals() } },
+                    terminate: { processID in
+                        Task { await model.terminateBackgroundTerminal(processID: processID) }
+                    },
+                    clean: { Task { await model.cleanBackgroundTerminals() } }
+                ),
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed

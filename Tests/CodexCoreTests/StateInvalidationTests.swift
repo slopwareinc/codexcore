@@ -93,6 +93,18 @@ final class StateInvalidationTests: XCTestCase {
         XCTAssertTrue(invalidation.affects(.thread(thread, fields: .turnStructure)))
     }
 
+    func testBackgroundTerminalChangesInvalidateOnlyTheirThreadScope() {
+        let invalidation = StateInvalidation(CanonicalStateChangeBatch(
+            baseRevision: .zero,
+            revision: StateRevision(1),
+            changes: [.backgroundTerminalsUpdated("thread")]
+        ))
+
+        XCTAssertEqual(invalidation.fields, .backgroundTerminals)
+        XCTAssertTrue(invalidation.affects(.thread("thread", fields: .backgroundTerminals)))
+        XCTAssertFalse(invalidation.affects(.thread("other", fields: .backgroundTerminals)))
+    }
+
     func testEmptyEntitySelectionsNeverMatch() {
         let invalidation = StateInvalidation(
             revision: StateRevision(1),

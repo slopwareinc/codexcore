@@ -6,6 +6,50 @@ import Testing
 
 @MainActor
 struct CodexWorkspaceTabRenderTests {
+    @Test func bottomPanelMountsOnlyTheActiveTerminalDisplayWork() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let firstID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let secondID = panel.openTerminal(workspacePath: "/tmp", command: "swift build")
+        let firstTabID = try #require(panel.terminalTabID(for: firstID))
+        let secondTabID = try #require(panel.terminalTabID(for: secondID))
+        let first = try #require(panel.terminalSessions.first { $0.id == firstID })
+        let second = try #require(panel.terminalSessions.first { $0.id == secondID })
+        panel.workspaceTabs.activate(firstTabID)
+
+        let hosting = NSHostingView(rootView: CodexAgentSidePanel(
+            tabs: [],
+            workspaceTabs: panel.workspaceTabs,
+            showsCloseButton: false,
+            onClose: {},
+            placement: .bottom
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+
+        #expect(first.isSurfaceVisible)
+        #expect(!second.isSurfaceVisible)
+        let firstHostIdentity = first.terminalHostIdentity
+        let secondHostIdentity = second.terminalHostIdentity
+
+        panel.workspaceTabs.activate(secondTabID)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+
+        #expect(!first.isSurfaceVisible)
+        #expect(second.isSurfaceVisible)
+        #expect(first.terminalHostIdentity == firstHostIdentity)
+        #expect(second.terminalHostIdentity == secondHostIdentity)
+    }
+
     @Test func bottomTerminalPanelKeepsTranscriptAndPTYHostIdentities() throws {
         let model = WorkspaceTabRenderHarnessModel()
         let terminalID = model.panel.openTerminal(

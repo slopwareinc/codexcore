@@ -1,6 +1,22 @@
 import SwiftUI
 import CodexCore
 
+public struct CodexBackgroundTerminalActions: Sendable {
+    public var refresh: @MainActor @Sendable () -> Void
+    public var terminate: @MainActor @Sendable (String) -> Void
+    public var clean: @MainActor @Sendable () -> Void
+
+    public init(
+        refresh: @escaping @MainActor @Sendable () -> Void,
+        terminate: @escaping @MainActor @Sendable (String) -> Void,
+        clean: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.refresh = refresh
+        self.terminate = terminate
+        self.clean = clean
+    }
+}
+
 public struct CodexFloatingSummaryPanel: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -8,6 +24,7 @@ public struct CodexFloatingSummaryPanel: View {
     private let subagents: [CodexSubagentState]
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
+    private let backgroundTerminalActions: CodexBackgroundTerminalActions?
     private let chatTitle: String
     private let onEnvironmentHandoffCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
     private let onSelectTab: (String) -> Void
@@ -19,6 +36,7 @@ public struct CodexFloatingSummaryPanel: View {
         subagents: [CodexSubagentState],
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
+        backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
         chatTitle: String = "Codex",
         onEnvironmentHandoffCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in },
         onOpenPlan: @escaping () -> Void = {},
@@ -29,6 +47,7 @@ public struct CodexFloatingSummaryPanel: View {
         self.subagents = subagents
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
+        self.backgroundTerminalActions = backgroundTerminalActions
         self.chatTitle = chatTitle
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onOpenPlan = onOpenPlan
@@ -134,6 +153,34 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
+            if let backgroundTerminals = workspaceSummary?.backgroundTerminals,
+               let backgroundTerminalActions {
+                SummaryDivider()
+                SummarySection(
+                    title: "Background processes",
+                    actions: AnyView(
+                        Group {
+                            Button("Refresh") { backgroundTerminalActions.refresh() }
+                            Button("Clean all") { backgroundTerminalActions.clean() }
+                                .disabled(backgroundTerminals.terminals.isEmpty)
+                        }
+                    )
+                ) {
+                    if backgroundTerminals.terminals.isEmpty {
+                        SummaryEmptyRow(title: "No background processes")
+                    } else {
+                        ForEach(backgroundTerminals.terminals) { terminal in
+                            SummaryBackgroundTerminalRow(
+                                terminal: terminal,
+                                onTerminate: {
+                                    backgroundTerminalActions.terminate(terminal.processID)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             if let sideChat {
                 SummaryDivider()
                 SummarySection(title: "Side chats") {
@@ -182,6 +229,9 @@ public struct CodexFloatingSummaryPanel: View {
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
+        .onAppear {
+            backgroundTerminalActions?.refresh()
+        }
     }
 
     /// Section-header actions for Environment. Only what this app can actually
@@ -792,6 +842,69 @@ private struct SummarySourceRow: View {
     @ViewBuilder
     private var thumbnail: some View {
         CodexReferencedFilePreview(file: source)
+    }
+}
+
+private struct SummaryBackgroundTerminalRow: View {
+    @Environment(\.codexAgentTheme) private var theme
+
+    let terminal: CanonicalBackgroundTerminal
+    let onTerminate: () -> Void
+
+    private var detail: String {
+        var values: [String] = []
+        if let cpuPercent = terminal.cpuPercent {
+            values.append(String(format: "%.1f%% CPU", cpuPercent))
+        }
+        if let rssKB = terminal.rssKB {
+            values.append("\(rssKB) KB")
+        }
+        return values.isEmpty ? terminal.cwd.displayString : values.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Menu {
+            Button("Terminate") { onTerminate() }
+                .keyboardShortcut(.delete, modifiers: [.command, .option])
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "terminal")
+                    .font(theme.fonts.actionIcon)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(CodexTerminalTitleFormatter.title(for: terminal.command))
+                        .font(theme.fonts.body)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(detail)
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "ellipsis.circle")
+                    .font(theme.fonts.chipLabel)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+            .frame(minHeight: 36)
+            .padding(.horizontal, 4)
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .summaryRowInteraction(isInteractive: true)
+        .help("Process \(terminal.processID) · \(terminal.cwd.displayString)")
+    }
+}
+
+private extension CodexJSONValue {
+    var displayString: String {
+        if case .string(let value) = self { return value }
+        return String(describing: self)
     }
 }
 

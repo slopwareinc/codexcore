@@ -81,6 +81,39 @@ struct CodexWorkspaceTabsTests {
         #expect(restored.snapshot.instance(id: bottomID)?.contentID == tabs.snapshot.instance(id: bottomID)?.contentID)
     }
 
+    @Test func terminalRouteRestoresByScopedIdentityWhenCommandTitleChanges() throws {
+        let identity = CodexTerminalIdentity(
+            threadID: "thread-235",
+            worktreePath: "/tmp/worktree",
+            ordinal: 1
+        )
+        let sourceSession = CodexTerminalSession(
+            title: "Terminal",
+            workingDirectory: "/tmp/worktree",
+            command: "swift test",
+            identity: identity
+        )
+        let source = CodexWorkspaceTabs()
+        let id = source.open(
+            CodexTerminalWorkspaceTabAdapter(session: sourceSession),
+            from: .commandMenu,
+            placement: .bottom
+        )
+
+        let restored = CodexWorkspaceTabs(restoring: source.restorationState)
+        let replacementSession = CodexTerminalSession(
+            title: "Terminal",
+            workingDirectory: "/tmp/worktree",
+            command: "swift build",
+            identity: identity
+        )
+        let adapter = CodexTerminalWorkspaceTabAdapter(session: replacementSession)
+        restored.register([adapter])
+        #expect(restored.isAvailable(id))
+        restored.activate(id)
+        #expect(restored.snapshot.instance(id: id)?.isMaterialized == true)
+    }
+
     @Test func planAndReviewOpenThroughOneAdapterInterfaceWithStableIdentity() throws {
         let tabs = CodexWorkspaceTabs()
         let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(

@@ -482,6 +482,64 @@ public struct CanonicalMCPServerStartupStatus: Sendable, Equatable {
     }
 }
 
+// MARK: - Server-owned background terminals
+
+/// One process-backed terminal reported by the app-server. These rows are
+/// canonical process facts; they are deliberately separate from the retained
+/// Ghostty hosts created for interactive workspace terminals.
+public struct CanonicalBackgroundTerminal: Sendable, Equatable, Identifiable {
+    public let processID: String
+    public let command: String
+    public let cwd: CodexJSONValue
+    public let itemID: String
+    public let osPID: Int?
+    public let cpuPercent: Double?
+    public let rssKB: Int?
+
+    public var id: String { processID }
+
+    public init(
+        processID: String,
+        command: String,
+        cwd: CodexJSONValue,
+        itemID: String,
+        osPID: Int? = nil,
+        cpuPercent: Double? = nil,
+        rssKB: Int? = nil
+    ) {
+        self.processID = processID
+        self.command = command
+        self.cwd = cwd
+        self.itemID = itemID
+        self.osPID = osPID
+        self.cpuPercent = cpuPercent
+        self.rssKB = rssKB
+    }
+}
+
+/// Canonical paginated state for one thread's server-owned background
+/// terminals. A nil cursor means there are no more pages; the state itself is
+/// retained so an empty response is distinguishable from an unrequested one.
+public struct CanonicalBackgroundTerminalState: Sendable, Equatable {
+    public let threadID: ThreadID
+    public internal(set) var terminals: [CanonicalBackgroundTerminal]
+    public internal(set) var nextCursor: String?
+    public internal(set) var lastChangedRevision: StateRevision
+
+    public init(
+        threadID: ThreadID,
+        terminals: [CanonicalBackgroundTerminal] = [],
+        nextCursor: String? = nil,
+        lastChangedRevision: StateRevision = .zero
+    ) {
+        self.threadID = threadID
+        var seen: Set<String> = []
+        self.terminals = terminals.filter { seen.insert($0.processID).inserted }
+        self.nextCursor = nextCursor
+        self.lastChangedRevision = lastChangedRevision
+    }
+}
+
 // MARK: - Item payload and streaming overlays
 
 public enum ThreadItemKind: Sendable, Hashable, Codable {
@@ -985,6 +1043,7 @@ public struct CanonicalStateSnapshot: Sendable, Equatable {
     public let mcpServerStartupStatuses: [
         CanonicalMCPServerStartupKey: CanonicalMCPServerStartupStatus
     ]
+    public let backgroundTerminals: [ThreadID: CanonicalBackgroundTerminalState]
     public let threadOrder: [ThreadID]
     public let threads: [ThreadID: CanonicalThread]
     public let turns: [TurnKey: CanonicalTurn]
@@ -997,6 +1056,7 @@ public struct CanonicalStateSnapshot: Sendable, Equatable {
         mcpServerStartupStatuses: [
             CanonicalMCPServerStartupKey: CanonicalMCPServerStartupStatus
         ] = [:],
+        backgroundTerminals: [ThreadID: CanonicalBackgroundTerminalState] = [:],
         threadOrder: [ThreadID] = [],
         threads: [ThreadID: CanonicalThread] = [:],
         turns: [TurnKey: CanonicalTurn] = [:],
@@ -1006,6 +1066,7 @@ public struct CanonicalStateSnapshot: Sendable, Equatable {
         self.revision = revision
         self.account = account
         self.mcpServerStartupStatuses = mcpServerStartupStatuses
+        self.backgroundTerminals = backgroundTerminals
         self.threadOrder = threadOrder.removingDuplicateIDs()
         self.threads = threads
         self.turns = turns
@@ -1035,6 +1096,7 @@ internal struct CanonicalStateGraph: Sendable {
         CanonicalMCPServerStartupKey: CanonicalMCPServerStartupStatus
     ] = [:]
     var mcpServerStartupStatusLRU: [CanonicalMCPServerStartupKey] = []
+    var backgroundTerminals: [ThreadID: CanonicalBackgroundTerminalState] = [:]
     var threadOrder: [ThreadID] = []
     var threads: [ThreadID: CanonicalThread] = [:]
     var turns: [TurnKey: CanonicalTurn] = [:]
@@ -1046,6 +1108,7 @@ internal struct CanonicalStateGraph: Sendable {
             revision: revision,
             account: account,
             mcpServerStartupStatuses: mcpServerStartupStatuses,
+            backgroundTerminals: backgroundTerminals,
             threadOrder: threadOrder,
             threads: threads,
             turns: turns,
