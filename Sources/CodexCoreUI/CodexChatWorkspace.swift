@@ -409,10 +409,7 @@ public struct CodexChatWorkspaceView: View {
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
-        .onAppear(perform: registerAvailableWorkspaceTabs)
-        .onChange(of: workspaceTabRegistrationFingerprint) { _, _ in
-            registerAvailableWorkspaceTabs()
-        }
+        .task(id: workspaceTabRegistrationFingerprint) { registerAvailableWorkspaceTabs() }
     }
 
     private func mainColumn(
@@ -794,6 +791,7 @@ public struct CodexChatWorkspaceView: View {
         }
         if let session = gitReviewSession {
             adapters.append(reviewAdapter(session: session))
+            adapters.append(reviewAdapter(session: session, source: .transcript))
         }
         workspaceTabs.register(adapters)
     }

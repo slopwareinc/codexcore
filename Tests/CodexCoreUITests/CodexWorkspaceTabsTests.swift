@@ -254,6 +254,37 @@ struct CodexWorkspaceTabsTests {
         )
     }
 
+    @Test func transcriptReviewRouteRestoresWhenItsCanonicalSourceIsAvailable() throws {
+        let session = CodexGitReviewSession(
+            snapshot: CodexGitReviewSnapshot(branchName: "main")
+        )
+        let adapter = CodexReviewWorkspaceTabAdapter(
+            workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+            session: session,
+            source: .transcript,
+            selectedFilePath: "Sources/Restored.swift"
+        )
+        let source = CodexWorkspaceTabs()
+        let id = source.open(adapter, from: .transcript)
+        let restored = CodexWorkspaceTabs(restoring: source.restorationState)
+
+        restored.register([
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: session,
+                source: .transcript
+            )
+        ])
+        restored.activate(id)
+
+        #expect(restored.snapshot.instance(id: id)?.isMaterialized == true)
+        #expect(
+            CodexReviewWorkspaceTabAdapter.selectedFilePath(
+                in: try #require(restored.snapshot.instance(id: id)?.state)
+            ) == "Sources/Restored.swift"
+        )
+    }
+
     @Test func legacyBridgeSharesManagedOrderingSelectionAndFallback() {
         let tabs = CodexWorkspaceTabs()
         tabs.openLegacy("terminal")

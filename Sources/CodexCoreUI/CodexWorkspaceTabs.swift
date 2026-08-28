@@ -192,7 +192,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         topology: .init()
     )
     private var registrations: [CodexWorkspaceTabID: CodexWorkspaceTabRegistration] = [:]
-    private var closed: [Closed] = []
+    private var closed: Closed?
 
     public init() {}
 
@@ -205,7 +205,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         snapshot = .init(instances: tabs, topology: restoration.topology)
     }
 
-    public var lastClosedRoute: CodexWorkspaceTabRoute? { closed.last?.tab.durableRoute }
+    public var lastClosedRoute: CodexWorkspaceTabRoute? { closed?.tab.durableRoute }
 
     public var restorationState: CodexWorkspaceTabRestorationState {
         let tabs = snapshot.instances.compactMap { tab -> CodexWorkspaceTabInstanceSnapshot? in
@@ -367,19 +367,20 @@ public final class CodexWorkspaceTabs: ObservableObject {
         let handle = CodexWorkspaceTabHandle.workspace(id)
         guard let placement = placement(of: handle), let instanceIndex = index(of: id),
               let tabIndex = snapshot.topology[placement].orderedTabs.firstIndex(of: handle) else { return }
-        closed.append(.init(
+        closed = .init(
             tab: snapshot.instances.remove(at: instanceIndex),
             registration: registrations.removeValue(forKey: id),
             placement: placement,
             tabIndex: tabIndex,
             instanceIndex: instanceIndex
-        ))
+        )
         remove(handle, from: placement)
     }
 
     @discardableResult
     public func undoClose() -> CodexWorkspaceTabID? {
-        guard let closed = closed.popLast(), index(of: closed.tab.id) == nil else { return nil }
+        guard let closed, index(of: closed.tab.id) == nil else { return nil }
+        self.closed = nil
         snapshot.instances.insert(closed.tab, at: min(closed.instanceIndex, snapshot.instances.count))
         registrations[closed.tab.id] = closed.registration
         var panel = snapshot.topology[closed.placement]
@@ -415,7 +416,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
 
     func removeAll() {
         registrations.removeAll()
-        closed.removeAll()
+        closed = nil
         snapshot = .init(instances: [], topology: .init())
     }
 
