@@ -473,7 +473,7 @@ public struct CodexChatWorkspaceView: View {
                 responseAnnotations: responseAnnotations,
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
-                onOpenSubagent: openPanelTab,
+                onOpenSubagent: { openPanelTab($0, from: .transcript) },
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: restoreComposer(from:),
@@ -661,7 +661,7 @@ public struct CodexChatWorkspaceView: View {
         if let openSideChat = chatActions.openSideChat {
             actions.openSideChat = {
                 openSideChat()
-                openPanelTab(CodexSideChatState.defaultID)
+                openPanelTab(CodexSideChatState.defaultID, from: .commandMenu)
             }
         }
         return actions
@@ -679,7 +679,7 @@ public struct CodexChatWorkspaceView: View {
             },
             onOpenPlan: openPlanPanel,
             onOpenReview: openReviewPanel,
-            onSelectTab: openPanelTab
+            onSelectTab: { openPanelTab($0, from: .summary) }
         )
     }
 
@@ -730,7 +730,10 @@ public struct CodexChatWorkspaceView: View {
             .onTapGesture(perform: onDismiss)
     }
 
-    private func openPanelTab(_ id: String) {
+    private func openPanelTab(
+        _ id: String,
+        from opener: CodexWorkspaceTabOpener
+    ) {
         if subagents.contains(where: { $0.id == id }) {
             guard let adapter = subagentsAdapter else { return }
             workspaceTabs.open(
@@ -740,7 +743,7 @@ public struct CodexChatWorkspaceView: View {
                     selectedThreadID: id,
                     onSelectionChanged: onSelectSubagentTranscript
                 ),
-                from: .transcript
+                from: opener
             )
         } else {
             workspaceTabs.openLegacy(id)

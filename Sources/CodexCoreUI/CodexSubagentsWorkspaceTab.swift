@@ -281,6 +281,15 @@ public struct CodexSubagentsWorkspaceTabView: View {
             let next = CodexSubagentsWorkspaceTabState(tabState)
             restoreSelection(next.selectedThreadID, hasRows: !coordinator.panelSubagents.isEmpty)
         }
+        .onDisappear {
+            // Closing/removing the workspace tab must release the selected
+            // child lease. The durable tab state remains intact so a restored
+            // tab can lazily reacquire it when its detail is shown again.
+            if coordinator.selectedSubagentThreadID != nil {
+                coordinator.selectTranscript(nil)
+                onSelectionChanged(nil)
+            }
+        }
     }
 
     private func master(_ snapshot: CodexSubagentsWorkspaceSnapshot) -> some View {
