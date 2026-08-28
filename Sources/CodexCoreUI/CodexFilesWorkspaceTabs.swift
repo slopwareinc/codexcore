@@ -164,9 +164,7 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         guard route.adapterID == Self.adapterID, route.version == Self.routeVersion else {
             return nil
         }
-        if let decoded = try? JSONDecoder().decode(CodexWorkspaceFileReference.self, from: route.payload) {
-            self.file = decoded
-        } else {
+        if route.payload.isEmpty {
             // Version-one routes from the first Files slice use the resource
             // id as the canonical identity and carry no payload.
             let identity = route.resourceID.hasPrefix("codex-file:")
@@ -176,6 +174,12 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             let ref = parts.first.map(String.init)
             let path = parts.count > 1 ? String(parts[1]) : identity
             self.file = .init(fileURL: URL(fileURLWithPath: path), ref: ref?.isEmpty == true ? nil : ref)
+        } else {
+            guard let decoded = try? JSONDecoder().decode(CodexWorkspaceFileReference.self, from: route.payload),
+                  decoded.id == route.resourceID else {
+                return nil
+            }
+            self.file = decoded
         }
     }
 

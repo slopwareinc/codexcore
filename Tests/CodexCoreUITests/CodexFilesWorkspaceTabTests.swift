@@ -129,6 +129,16 @@ struct CodexFilesWorkspaceTabTests {
         #expect(reconstructed.file == file)
     }
 
+    @Test func previewRouteRejectsMismatchedTypedIdentity() {
+        let route = CodexWorkspaceTabRoute(
+            adapterID: CodexFilePreviewWorkspaceTabAdapter.adapterID,
+            version: CodexFilePreviewWorkspaceTabAdapter.routeVersion,
+            resourceID: "codex-file:|/tmp/project/Actual.swift",
+            payload: Data("{}".utf8)
+        )
+        #expect(CodexFilePreviewWorkspaceTabAdapter(route: route) == nil)
+    }
+
     @Test func transcriptFileReferenceOpensPreviewAndPersistsLineLocation() throws {
         let root = URL(fileURLWithPath: "/tmp/project")
         let file = root.appendingPathComponent("App.swift").standardizedFileURL
