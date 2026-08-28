@@ -3,12 +3,135 @@ import CodexCore
 import GhosttyTerminal
 import SwiftUI
 
+/// Stable identity for one retained terminal host. The thread and checkout
+/// are part of the identity so a terminal from one chat can never be reused by
+/// another chat that happens to have the same tab title.
+public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
+    public let threadID: String?
+    public let worktreePath: String
+    public let ordinal: Int
+    private let explicitRawValue: String?
+
+    public init(
+        threadID: String? = nil,
+        worktreePath: String,
+        ordinal: Int
+    ) {
+        let trimmedThreadID = threadID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
+        self.worktreePath = URL(fileURLWithPath: worktreePath).standardizedFileURL.path
+        self.ordinal = max(1, ordinal)
+        self.explicitRawValue = nil
+    }
+
+    private init(rawValue: String, worktreePath: String) {
+        self.threadID = nil
+        self.worktreePath = worktreePath
+        self.ordinal = 1
+        self.explicitRawValue = rawValue
+    }
+
+    /// A deterministic, human-readable key suitable for workspace routes and
+    /// tab resource keys. Paths are intentionally retained instead of hashed so
+    /// diagnostics can explain which checkout owns a terminal.
+    public var rawValue: String {
+        explicitRawValue
+            ?? "terminal:\(threadID ?? "unassigned"):\(worktreePath):\(ordinal)"
+    }
+
+    public var id: String { rawValue }
+
+    static func explicit(rawValue: String, worktreePath: String) -> Self {
+        Self(rawValue: rawValue, worktreePath: worktreePath)
+    }
+}
+
+/// The bounded host-side output retained for background command terminals.
+/// Ghostty owns its native viewport; this buffer is the lightweight diagnostic
+/// and restoration projection and never grows without limit.
+public struct CodexBoundedTerminalOutput: Sendable, Equatable {
+    public let maxBytes: Int
+    private var storage = Data()
+    public private(set) var droppedByteCount = 0
+
+    public init(maxBytes: Int = 256 * 1024) {
+        self.maxBytes = max(0, maxBytes)
+    }
+
+    public var byteCount: Int { storage.count }
+    public var text: String { String(decoding: storage, as: UTF8.self) }
+
+    public mutating func append(_ text: String) {
+        append(Data(text.utf8))
+    }
+
+    public mutating func append(_ data: Data) {
+        guard maxBytes > 0, !data.isEmpty else {
+            droppedByteCount += data.count
+            return
+        }
+
+        if data.count >= maxBytes {
+            droppedByteCount += storage.count + data.count - maxBytes
+            storage = Data(data.suffix(maxBytes))
+            return
+        }
+
+        storage.append(data)
+        if storage.count > maxBytes {
+            let overflow = storage.count - maxBytes
+            droppedByteCount += overflow
+            storage = Data(storage.suffix(maxBytes))
+        }
+    }
+}
+
+public enum CodexTerminalTitleFormatter {
+    /// Produces a compact title from the command that launched a terminal.
+    /// Shell login wrappers and executable path prefixes are removed while the
+    /// useful command arguments remain visible in the tab.
+    public static func title(for command: String?, fallback: String = "Terminal") -> String {
+        guard var value = command?.split(whereSeparator: \.isNewline).first.map(String.init),
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return fallback }
+
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let marker = value.range(of: " -lc ") {
+            value = String(value[marker.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+
+        var tokens = value.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        if tokens.first == "env" {
+            tokens.removeFirst()
+            while let first = tokens.first, first.contains("=") {
+                tokens.removeFirst()
+            }
+        }
+        if let executable = tokens.first, executable.contains("/") {
+            tokens[0] = URL(fileURLWithPath: executable).lastPathComponent
+        }
+        value = tokens.joined(separator: " ")
+        guard !value.isEmpty else { return fallback }
+        if value.count > 48 {
+            return String(value.prefix(45)) + "…"
+        }
+        return value
+    }
+}
+
 @MainActor
 public final class CodexTerminalSession: Identifiable {
     public let id: String
     public let title: String
     public let initialWorkingDirectory: String
+    public let identity: CodexTerminalIdentity
+    public let command: String?
+    public let isBackground: Bool
     public let state: TerminalViewState
+    public private(set) var isSurfaceVisible = true
+    public private(set) var surfaceVisibilityChangeCount = 0
 
     /// The ghostty AppKit view (and therefore the live surface/PTY) is owned by
     /// the session, not by the SwiftUI representable that shows it. Ghostty frees
@@ -16,16 +139,31 @@ public final class CodexTerminalSession: Identifiable {
     /// instance across panel-hide and chat-switch keeps the shell alive; only the
     /// view's window attachment recycles.
     let terminalView: TerminalView
+    private var outputBuffer: CodexBoundedTerminalOutput
 
     public init(
         id: String = "terminal:\(UUID().uuidString)",
-        title: String = "Terminal",
+        title: String? = nil,
         workingDirectory: String,
-        fontSize: Float = 13
+        fontSize: Float = 13,
+        command: String? = nil,
+        identity: CodexTerminalIdentity? = nil,
+        isBackground: Bool = false,
+        maxOutputBytes: Int = CodexBoundedTerminalOutput().maxBytes
     ) {
-        self.id = id
-        self.title = title
+        let resolvedIdentity = identity
+            ?? .explicit(rawValue: id, worktreePath: workingDirectory)
+        self.identity = resolvedIdentity
+        self.id = resolvedIdentity.rawValue
+        self.command = command
+        self.isBackground = isBackground
+        let fallbackTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.title = CodexTerminalTitleFormatter.title(
+            for: command,
+            fallback: fallbackTitle?.isEmpty == false ? fallbackTitle! : "Terminal"
+        )
         self.initialWorkingDirectory = workingDirectory
+        self.outputBuffer = CodexBoundedTerminalOutput(maxBytes: maxOutputBytes)
         self.state = TerminalViewState(
             terminalConfiguration: TerminalConfiguration { builder in
                 builder.withBackgroundOpacity(0)
@@ -47,6 +185,37 @@ public final class CodexTerminalSession: Identifiable {
         view.controller = state.controller
         view.configuration = state.configuration
         self.terminalView = view
+    }
+
+    /// Stable native-host identity used by mounted-panel tests and diagnostics.
+    public var terminalHostIdentity: ObjectIdentifier { ObjectIdentifier(terminalView) }
+
+    public var output: String { outputBuffer.text }
+    public var outputByteCount: Int { outputBuffer.byteCount }
+    public var maxOutputBytes: Int { outputBuffer.maxBytes }
+    public var droppedOutputByteCount: Int { outputBuffer.droppedByteCount }
+
+    public func appendOutput(_ text: String) {
+        outputBuffer.append(text)
+    }
+
+    /// Updates native display work without touching the retained PTY. Ghostty
+    /// stops its display link while hidden; the same session-owned view is
+    /// reused when the tab becomes visible again.
+    public func setSurfaceVisible(_ visible: Bool) {
+        guard visible != isSurfaceVisible else { return }
+        isSurfaceVisible = visible
+        surfaceVisibilityChangeCount += 1
+        terminalView.setSurfaceVisible(visible)
+    }
+
+    public func restoreFocus() {
+        guard isSurfaceVisible else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.terminalView.window,
+                  window.firstResponder !== self.terminalView else { return }
+            window.makeFirstResponder(self.terminalView)
+        }
     }
 }
 
@@ -83,18 +252,17 @@ public struct CodexTerminalToolView: View {
                 .onChange(of: isActive) { _, active in
                     applyActiveState(active)
                 }
+                .onDisappear {
+                    applyActiveState(false)
+                }
         }
     }
 
     private func applyActiveState(_ active: Bool) {
-        session.terminalView.setSurfaceVisible(active)
+        session.setSurfaceVisible(active)
         guard active else { return }
         // Focus only the active terminal, after it has settled into the window.
-        DispatchQueue.main.async {
-            let view = session.terminalView
-            guard let window = view.window, window.firstResponder !== view else { return }
-            window.makeFirstResponder(view)
-        }
+        session.restoreFocus()
     }
 
     private var header: some View {
@@ -167,3 +335,55 @@ public enum CodexTerminalPathFormatter {
     }
 }
 
+@MainActor
+public struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    public let session: CodexTerminalSession
+    public let placement: CodexWorkspaceTabPlacement
+    private let onClose: @MainActor () -> Void
+
+    public init(
+        session: CodexTerminalSession,
+        placement: CodexWorkspaceTabPlacement = .bottom,
+        onClose: @escaping @MainActor () -> Void = {}
+    ) {
+        self.session = session
+        self.placement = placement
+        self.onClose = onClose
+    }
+
+    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+        CodexWorkspaceTabRegistration(
+            resourceKey: "codex.terminal:\(session.identity.rawValue)",
+            title: session.title,
+            systemImage: "terminal",
+            lifetime: .pinned,
+            durableRoute: .init(
+                adapterID: "codex.terminal",
+                version: 1,
+                resourceID: session.identity.rawValue,
+                payload: Self.routePayload(for: session)
+            ),
+            preferredPlacement: placement,
+            onClose: onClose
+        ) { _ in
+            AnyView(CodexTerminalToolView(session: session, isActive: true))
+        }
+    }
+
+    private static func routePayload(for session: CodexTerminalSession) -> Data {
+        struct Payload: Codable {
+            let threadID: String?
+            let worktreePath: String
+            let ordinal: Int
+            let command: String?
+            let isBackground: Bool
+        }
+        return (try? JSONEncoder().encode(Payload(
+            threadID: session.identity.threadID,
+            worktreePath: session.identity.worktreePath,
+            ordinal: session.identity.ordinal,
+            command: session.command,
+            isBackground: session.isBackground
+        ))) ?? Data()
+    }
+}

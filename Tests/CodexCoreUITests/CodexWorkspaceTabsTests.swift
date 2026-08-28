@@ -6,6 +6,40 @@ import Testing
 
 @MainActor
 struct CodexWorkspaceTabsTests {
+    @Test func terminalAdapterUsesScopedStableIdentityAndBottomPlacement() throws {
+        let identity = CodexTerminalIdentity(
+            threadID: "thread-235",
+            worktreePath: "/tmp/codex-worktree",
+            ordinal: 1
+        )
+        let first = CodexTerminalSession(
+            workingDirectory: identity.worktreePath,
+            command: "swift test",
+            identity: identity
+        )
+        let second = CodexTerminalSession(
+            workingDirectory: identity.worktreePath,
+            command: "swift test",
+            identity: identity
+        )
+
+        #expect(first.id == second.id)
+        #expect(first.title == "swift test")
+
+        let tabs = CodexWorkspaceTabs()
+        let id = tabs.open(
+            CodexTerminalWorkspaceTabAdapter(session: first),
+            from: .background,
+            placement: .bottom
+        )
+
+        #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
+        #expect(tabs.snapshot.topology.bottom.orderedTabIDs == [id])
+        #expect(tabs.snapshot.topology.bottom.activeTabID == id)
+        #expect(tabs.snapshot.instance(id: id)?.durableRoute?.resourceID == first.id)
+        #expect(tabs.content(for: id) != nil)
+    }
+
     @Test func planAndReviewOpenThroughOneAdapterInterfaceWithStableIdentity() throws {
         let tabs = CodexWorkspaceTabs()
         let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(
