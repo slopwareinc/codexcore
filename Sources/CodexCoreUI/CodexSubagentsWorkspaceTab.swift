@@ -104,7 +104,11 @@ public enum CodexSubagentsWorkspaceProjection {
         subagents: [CodexSubagentState],
         selectedThreadID: String? = nil
     ) -> CodexSubagentsWorkspaceSnapshot {
-        let rows = subagents.map(CodexSubagentsWorkspaceRow.init)
+        var seen = Set<String>()
+        let rows = subagents.compactMap { subagent -> CodexSubagentsWorkspaceRow? in
+            guard seen.insert(subagent.id).inserted else { return nil }
+            return CodexSubagentsWorkspaceRow(subagent)
+        }
         return CodexSubagentsWorkspaceSnapshot(
             active: rows.filter(\.isActive),
             done: rows.filter(\.isDone),
@@ -116,8 +120,14 @@ public enum CodexSubagentsWorkspaceProjection {
         from old: CodexSubagentsWorkspaceSnapshot,
         to new: CodexSubagentsWorkspaceSnapshot
     ) -> CodexSubagentsWorkspaceListDiff {
-        let oldRows = Dictionary(uniqueKeysWithValues: old.allRows.map { ($0.id, $0) })
-        let newRows = Dictionary(uniqueKeysWithValues: new.allRows.map { ($0.id, $0) })
+        let oldRows = Dictionary(
+            old.allRows.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let newRows = Dictionary(
+            new.allRows.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let oldIDs = Set(oldRows.keys)
         let newIDs = Set(newRows.keys)
         let inserted = new.allRows.map(\.id).filter { !oldIDs.contains($0) }
