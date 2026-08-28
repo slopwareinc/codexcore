@@ -587,8 +587,8 @@ struct CodexSubagentPresentationCoordinatorTests {
         )
         let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
         coordinator.selectParent("parent")
-        await transport.sendParentDiscovery()
-        try await eventually { coordinator.agents.count == 1 }
+        await transport.sendParentDiscovery(childIDs: ["child", "other"])
+        try await eventually { coordinator.agents.count == 2 }
         coordinator.selectTranscript("child")
         try await eventually { coordinator.agents.first?.transcript.turns.isEmpty == false }
 
@@ -642,6 +642,12 @@ struct CodexSubagentPresentationCoordinatorTests {
         let projectionCount = try #require(
             parentHost.readDiagnosticsForTesting?().render.projectionCount
         )
+        try await eventually {
+            subagentsTranscriptDescendants(in: hosting).count >= 2
+        }
+        let detailHost = try #require(
+            subagentsTranscriptDescendants(in: hosting).dropFirst().first
+        )
 
         await transport.sendChildDelta(" after mount")
         try await eventually {
@@ -653,6 +659,24 @@ struct CodexSubagentPresentationCoordinatorTests {
         try await Task.sleep(for: .milliseconds(20))
 
         #expect(subagentsTranscriptDescendant(in: hosting) === parentHost)
+        #expect(subagentsTranscriptDescendants(in: hosting).dropFirst().first === detailHost)
+        #expect(
+            parentHost.readDiagnosticsForTesting?().render.projectionCount
+                == projectionCount
+        )
+
+        tabs.updateState(
+            CodexSubagentsWorkspaceTabState(selectedThreadID: "other").workspaceTabState,
+            for: tabID
+        )
+        coordinator.selectTranscript("other")
+        hosting.layoutSubtreeIfNeeded()
+        try await eventually {
+            subagentsTranscriptDescendants(in: hosting).count >= 2
+        }
+        try await eventually { coordinator.selectedProjection?.lease != nil }
+        #expect(subagentsTranscriptDescendant(in: hosting) === parentHost)
+        #expect(subagentsTranscriptDescendants(in: hosting).dropFirst().first === detailHost)
         #expect(
             parentHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount
@@ -661,6 +685,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         let releaseCount = coordinator.diagnostics.childLeaseReleaseCount
         tabs.close(tabID)
         hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(40))
         try await eventually {
             coordinator.diagnostics.childLeaseReleaseCount > releaseCount
         }
@@ -736,6 +761,20 @@ private func subagentsTranscriptDescendant(
         if let match = subagentsTranscriptDescendant(in: child) { return match }
     }
     return nil
+}
+
+@MainActor
+private func subagentsTranscriptDescendants(
+    in root: NSView
+) -> [CodexTranscriptCollectionContainerView] {
+    var matches: [CodexTranscriptCollectionContainerView] = []
+    if let match = root as? CodexTranscriptCollectionContainerView {
+        matches.append(match)
+    }
+    for child in root.subviews {
+        matches.append(contentsOf: subagentsTranscriptDescendants(in: child))
+    }
+    return matches
 }
 
 private enum CoordinatorTestError: Error {

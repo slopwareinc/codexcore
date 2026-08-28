@@ -503,9 +503,6 @@ struct CodexCoreAppShell: View {
                 onFilesDropped: { [threadID = model.currentThreadID] urls in
                     model.addReferencedFileURLs(urls, to: threadID)
                 },
-                onSelectSubagentTranscript: {
-                    model.runtimeSession.selectSubagentTranscript($0)
-                },
                 onOpenThread: { reference in
                     Task { await model.openThreadReference(reference) }
                 },

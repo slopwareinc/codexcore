@@ -259,4 +259,6 @@ message remains the request you typed.
 
 ![A completed task with expanded command activity and a subagent](../assets/screenshots/subagent-activity.png)
 
-Subagents appear inside the parent turn. Select a subagent chip to inspect its focused transcript without losing the parent task.
+Subagents appear inside the parent turn. Select a subagent chip to open the
+single Subagents workspace tab and inspect its focused transcript without losing
+the parent task; Back returns to the Active/Done list.

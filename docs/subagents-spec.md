@@ -1,6 +1,22 @@
-# Subagents: dual-mode handling + Subagents panel
+# Subagents: dual-mode handling + Subagents workspace
 
 > **Historical engineering note:** Capture-derived implementation research, not current public product documentation. Verify behavior against production source and tests.
+
+## Current workspace surface
+
+CodexCore presents collaboration children through one registered
+`CodexSubagentsWorkspaceTabAdapter` per parent workspace. Its master list keeps
+only stable identity, title, prompt, and lifecycle metadata, split into Active
+and Done sections with concise status summaries. A row selection is presentation
+state persisted in `CodexWorkspaceTabState`; it does not create a child tab.
+
+`CodexSubagentPresentationCoordinator` remains the sole metadata and projection
+owner. It acquires the exact child-thread lease only for the selected row,
+projects that transcript (including a final response) lazily, and cancels the
+obsolete projection when selection changes or Back is pressed. The detail uses
+one stable transcript host, while unselected rows never retain transcript data.
+Summary and transcript openers both select this same workspace tab, so parent
+transcript identity and projection counts are unaffected by child navigation.
 
 Ground truth: wire + CDP captures of the official app (ChatGPT.app v0.144,
 2026-07-11) — fixtures `turn-collab-official.jsonl` (classic) and

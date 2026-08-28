@@ -6,6 +6,7 @@ public struct CodexFloatingSummaryPanel: View {
 
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
+    private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
     private let chatTitle: String
@@ -17,6 +18,7 @@ public struct CodexFloatingSummaryPanel: View {
     public init(
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
+        subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
         chatTitle: String = "Codex",
@@ -27,6 +29,7 @@ public struct CodexFloatingSummaryPanel: View {
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
+        self.subagentCoordinator = subagentCoordinator
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
         self.chatTitle = chatTitle
@@ -143,7 +146,8 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
+            let visibleAgents = (subagentCoordinator?.panelSubagents ?? subagents)
+                .filter(\.isVisibleInFloatingSummary)
             if !visibleAgents.isEmpty {
                 SummaryDivider()
                 SummarySection(title: "Subagents") {

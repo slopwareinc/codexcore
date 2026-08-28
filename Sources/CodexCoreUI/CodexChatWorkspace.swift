@@ -170,7 +170,6 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
-    private let onSelectSubagentTranscript: (String?) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
     private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenMCPDetails: (() -> Void)?
@@ -256,7 +255,6 @@ public struct CodexChatWorkspaceView: View {
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
@@ -334,7 +332,6 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerChipClear = onComposerChipClear
         self.onFilesDropped = onFilesDropped
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onOpenThread = onOpenThread
         self.onStartReview = onStartReview
         self.onOpenMCPDetails = onOpenMCPDetails
@@ -671,6 +668,7 @@ public struct CodexChatWorkspaceView: View {
         CodexFloatingSummaryPanel(
             sideChat: sideChat,
             subagents: subagents,
+            subagentCoordinator: subagentCoordinator,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
             chatTitle: chatTitle,
@@ -734,14 +732,13 @@ public struct CodexChatWorkspaceView: View {
         _ id: String,
         from opener: CodexWorkspaceTabOpener
     ) {
-        if subagents.contains(where: { $0.id == id }) {
-            guard let adapter = subagentsAdapter else { return }
+        if let adapter = subagentsAdapter,
+           adapter.coordinator.agent(threadID: ThreadID(id)) != nil {
             workspaceTabs.open(
                 CodexSubagentsWorkspaceTabAdapter(
                     parentThreadID: adapter.parentThreadID,
                     coordinator: adapter.coordinator,
-                    selectedThreadID: id,
-                    onSelectionChanged: onSelectSubagentTranscript
+                    selectedThreadID: id
                 ),
                 from: opener
             )
@@ -791,10 +788,10 @@ public struct CodexChatWorkspaceView: View {
         let review = gitReviewSession.map {
             "\($0.snapshot.revision.sourceID):\($0.snapshot.revision.value)"
         } ?? "no-review"
-        let subagents = subagentCoordinator != nil
-            ? (currentThreadID ?? "no-thread")
-            : "no-subagent-coordinator"
-        return "\(workspacePath)|\(plan)|\(review)|\(subagents)"
+        let subagentIdentity = subagentCoordinator.map {
+            "\(currentThreadID ?? "no-thread"):rev-\($0.changeRevision)"
+        } ?? "no-subagent-coordinator"
+        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -816,8 +813,7 @@ public struct CodexChatWorkspaceView: View {
         guard let subagentCoordinator, let currentThreadID else { return nil }
         return CodexSubagentsWorkspaceTabAdapter(
             parentThreadID: currentThreadID,
-            coordinator: subagentCoordinator,
-            onSelectionChanged: onSelectSubagentTranscript
+            coordinator: subagentCoordinator
         )
     }
 

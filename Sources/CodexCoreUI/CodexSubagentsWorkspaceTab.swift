@@ -233,7 +233,7 @@ public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
-    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         let state = CodexSubagentsWorkspaceTabState(
             selectedThreadID: selectedThreadID
         ).workspaceTabState
@@ -265,7 +265,7 @@ public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
 @MainActor
 public struct CodexSubagentsWorkspaceTabView: View {
     @Environment(\.codexAgentTheme) private var theme
-    @State private var coordinator: CodexSubagentPresentationCoordinator
+    @Bindable private var coordinator: CodexSubagentPresentationCoordinator
     @Binding private var tabState: CodexWorkspaceTabState
     private let onSelectionChanged: (String?) -> Void
 
@@ -274,7 +274,7 @@ public struct CodexSubagentsWorkspaceTabView: View {
         tabState: Binding<CodexWorkspaceTabState>,
         onSelectionChanged: @escaping (String?) -> Void = { _ in }
     ) {
-        _coordinator = State(initialValue: coordinator)
+        self.coordinator = coordinator
         _tabState = tabState
         self.onSelectionChanged = onSelectionChanged
     }
@@ -304,6 +304,9 @@ public struct CodexSubagentsWorkspaceTabView: View {
         .onChange(of: coordinator.changeRevision) { _, _ in
             let next = CodexSubagentsWorkspaceTabState(tabState)
             restoreSelection(next.selectedThreadID, hasRows: !coordinator.panelSubagents.isEmpty)
+        }
+        .onExitCommand {
+            select(nil)
         }
         .onDisappear {
             // Closing/removing the workspace tab must release the selected
@@ -444,6 +447,7 @@ public struct CodexSubagentsWorkspaceTabView: View {
 
             CodexTranscriptViewV2(
                 transcript: subagent.transcript,
+                threadID: "subagents-detail",
                 bottomContentInset: 16
             ) {
                 Text(subagent.emptyTranscriptMessage)
@@ -452,7 +456,6 @@ public struct CodexSubagentsWorkspaceTabView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 20)
             }
-            .id("subagent-transcript-\(subagent.id)")
             .accessibilityIdentifier("subagent.transcript.\(subagent.id)")
         }
     }
