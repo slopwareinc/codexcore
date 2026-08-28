@@ -48,6 +48,8 @@ Use this page as the stable router. Pages are organized by task, not by source d
 
 Files marked **Historical engineering note** are evidence or superseded design proposals, not stable product documentation. They are intentionally excluded from the primary reading path.
 
+- [Workspace tab and panel oracle](performance/workspace-panel-oracle.md)
+
 ## For agents
 
 Read only the pages needed for the task. Source-of-truth routing:

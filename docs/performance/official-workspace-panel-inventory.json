@@ -1,0 +1,1575 @@
+{
+  "asar": {
+    "dataOffsetBytes": 2375012,
+    "fileCount": 8744,
+    "headerSizeBytes": 2375004
+  },
+  "assets": [
+    {
+      "assetPath": "/webview/assets/artifact-preview-header-Drf1s0S4.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "06c82b5fc1467577cf3c999916f67546d0c01f4db5c953e803922b62fb1d6794",
+      "sizeBytes": 10003,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-preview-status-SWF229wH.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "105d52b1b8d9583a03e6b46226e89cc387a247ae890c8a3738edea8bac82caf9",
+      "sizeBytes": 742,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-source-bootstrap-CW-aJKLZ.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "28ec6c5b8bfc2b0375b60b69bcab8a7e955e6d960c419fe1ba943ea267c5460a",
+      "sizeBytes": 4401,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-source-bootstrap-JvG_PoPt.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f90a8084cdcb4e7532ef5a0304e92f07c796e59afdbb38c503bc98213d65569d",
+      "sizeBytes": 321088,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-tab-content-shell-CMAuiNJG.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "2c429699668bbf9b01d0faa8aa3878e57bbed5cf137e731d2d27e363f7d51d13",
+      "sizeBytes": 104,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-tab-content-shell-Ca94H0IQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "56aeb6b4f1f957b8154df36ebc68af3858cc63eddbd3e9d730e42deeecab5644",
+      "sizeBytes": 3434,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/artifact-tab-content.electron-BsF8Ailn.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7c696c51540c66ccd30337a9fa9622e2df2ab49f58616d2d829b6980c51c00dc",
+      "sizeBytes": 178589,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/open-artifact-side-panel-tab-Dm8BtevI.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "78e22928b9fd44aabb9d084ab1413c88f520995880bdf0935f1059f54f0b8a04",
+      "sizeBytes": 197,
+      "surfaceID": "artifact",
+      "surfaceKind": "host",
+      "surfaceTitle": "Artifact"
+    },
+    {
+      "assetPath": "/webview/assets/automation-side-panel-tab-D5lvepDY.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "d98cec9fce2de3a4333d2d41ef50508d80ad68f36241afd0dba8c616c0be0ee2",
+      "sizeBytes": 16034,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/cloud-automation-detail-panel-C6vTwPCS.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "1604735eed4a715a143bce258cb65f92d2ea29e970017ece88061f0e3a7a2e3c",
+      "sizeBytes": 48551,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/cloud-automation-detail-panel-Cxo76izY.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5bd4528a8a31ad9a3224dbc417a31597cb39f00b8327d29732d711acc35a52b1",
+      "sizeBytes": 231079,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/open-automation-side-panel-tab-CGXacyHQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e572586bec592f837ef3e4fb0c84bede972dc830ca37c339e163433db3135b84",
+      "sizeBytes": 207,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/open-automation-side-panel-tab-FwbT3XXK.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e713e79bf0f67870a1c6633dc09cbb1a789aea019b62ee7100163e3b7dbb0126",
+      "sizeBytes": 2478,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/open-pull-request-fix-automation-panel-Bk4wfH1r.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "790eb98f02af10d23e80f75dbd11f4b3595eeaec4d2914885b431adf0615fbee",
+      "sizeBytes": 187,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/open-pull-request-fix-automation-panel-DWSR4bMn.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3616e1dc81f63a1d6e9c4197d908cbacdd171763c9cec34a9d1d79e7d324cfb5",
+      "sizeBytes": 1512,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/pull-request-fix-automation-ExdiL63R.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "ee1a91b94ea19e7159cc9d9b11549222c7a1f270b179fc69bb64087a77c46c42",
+      "sizeBytes": 6525,
+      "surfaceID": "automation",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Automation"
+    },
+    {
+      "assetPath": "/webview/assets/local-conversation-background-terminal-tab-BiPLbgPR.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "09d9a2f63ed79f0f2d8bb3dbae452737bc8d810c5dcafe9385a8fe47359a8cd1",
+      "sizeBytes": 2051,
+      "surfaceID": "background-terminal",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Background terminal"
+    },
+    {
+      "assetPath": "/webview/assets/open-local-conversation-background-terminal-tab-C1jnvDrU.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "23ef7e13669760d06b3ff0e48fb8efda22122f2ce1653105e9e840b9a40928a9",
+      "sizeBytes": 144,
+      "surfaceID": "background-terminal",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Background terminal"
+    },
+    {
+      "assetPath": "/webview/assets/open-local-conversation-background-terminal-tab-CVNduw-T.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "a3c0ee8a2ed3464f175dfc706031027be27334bfbb577a32f977999d3a226f27",
+      "sizeBytes": 629,
+      "surfaceID": "background-terminal",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Background terminal"
+    },
+    {
+      "assetPath": "/webview/assets/cloud-browser-preview-Cv4j9ekc.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "b3c09b85698350d10cacf32f22250773bc3aa933ccacf229f8347d20f5efa700",
+      "sizeBytes": 4252,
+      "surfaceID": "browser",
+      "surfaceKind": "host",
+      "surfaceTitle": "Browser"
+    },
+    {
+      "assetPath": "/webview/assets/cloud-browser-side-panel-B3DmxIa_.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7a4fbb0cfc12831270d10dd62d315c58ead2ea603fb0967a0cc6080c035b20c3",
+      "sizeBytes": 26259,
+      "surfaceID": "browser",
+      "surfaceKind": "host",
+      "surfaceTitle": "Browser"
+    },
+    {
+      "assetPath": "/webview/assets/PopcornElectronDocumentPanel-BGCSOPdJ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "9958bc11f4a1a4114ce8b950abe94f38d9ccf7cc1af0d0bdb5fd09daf2d3b4ab",
+      "sizeBytes": 309080,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/PopcornElectronPresentationPanel-Be5ck3C6.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "11e05af61d29936410655e1e52a08e0d357d20d399c18f75acfc8cf3bff8bff0",
+      "sizeBytes": 126890,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/PopcornElectronPresentationPanel-D3e2PrXe.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "9aa54ae5f5da0875802f025c95d337e3ee56cc9e96b23cedb86c18678908b92a",
+      "sizeBytes": 5061,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/PopcornElectronWorkbookPanel-D2sSHBEz.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f0dfd480078cafbcb532c041ea88ddbbfbcda19d25320f18fa6f69b26ec25521",
+      "sizeBytes": 504027,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/docx-preview-panel-25N0nbMk.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "51e4638c8d55cec66ac34dbf35169b2301a0b55cb56c41469dff61d8bef899be",
+      "sizeBytes": 44539,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/notebook-preview-panel-CVV3KpBv.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0dc8639fda88475b80509cfc3f099004988c499f80951eaf1a11143228a36dfe",
+      "sizeBytes": 22011,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/notebook-tabs-7Rju2Dit-ChJHtDvq.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3184fa8337b4dbd8aed2ec48ac20f66b33ea53b53a082b7d056c65ca3738c133",
+      "sizeBytes": 84,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/notebook-tabs-7Rju2Dit-UJyq1yW7.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5f70078827aa411fdf1b34b5a7f9de601ba4802205cdd0b3dd595cf091655b7a",
+      "sizeBytes": 601,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/pdf-preview-panel-1kqxsAqD.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "ccf802b925a0686c2af2f7805eaa329849cdaba34295387f306e04e2c71d6f5c",
+      "sizeBytes": 58443,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/pdf-preview-panel-BHPFKiOr.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "52d62eb1ef337a722c29c9ccc01c6d71b0ded423e5f3e51a66052029ee5d70b4",
+      "sizeBytes": 1640,
+      "surfaceID": "document-preview",
+      "surfaceKind": "host",
+      "surfaceTitle": "Document preview"
+    },
+    {
+      "assetPath": "/webview/assets/chatgpt-entity-side-panel-tab-C61iz9lP.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "fbfbc303c00f1f7d6d1527e3ffd3d77218dcedd2058bc2c15c9e72eaaca7a485",
+      "sizeBytes": 1194,
+      "surfaceID": "entity",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Entity"
+    },
+    {
+      "assetPath": "/webview/assets/file-editor-theme-CIyN8wEE.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "c42c54d433c1ceb5bf0885d80a357a851cf06b0a944103c223eab703e84f32f5",
+      "sizeBytes": 291087,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/local-environment-editor-C1SkOg2z.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "49810e6402d109ffd0dba691837c2e1cf65227cfb021e79f880f0c74bf1f4f39",
+      "sizeBytes": 31273,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/open-text-file-editor-side-panel-tab.electron-BihYno3T.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0dadad7aa3fc9e6594c8438b5fa31a6bb0dcc5c97ac8dae14a7c20e9eab4f682",
+      "sizeBytes": 105,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/text-file-editor-tab-content-C8whPlHt.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "45da18d17fdb4c19ae00e85f59124929434170ea7f9547e808f08a8da32d829f",
+      "sizeBytes": 386,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/text-file-editor-tab-content.electron-VsIQEixd.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "8d38b1cd0f50ba40d1d273a0c957171cedb19a1e355c84ed89457fe290563983",
+      "sizeBytes": 512408,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/text-file-editor-tab-content.electron-r0vAt60M.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "b4b2fcfaea370bb7fe92bc81bc2763dc509880f43752e6bc7367a7b08973c8f2",
+      "sizeBytes": 116,
+      "surfaceID": "files",
+      "surfaceKind": "host",
+      "surfaceTitle": "Files and file editor"
+    },
+    {
+      "assetPath": "/webview/assets/generated-image-preview-BWjy5Nqx.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "69775e6c7d084e775a90d8dc98d3297c4458bd5edbde20e77d4c7d644b51351a",
+      "sizeBytes": 3526,
+      "surfaceID": "generated-image",
+      "surfaceKind": "host",
+      "surfaceTitle": "Generated image"
+    },
+    {
+      "assetPath": "/webview/assets/generated-image-preview-items-B6DdgOe4.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "9097c39a7cf43a39885d98e3e15bf437063fd6b9d0c22833b555a35076b543f5",
+      "sizeBytes": 813,
+      "surfaceID": "generated-image",
+      "surfaceKind": "host",
+      "surfaceTitle": "Generated image"
+    },
+    {
+      "assetPath": "/webview/assets/generated-image-preview-uOcHfSH5.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "c4547215fb24a86ea7dabaa5d81e579b8598405f25164768dc71f5f188934314",
+      "sizeBytes": 228691,
+      "surfaceID": "generated-image",
+      "surfaceKind": "host",
+      "surfaceTitle": "Generated image"
+    },
+    {
+      "assetPath": "/webview/assets/inspection-panel-QLYEqOYP-BoIvrDOH.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "561520c52aa72dee812dfd61112f6c15c0ef06091b87d2be58e19ffde07ec697",
+      "sizeBytes": 87,
+      "surfaceID": "inspection",
+      "surfaceKind": "host",
+      "surfaceTitle": "Inspection"
+    },
+    {
+      "assetPath": "/webview/assets/inspection-panel-QLYEqOYP-Dax-OLwS.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "9be29146ae07bff6d6dcbb032424c6aa76622179fea9511a706aa440b2323c90",
+      "sizeBytes": 469,
+      "surfaceID": "inspection",
+      "surfaceKind": "host",
+      "surfaceTitle": "Inspection"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-app-host-styles-BLUoQAhF.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7b5efa5f152be4903ca46b3a46f0ea9f5ff7fdf283ef418c8b02d2c3df760943",
+      "sizeBytes": 5066,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-app-resource-content-K9jUYsgG.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0d238dfe43dcfc84a3f4dcd656a9eb4efd32e4d2c3352696b656621b3ee624ad",
+      "sizeBytes": 86378,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-app-resource-content-XmXIzYWJ.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6ec31b7a2f4c80338f2049b1f9654f4f3364d0c3f9dfde2b784bc2ff4abcd18b",
+      "sizeBytes": 213,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-extension-thread-side-panel-tab-Df67wXNQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6fc8adc073d04e0b37e58e3bce365e8f13deb593ddf589cf4ea63d1fe8b12a1b",
+      "sizeBytes": 247,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-extension-view-frame-0d2FINfE.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "aa8f75141ce6d41d1a0edd7495df2046334a86d9a3313a937192418ca857e4af",
+      "sizeBytes": 100,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-extension-view-frame-C-EhVt3z.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3d3c98a17ec4ca8ca9a1f607e02340468093415186555b8f7f06a1567a17994c",
+      "sizeBytes": 8498,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-extension-view-page-C1cei6AT.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "1ca02901ccfd8068fabce3fdba149d88b601175bb93fb78aa8d853db8b9ddb95",
+      "sizeBytes": 192,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/mcp-extension-view-page-D838gxrs.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f87481ce4fb2b4491e3d2e6310cac9192c80a461d5690fe7e5062d0fc9b4b348",
+      "sizeBytes": 6519,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/thread-mcp-app-side-panel-BejGYbMI.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "69eb60572a12270f5bebae5eca304aa8247bf7cf407e847b8abd591eb5c8c27e",
+      "sizeBytes": 1659,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/thread-mcp-app-side-panel-tab-vpJfGLGE.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "a94cc299270ec8a2995b0d848c6886a022356f860352912636580df48faf155c",
+      "sizeBytes": 521,
+      "surfaceID": "mcp-app",
+      "surfaceKind": "host",
+      "surfaceTitle": "MCP app"
+    },
+    {
+      "assetPath": "/webview/assets/layout-panel-left-CvSYlb6N-Cpyal42K.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7e72580b0ba6dd22d583bea631e7cd591e7cf45edbdfca7d53bb1bac01fcb21c",
+      "sizeBytes": 447,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/layout-panel-left-CvSYlb6N-DvYHZvt2.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "543f5fe785a26ec4ba66f63e4076e0a1b82c17935c23d733a7d40290dbddff7f",
+      "sizeBytes": 88,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/layout-panel-top-ByVYquQ6-COJop42m.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "29240ea15a270beb4138bdb6e587a4a8360ebc4ffeeccad344ea9ead8b513bc7",
+      "sizeBytes": 446,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/layout-panel-top-ByVYquQ6-DlYMsnzM.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "eae0826608c72146065d57d2fca4243afc1c47defcf51d656acad123572887b6",
+      "sizeBytes": 87,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-D3_gJnhs.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "886872458fc71a07c59269cf003bf6ed2117ba81a0edc93afcc9f4e97ce913eb",
+      "sizeBytes": 236472,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-DxDUfvgB-BlTESv6-.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0eed8022cdd088a4bf0eafff07bc72064a34b7cd0f057a00baac0840d50f9025",
+      "sizeBytes": 83,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-DxDUfvgB-BxYk9n_N.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "20632678536e12fbd8a3f2acdbeca91870669be59e53c2daa5461044af365265",
+      "sizeBytes": 346,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-close-Dm_qQt9y-BBcmKI7e.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "438606f5395cd5f35f155960525ee95145a440abff4dff590bc4abde1936f936",
+      "sizeBytes": 89,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-close-Dm_qQt9y-CKbHpK9Y.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "b333e368fb229319861f1ecdd5cb0cf78daf2b786411ffbcfd142a9abf27a494",
+      "sizeBytes": 399,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-dashed-BLrQ8rNx-CR-I3T4Y.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5cdf133be96dd0e5a6bc94020fdbe1d93976663634c4c9a4277f71329d75fa82",
+      "sizeBytes": 468,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-dashed-BLrQ8rNx-D_fVwPvQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e863067d73308b45b75b7d5518124988f4de9a27b1abc7a790234dea60a3a379",
+      "sizeBytes": 90,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-inactive-Cd0Ao90P-PSNcKGz4.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "51fa097f94d30241c37c150cc4659beca181beff5fc3484837266a3ce68e6ca2",
+      "sizeBytes": 227,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-open-BUsGE7I2-BUzpQAyA.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "d25424d84aa506e5291b35ca8a3f2e488c1b98855a204dc81911d0a1385a0692",
+      "sizeBytes": 397,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-bottom-open-BUsGE7I2-BhTlr974.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "46fdc140ab03864f170f78c35fc0e6c04ac95f537a6f55b93a35b8f4ed8ef99e",
+      "sizeBytes": 88,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-D_user39-DMAso9y9.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5322bdd7f06a6ecd6ff52bb68fe4bfd8999188fa1ba0e1c951576bd4678c27c3",
+      "sizeBytes": 341,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-D_user39-DOXYp-fP.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "66552eead762d306363c7805f13c1d51f89df521c6f9ab6dbf5a2cf8757067e4",
+      "sizeBytes": 81,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-close-8R4TFhVW-0WrplTbl.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "2220b35e5c5b445d00b62f37b491ad2cc6a5145502c5e55075c4c34c64aa4f8c",
+      "sizeBytes": 87,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-close-8R4TFhVW-Ww3-JpZx.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "00b5c7ae0a70452dc1bb4b0b25572a844630d4ad2fd901e73b2e95c5b646558f",
+      "sizeBytes": 395,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-dashed-jlBwMqN1-CZCa6VZ7.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "626a91f3d22801780ac988da9cc89a46f30073899293e5612e273efab67250b1",
+      "sizeBytes": 88,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-dashed-jlBwMqN1-Cz1DYMF4.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0aa3ac2b73f035cfaf04872e95251b50f5f68d2d45fe8f50e3df12db82efecd8",
+      "sizeBytes": 460,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-inactive-DzsPQKQx-D9PCuPdA.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "326c00de26404fb0f2d15432463d72baab86d1908fed503900246e14cbbc7b33",
+      "sizeBytes": 223,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-open-BcV0PZVh-Cow7P5Hh.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "59a943c774c4da0c3aa13aecdd7830ec7e61c12bcb2ccc6627eb37b30d7f42e5",
+      "sizeBytes": 86,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-left-open-BcV0PZVh-DhKAnbHP.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3fc2afd848cc8dd4532e0a1ba6bbc08bf0365d507ded2bbcab318c1d9baf650d",
+      "sizeBytes": 392,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-2tvWPBSr-BAweRxq8.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3e32bf4f31ca3db6424e3429f83ac44e2da42100882966e129b5eed2898df7b6",
+      "sizeBytes": 344,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-2tvWPBSr-O4iGic-I.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f217601e86772665d0ab0071b15b71c4c8dd21953a8d6ceccce904622da6ecd6",
+      "sizeBytes": 82,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-close-DIehIyXL-CN_hrvbs.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "c05e092431965250db69842fe68681e8bc9de2652ab041d258f35df80af8b679",
+      "sizeBytes": 88,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-close-DIehIyXL-gsl2HntD.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "8d184ed3d6a9f3ec12788815190aeb1aa60aa32eddea9d021a2233f6bd923192",
+      "sizeBytes": 396,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-dashed-CYEdUtis-DutQx5jf.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "efec421677cc3052951115de857cb739c532361e3ba06a3e0b0b617d7006a381",
+      "sizeBytes": 89,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-dashed-CYEdUtis-rqjsa9ZH.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "326e94fa7f3de49b4d500d1aad1880bbbce6a4261c6a0db2959a5d0c76343910",
+      "sizeBytes": 466,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-inactive-D7dLJFdF-n_DuDC27.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "110b3695eb39714522944d4a63aea555cbb08e5445f3062ff0dbd5619d40f485",
+      "sizeBytes": 225,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-open-BFNV1qlh-BOFliXD-.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e015c8fb51ab378fb63970edf920230d261452ac4894c7fe17c314e60dd563f8",
+      "sizeBytes": 87,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-right-open-BFNV1qlh-DlOmGzQr.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5397df47fbac805ad21821acee4aebb4ca5977225265e41eedfa3c42a31407e8",
+      "sizeBytes": 396,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-tabs-CjHMQg6e.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "9890556a7fe4d6a68644ec45e5a482a3f172af3cc760fb5eb979317ffd2d35fb",
+      "sizeBytes": 155,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-Wu5KpjYN-C1RDvhyP.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7d759c7fd2d0b7f0283619504df20a630dc137870301fac466b5b734f98bf18a",
+      "sizeBytes": 80,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-Wu5KpjYN-CZwYcWU7.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e3f915f28f780b92183e83d34be70a42be4c50596171d007fad05af9658fa66b",
+      "sizeBytes": 339,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-close-CMpmi1DC-1DCnOf1H.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6b78b52d618c2b780bbd9a69269706edd1510b9ad70cfea766a0b47a755f827d",
+      "sizeBytes": 86,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-close-CMpmi1DC-DBnkZi3g.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "5490b8bd581058b635ae61efa4aba82849c015039b94e50928654523f94e98da",
+      "sizeBytes": 392,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-dashed-TbA3YeU7-Cq8zaHbO.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "a34e80475a9ce81c3afc1744b6743d6c22b129caf39be7d574690a189f164207",
+      "sizeBytes": 458,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-dashed-TbA3YeU7-Df4cmobx.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "39d4561b562a606847d0929bcc28072e7445f275df4488efda50d604c1c40889",
+      "sizeBytes": 87,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-inactive-BCSsj85H-BPfE-3tx.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "682dd6560a43f76044b66051ea109a93dd6f57f38696efeab7b72cb1f44524dd",
+      "sizeBytes": 221,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-open-qAAREQOa-D1bjvHS1.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "ab38d8ce2ed4ddcbc813f4a70a9499fa3dece1e687a14a093ac1b05d12b0cd01",
+      "sizeBytes": 85,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panel-top-open-qAAREQOa-DZzLdvZT.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "77a2f649dcb99e849b69dd79315252a0991c048b20924dbc91ffa27532544aa5",
+      "sizeBytes": 391,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-left-bottom-CNTCU44_-Binycx_O.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "fdfd11c2642956a9646b6f5c49758ef50d61e4c3ac0e4640ee75e9b538138dc0",
+      "sizeBytes": 89,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-left-bottom-CNTCU44_-DYAa4I8a.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "ec1b2945cd3611b764284c531d79325911219a9b1e931dd481a7b5949a8adc28",
+      "sizeBytes": 393,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-left-right-UBQBkKnu-CsjQ4vNB.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "c6cc4c52bf4df3cb6ffc4a357ea6c0eac8144a190d60e892102a96f32d362863",
+      "sizeBytes": 213,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-right-bottom-DA34oZGo-DAV3M1xV.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "574983650731ef2ba262f95db42697a2a387d7034149c09cf95b6a0e946ec49c",
+      "sizeBytes": 396,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-right-bottom-DA34oZGo-ZHL1LNxS.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "28519519ff5a5e84a926ce620e2d5e0ab928e2e03459e057116f7e2b936dc011",
+      "sizeBytes": 90,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-top-bottom-BojnbmuG-D8GaRFyi.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "d143830105b7304b55f24898922d59083b8ca28bf004af9e8cdcd468bff8571f",
+      "sizeBytes": 210,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-top-left-CeimgzDC-Rg32p0lM.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "af55b6549b5a2311d2ddf2b3e0c322dfa7310cd1dccc80a5c0728b377df44a30",
+      "sizeBytes": 86,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/panels-top-left-CeimgzDC-lSh4d5Ly.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "316d97a2adc10e65c3791fdf0beadcd3e3810b8e244a249b0fcddb21c54ad6ac",
+      "sizeBytes": 386,
+      "surfaceID": "panel-topology",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Panel topology"
+    },
+    {
+      "assetPath": "/webview/assets/editable-plan-tab-D_pFiWib.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "b3b6b2312c662f679bdeb668920ce0cc4a78546acd156b7bc50878127746cf47",
+      "sizeBytes": 102,
+      "surfaceID": "plan",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Plan"
+    },
+    {
+      "assetPath": "/webview/assets/plan-side-panel-BRVFmGD7.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "a3649402219196c93e0475161346cd364a74a78bc8925645ca041390601467a2",
+      "sizeBytes": 225,
+      "surfaceID": "plan",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Plan"
+    },
+    {
+      "assetPath": "/webview/assets/plan-summary-page-B2ZmFd6F.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "26b298d98732aecda12de4ce4b794434c8ddbb6d2dde92daa247959619a67b2b",
+      "sizeBytes": 1942,
+      "surfaceID": "plan",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Plan"
+    },
+    {
+      "assetPath": "/webview/assets/plan-tab-content-ItwB-JPu.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f99fc8cb1f4f660fdfe9299eec8f1e68e3de91eefe63e2a455d95214a4c4fb48",
+      "sizeBytes": 1083,
+      "surfaceID": "plan",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Plan"
+    },
+    {
+      "assetPath": "/webview/assets/editable-review-file-source-tab-content.electron-C-D_EGoB.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "85899e7aa74d4d8ae744368af9b041464f10bb8e1428cf707c836462dcb339b8",
+      "sizeBytes": 2810,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/open-thread-pull-request-side-panel-tab-Byoq_PcZ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7c5f055e45c209372c3d7d7c93dda5eff7c9ac3947fa2debc0aceb1a3f0d6c97",
+      "sizeBytes": 236,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/open-thread-pull-request-side-panel-tab-C20MjUDR.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "482a3c7268b3681d8e55f4405d9aa1e979a354ccf0621c0ca4d84708e9821a48",
+      "sizeBytes": 4331,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/pull-request-code-review-C-DvLnay.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "a592621279382a8897b4c0399084c670c40513e6ad62d7a2e06cbf1985f98e7c",
+      "sizeBytes": 100,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/pull-request-code-review-FOb9Pnbk.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "1b7b7ce0d9adbd83aff7cea02f27fab1d13acccb6149e1fcc6a5f53e99fbeb74",
+      "sizeBytes": 34784,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/pull-request-revision-tab-BQ7yGxFl.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "d6b90e5ac600eee695bc36e7c69d88c978e945bee9ce443d41f5dbf95d44653e",
+      "sizeBytes": 6530,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/review-file-source-tab-C54uTm3e.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "23dbd5626c716dde7ce32237e23f1ddb014ec3f6cc6e11f215ebd7ac700d7092",
+      "sizeBytes": 176,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/review-file-source-tab-content-DL7zxPIq.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e097b4d189b6e2d8e13e850c32b4061696e81115d84bfd11b7dc62edce51b5cb",
+      "sizeBytes": 1297,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/review-file-source-tab-sync-3zTzpEgQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6b96f8734d9cad0ef0a2a290ca7ed054a8f44365e97500ad1a2e8220cc8e92b5",
+      "sizeBytes": 137,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/thread-pull-request-tab-content-zb3IMofz.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "abecfd856c930ada34c6d12c010d5a612c6bde831a2a6324b66308f2a0afed54",
+      "sizeBytes": 5892,
+      "surfaceID": "review",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Review"
+    },
+    {
+      "assetPath": "/webview/assets/side-chat-tab-content-CJvWmPvK.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "ee14e017d42b9061d39edfd5af8e6e10bfa0a022443765d843de45505b455a3a",
+      "sizeBytes": 424,
+      "surfaceID": "side-chat",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Side chat"
+    },
+    {
+      "assetPath": "/webview/assets/chatgpt-sources-message-CYWwKJeR.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "379de597c68bf642186b9c1eca58b8ec076d18cf37f78e4162b2d4329b109840",
+      "sizeBytes": 1695,
+      "surfaceID": "sources",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Sources"
+    },
+    {
+      "assetPath": "/webview/assets/chatgpt-sources-side-panel-tab-DOyp6O-Z.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "73c4a13cb3eaabdfe8e7d7d3d1e47aa1635cf1b492b281e20470b473b4b79f17",
+      "sizeBytes": 1018,
+      "surfaceID": "sources",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Sources"
+    },
+    {
+      "assetPath": "/webview/assets/local-conversation-sources-side-panel-tab-CAQEKOKR.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "24cf0a2c18adcf8f9ab47d4893523f679492179b3665739b128b7ec0a5465781",
+      "sizeBytes": 11712,
+      "surfaceID": "sources",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Sources"
+    },
+    {
+      "assetPath": "/webview/assets/turn-sources-model-D2KCZYr2.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "4c1c9ad1278d89afe85e6acbc6b0fc18097681d46a72d0a1d10ccb835f0bd3c6",
+      "sizeBytes": 491,
+      "surfaceID": "sources",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Sources"
+    },
+    {
+      "assetPath": "/webview/assets/chatgpt-subagents-panel-CkWA5CHQ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "17d57addab6660bd7530b297296c422984073fe4917f5c1d6cdeb32337e360e7",
+      "sizeBytes": 12212,
+      "surfaceID": "subagents",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Subagents"
+    },
+    {
+      "assetPath": "/webview/assets/local-conversation-subagents-panel-tab-B7EZYHzE.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f4242305118843abba373bf3fb731200f6a6c30a79126998c01977c0639cf93f",
+      "sizeBytes": 6699,
+      "surfaceID": "subagents",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Subagents"
+    },
+    {
+      "assetPath": "/webview/assets/open-local-conversation-subagents-panel-B4swPFqn.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6b7251923aa7caab74d8171628f7339209a3dfe6299eab11e47e0ac0b26c1fb2",
+      "sizeBytes": 129,
+      "surfaceID": "subagents",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Subagents"
+    },
+    {
+      "assetPath": "/webview/assets/open-local-conversation-subagents-panel-cZrnQwXa.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e801e65267b2edfaa3bf94d7cbba4fb00540df2347133a66383fd13acd5d8057",
+      "sizeBytes": 2517,
+      "surfaceID": "subagents",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Subagents"
+    },
+    {
+      "assetPath": "/webview/assets/subagent-panel-CzkbZYUU.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "bc3ab7f9c08b35cf233b395cbff51729a9e0c74bdaffffdafa2f9e43f6c01260",
+      "sizeBytes": 4548,
+      "surfaceID": "subagents",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Subagents"
+    },
+    {
+      "assetPath": "/webview/assets/open-tab-CRwO3Uc0.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "809ce71487d9778de6304f0dd5c5bd747999397ad4c1175ec40487dc2a75b935",
+      "sizeBytes": 276,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/tab-D7QrMdpH.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "8cf1f7bb952b61925988ab63f14b58b69a9691669fbec67b71519feb57b8b48f",
+      "sizeBytes": 92,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/tab-content-hGPgNnsT.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "c979d9582eca581084b8f5b653000aa7189186ed8c75712e95bbbeb49ffc4366",
+      "sizeBytes": 3922,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/tab-content-xZOmqj_i.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "6e7069a8fe158949d50a67ebf73ea18038d2734f243b57b2cc1c7937c82fc79e",
+      "sizeBytes": 104977,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/tab-content-yhp2PVQO.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f71d9ef3494baf737e1f22b21ade6c22605866f7a00665d4830cb2a8d05bf138",
+      "sizeBytes": 225339,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/tabs-BGDrhfvt.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "4b61b1c67218fae0a5a951d19e8db47c0a7b6a79df66d82199b2b2645462e5d0",
+      "sizeBytes": 5245,
+      "surfaceID": "tab-system",
+      "surfaceKind": "topology",
+      "surfaceTitle": "Tab system"
+    },
+    {
+      "assetPath": "/webview/assets/file-terminal-CwAYT0KT-CzmgIAsw.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "11141add62f084ed367ec9709a8a9074da0f7e9c783eae2eae40644f92ebdca8",
+      "sizeBytes": 463,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/file-terminal-CwAYT0KT-HfqAQ1JW.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "e6499313027c12e5e21833f8dc0e9e941ca21c8853038fe2d6e496582bb7fdfe",
+      "sizeBytes": 84,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/terminal-panel-D-cizQmB.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "b405b7583168b7e3ca0ef74c20a0e2b77ce9274fa2374d534dbbe68e610164b4",
+      "sizeBytes": 16125,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/terminal-panel-D3tfkWc0.css",
+      "assetType": "style",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "87fc46f0a306d52192bcfea1ecbd8700ba6abe6b9412352409f7d7c909b69e9c",
+      "sizeBytes": 5387,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/terminal-panel-EK_LMuWw.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "7222f5eff5d47eaac1cb1ccf36717732754ec60d9a30925f46888e705c3b895d",
+      "sizeBytes": 296716,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/terminal-tab-ulE5EoWL.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "f0d72289f816f28bbcf9b7ae0bedeec81c91c187d1d3a9a26dcfd509f72091ee",
+      "sizeBytes": 8311,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/xterm-output-panel-CkjFaZW0.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "11b2c7f23b0ade9e3b9305017c2856ac5daad877b0a5a5301e545d941d16a3c5",
+      "sizeBytes": 3825,
+      "surfaceID": "terminal",
+      "surfaceKind": "host",
+      "surfaceTitle": "Terminal"
+    },
+    {
+      "assetPath": "/webview/assets/thread-goal-side-panel-content-DHFzUDj1.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "bb26326f906e94e96d7b22c067ae025984b1c3e7182fa8c7bc76d269120eb499",
+      "sizeBytes": 6246,
+      "surfaceID": "thread-goal",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Thread goal"
+    },
+    {
+      "assetPath": "/webview/assets/thread-panel-state-DMmbZW8v.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "2cb5e21df59ac241183d0eefb5a6b8bbf53585d9f0732c537bf1b06048112c1c",
+      "sizeBytes": 139,
+      "surfaceID": "thread-panel-state",
+      "surfaceKind": "state",
+      "surfaceTitle": "Thread panel state"
+    },
+    {
+      "assetPath": "/webview/assets/thread-panel-toggle-button-BeVk7nzL.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "0e00a481789ddbaa65effec16f208baf985e2fb21647bb75576650e743857065",
+      "sizeBytes": 6178,
+      "surfaceID": "thread-panel-toggle",
+      "surfaceKind": "control",
+      "surfaceTitle": "Thread panel toggle"
+    },
+    {
+      "assetPath": "/webview/assets/thread-right-panel-state-CQnNjDQo.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "bfa3466c12ad0be195c1e9b2798703f1ebbccc365bad87f36d1b391d93d149c6",
+      "sizeBytes": 94,
+      "surfaceID": "thread-right-panel-state",
+      "surfaceKind": "state",
+      "surfaceTitle": "Thread right-panel state"
+    },
+    {
+      "assetPath": "/webview/assets/thread-side-panel-tab-content-C_ECMNIi.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "29931c902d625e3d723a445353cd406f2549a28dad33780911e05ab2620c8354",
+      "sizeBytes": 97816,
+      "surfaceID": "thread-side-panel-content",
+      "surfaceKind": "container",
+      "surfaceTitle": "Thread side-panel content"
+    },
+    {
+      "assetPath": "/webview/assets/thread-side-panel-new-tab-BNjoPuF8.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "8b36e3430b2c634a51463ceb1845da32ab743c493301e7b8d6ce97696f327213",
+      "sizeBytes": 16791,
+      "surfaceID": "thread-side-panel-new-tab",
+      "surfaceKind": "tab",
+      "surfaceTitle": "Thread side-panel new tab"
+    },
+    {
+      "assetPath": "/webview/assets/thread-side-panel-tabs-4yaEbUnb.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "88b4d7f9972a670fa37056c5f9d65e6e558de4ef15603233b99448e57c3d7261",
+      "sizeBytes": 333,
+      "surfaceID": "thread-side-panel-tabs",
+      "surfaceKind": "container",
+      "surfaceTitle": "Thread side-panel tabs"
+    },
+    {
+      "assetPath": "/webview/assets/thread-side-panel-tabs-iRc-2OM_.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "656eed873eb796dcd8f0106538113aaff3392d7b9b8662b6e7b9906540f7376d",
+      "sizeBytes": 397,
+      "surfaceID": "thread-side-panel-tabs",
+      "surfaceKind": "container",
+      "surfaceTitle": "Thread side-panel tabs"
+    },
+    {
+      "assetPath": "/webview/assets/unrestored-thread-tab-route-1Ge4DP1c.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "948732c87864f3cf5f50c70875f4684b00f448efb451f3f45ab646c2bf1fe622",
+      "sizeBytes": 1764,
+      "surfaceID": "unrestored-thread",
+      "surfaceKind": "state",
+      "surfaceTitle": "Unrestored thread"
+    },
+    {
+      "assetPath": "/webview/assets/visualization-directive-renderer-BBxukGCZ.js",
+      "assetType": "module",
+      "evidence": "hashed renderer asset filename in app.asar header",
+      "sha256": "3321fbfb9cd9eb63d6f7088b4b956bfccd3f09c8459113bb8426f4e46c48e872",
+      "sizeBytes": 103,
+      "surfaceID": "visualization",
+      "surfaceKind": "host",
+      "surfaceTitle": "Visualization"
+    }
+  ],
+  "bundle": {
+    "asarRelativePath": "Contents/Resources/app.asar",
+    "asarSha256": "0462b03e878f0e78b223b849ee14cbba0de043f2c16acebee163cb95daa622ef",
+    "asarSizeBytes": 284029593,
+    "buildVersion": "7303",
+    "bundleIdentifier": "com.openai.codex",
+    "bundlePath": "/Applications/ChatGPT.app",
+    "displayName": "ChatGPT",
+    "minimumSystemVersion": "13.0",
+    "runtime": {
+      "relativePath": "Contents/Resources/codex",
+      "sha256": "67ea03c98e7726eeebd161bc3bc92d8937f412f1899790a28e4ee9b80803c4d7",
+      "sizeBytes": 229294704
+    },
+    "shortVersion": "26.825.32147"
+  },
+  "capturedAtUTC": "2026-08-28T21:05:00Z",
+  "oracle": {
+    "archiveFormat": "electron-asar",
+    "assetSelection": "webview/assets JavaScript and CSS modules matching workspace tab/panel families",
+    "kind": "installed-official-bundle",
+    "readOnly": true
+  },
+  "schemaVersion": 1,
+  "sourceCommit": "8d3999d659d558e4b444d43a0d42109cab4c6538",
+  "summary": {
+    "assetCountBySurface": {
+      "artifact": 8,
+      "automation": 8,
+      "background-terminal": 3,
+      "browser": 2,
+      "document-preview": 10,
+      "entity": 1,
+      "files": 6,
+      "generated-image": 3,
+      "inspection": 2,
+      "mcp-app": 10,
+      "panel-topology": 50,
+      "plan": 4,
+      "review": 10,
+      "side-chat": 1,
+      "sources": 4,
+      "subagents": 5,
+      "tab-system": 6,
+      "terminal": 7,
+      "thread-goal": 1,
+      "thread-panel-state": 1,
+      "thread-panel-toggle": 1,
+      "thread-right-panel-state": 1,
+      "thread-side-panel-content": 1,
+      "thread-side-panel-new-tab": 1,
+      "thread-side-panel-tabs": 2,
+      "unrestored-thread": 1,
+      "visualization": 1
+    },
+    "assetCountBySurfaceKind": {
+      "container": 3,
+      "control": 1,
+      "host": 49,
+      "state": 3,
+      "tab": 38,
+      "topology": 56
+    },
+    "matchedAssetCount": 150,
+    "surfaceCount": 27
+  }
+}
