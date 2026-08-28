@@ -419,6 +419,7 @@ struct CodexCoreAppShell: View {
                 presentationStore: model.runtimeSession.presentationStore,
                 sideChat: model.sideChat,
                 subagents: model.subagents,
+                subagentCoordinator: model.subagentPresentationCoordinator,
                 workspacePath: model.workspacePath,
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,

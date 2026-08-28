@@ -64,6 +64,10 @@ extension CodexCoreAppModel {
         runtimeSession.subagents
     }
 
+    var subagentPresentationCoordinator: CodexSubagentPresentationCoordinator? {
+        runtimeSession.subagentPresentationCoordinator
+    }
+
     var allSidebarChats: [CodexThreadSummary] {
         threadListSession.allChats.isEmpty ? threadListSession.recentChats : threadListSession.allChats
     }
