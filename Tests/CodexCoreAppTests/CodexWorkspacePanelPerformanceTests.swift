@@ -90,22 +90,22 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         let preview = panel.openFilePreview(fileURL: URL(fileURLWithPath: "/tmp/README.md"))
         let tabIDs = [terminal, browser, files, preview]
 
-        // Warm the published selection path before recording samples.
-        for id in tabIDs { panel.selectedTabID = id }
+        // Warm the reducer-owned activation path before recording samples.
+        for id in tabIDs { panel.workspaceTabs.activateLegacy(id) }
 
         let iterations = scaledIterations(default: 80, minimum: 12)
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
             samples.append(signposted("tab_activation") {
-                panel.selectedTabID = tabIDs[index % tabIDs.count]
-                _ = panel.selectedTabID
+                panel.workspaceTabs.activateLegacy(tabIDs[index % tabIDs.count])
+                _ = panel.workspaceTabs.snapshot.topology.right.activeTab
             })
         }
 
         return ScenarioReport(
             id: "tab_activation",
-            operation: "select each existing workspace tab through CodexWorkspacePanelState",
+            operation: "activate each existing workspace tab through CodexWorkspaceTabs",
             iterations: iterations,
             workload: ["tabCount": tabIDs.count],
             samples: samples,
@@ -123,6 +123,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         for _ in 0..<iterations {
             samples.append(signposted("panel_open_close") {
                 let panel = CodexWorkspacePanelState()
+                _ = panel.openTerminal(workspacePath: "/tmp")
                 panel.isAgentPanelOpen = true
                 panel.isAgentPanelOpen = false
                 panel.isAgentPanelOpen = true
@@ -240,16 +241,15 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         let browser = CodexBrowserSession(id: "oracle-browser")
         let files = CodexFilesSession(id: "oracle-files", rootURL: URL(fileURLWithPath: "/tmp"))
         let sessionIDs = [terminal.id, browser.id, files.id]
-        let selection = SelectionBox(value: terminal.id)
+        let workspaceTabs = CodexWorkspaceTabs()
+        sessionIDs.forEach(workspaceTabs.openLegacy)
+        workspaceTabs.activateLegacy(terminal.id)
 
         func rootView() -> AnyView {
             AnyView(
                 CodexAgentSidePanel(
                     tabs: [],
-                    selectedTabID: Binding(
-                        get: { selection.value },
-                        set: { selection.value = $0 }
-                    ),
+                    workspaceTabs: workspaceTabs,
                     terminalSessions: [terminal],
                     browserSessions: [browser],
                     filesSessions: [files],
@@ -270,7 +270,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
-            selection.value = sessionIDs[(index + 1) % sessionIDs.count]
+            workspaceTabs.activateLegacy(sessionIDs[(index + 1) % sessionIDs.count])
             let start = DispatchTime.now().uptimeNanoseconds
             let id = OSSignpostID(log: Self.signpostLog)
             os_signpost(.begin, log: Self.signpostLog, name: "hidden_surface_layout", signpostID: id)
@@ -428,13 +428,6 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         return result == KERN_SUCCESS ? UInt64(info.resident_size) : 0
     }
 
-    private final class SelectionBox {
-        var value: String?
-
-        init(value: String?) {
-            self.value = value
-        }
-    }
 }
 
 // MARK: - Codable report model
