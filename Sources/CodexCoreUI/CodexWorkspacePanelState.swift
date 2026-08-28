@@ -23,11 +23,26 @@ public final class CodexWorkspacePanelState: ObservableObject {
     private var nextBrowserNumber = 1
     private var terminalTabIDs: [String: CodexWorkspaceTabID] = [:]
 
-    public init(panelWidth: CGFloat = 400, threadID: String? = nil) {
+    public init(
+        panelWidth: CGFloat = 400,
+        threadID: String? = nil,
+        restorationState: CodexWorkspaceTabRestorationState? = nil
+    ) {
         self.panelWidth = panelWidth
-        self.workspaceTabs = CodexWorkspaceTabs()
+        self.workspaceTabs = restorationState.map(CodexWorkspaceTabs.init(restoring:))
+            ?? CodexWorkspaceTabs()
         let trimmedThreadID = threadID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
+    }
+
+    public var workspaceTabRestorationState: CodexWorkspaceTabRestorationState {
+        workspaceTabs.restorationState
+    }
+
+    public func applyWorkspaceTabRestoration(
+        _ restorationState: CodexWorkspaceTabRestorationState
+    ) {
+        workspaceTabs.apply(restoration: restorationState)
     }
 
     public var isAgentPanelOpen: Bool {
@@ -91,9 +106,8 @@ public final class CodexWorkspacePanelState: ObservableObject {
             isBackground: !focus
         )
         terminalSessions.append(session)
-        let adapter = terminalAdapter(for: session, placement: placement)
         let tabID = workspaceTabs.open(
-            adapter,
+            terminalAdapter(for: session, placement: placement),
             from: focus ? .commandMenu : .background,
             placement: placement,
             focus: focus
@@ -122,9 +136,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         terminalTabIDs[terminalID]
     }
 
-    /// The current terminal adapters are registered on every render pass so a
-    /// restored route can become available without constructing a second PTY.
-    public var terminalWorkspaceTabAdapters: [any CodexWorkspaceTabAdapter] {
+    package var terminalWorkspaceTabAdapters: [any CodexWorkspaceTabAdapter] {
         terminalSessions.map { session in
             let placement = terminalTabIDs[session.id]
                 .flatMap { workspaceTabs.placement(of: $0) }
@@ -134,9 +146,11 @@ public final class CodexWorkspacePanelState: ObservableObject {
     }
 
     public func closeTerminal(id: String) {
-        let tabID = terminalTabIDs[id]
-        if let tabID { workspaceTabs.close(tabID) }
-        else { removeTerminalSession(id: id) }
+        if let tabID = terminalTabIDs[id] {
+            workspaceTabs.close(tabID)
+        } else {
+            removeTerminalSession(id: id)
+        }
     }
 
     private func removeTerminalSession(id: String) {
@@ -153,6 +167,12 @@ public final class CodexWorkspacePanelState: ObservableObject {
             placement: placement,
             onClose: { [weak self] in
                 self?.removeTerminalSession(id: session.id)
+            },
+            onReopen: { [weak self] tabID in
+                guard let self,
+                      !self.terminalSessions.contains(where: { $0.id == session.id }) else { return }
+                self.terminalSessions.append(session)
+                self.terminalTabIDs[session.id] = tabID
             }
         )
     }
