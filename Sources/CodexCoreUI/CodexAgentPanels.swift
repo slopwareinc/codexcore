@@ -146,17 +146,16 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            let visibleAgents = (subagentCoordinator?.panelSubagents ?? subagents)
-                .filter(\.isVisibleInFloatingSummary)
-            if !visibleAgents.isEmpty {
-                SummaryDivider()
-                SummarySection(title: "Subagents") {
-                    ForEach(visibleAgents) { subagent in
-                        SummaryRow(title: subagent.floatingSummaryTitle, systemImage: subagent.floatingSummarySystemImage) {
-                            onSelectTab(subagent.id)
-                        }
-                    }
-                }
+            if let subagentCoordinator {
+                LiveSubagentsSummarySection(
+                    coordinator: subagentCoordinator,
+                    onSelectTab: onSelectTab
+                )
+            } else {
+                StaticSubagentsSummarySection(
+                    subagents: subagents,
+                    onSelectTab: onSelectTab
+                )
             }
 
             SummaryDivider()
@@ -209,6 +208,49 @@ public struct CodexFloatingSummaryPanel: View {
         Button("Copy path") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(summary.workspacePath, forType: .string)
+        }
+    }
+}
+
+@MainActor
+private struct LiveSubagentsSummarySection: View {
+    @Bindable private var coordinator: CodexSubagentPresentationCoordinator
+    let onSelectTab: (String) -> Void
+
+    init(
+        coordinator: CodexSubagentPresentationCoordinator,
+        onSelectTab: @escaping (String) -> Void
+    ) {
+        self.coordinator = coordinator
+        self.onSelectTab = onSelectTab
+    }
+
+    var body: some View {
+        StaticSubagentsSummarySection(
+            subagents: coordinator.panelSubagents,
+            onSelectTab: onSelectTab
+        )
+    }
+}
+
+private struct StaticSubagentsSummarySection: View {
+    let subagents: [CodexSubagentState]
+    let onSelectTab: (String) -> Void
+
+    var body: some View {
+        let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
+        if !visibleAgents.isEmpty {
+            SummaryDivider()
+            SummarySection(title: "Subagents") {
+                ForEach(visibleAgents) { subagent in
+                    SummaryRow(
+                        title: subagent.floatingSummaryTitle,
+                        systemImage: subagent.floatingSummarySystemImage
+                    ) {
+                        onSelectTab(subagent.id)
+                    }
+                }
+            }
         }
     }
 }
