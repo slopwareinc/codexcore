@@ -9,7 +9,7 @@ import CodexCore
 /// `CodexSubagentPresentationCoordinator` and is retained only while this row
 /// is selected. Keeping the list value transcript-free makes the memory rule
 /// visible at this seam instead of relying on every caller to remember it.
-public struct CodexSubagentsWorkspaceRow: Identifiable, Equatable, Sendable {
+package struct CodexSubagentsWorkspaceRow: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let title: String
@@ -18,7 +18,7 @@ public struct CodexSubagentsWorkspaceRow: Identifiable, Equatable, Sendable {
     public let createdAt: Date
     public let completedAt: Date?
 
-    public init(_ subagent: CodexSubagentState) {
+    package init(_ subagent: CodexSubagentState) {
         id = subagent.id
         name = subagent.name
         title = subagent.title
@@ -28,10 +28,10 @@ public struct CodexSubagentsWorkspaceRow: Identifiable, Equatable, Sendable {
         completedAt = subagent.completedAt
     }
 
-    public var isActive: Bool { status == .running }
-    public var isDone: Bool { !isActive }
+    package var isActive: Bool { status == .running }
+    package var isDone: Bool { !isActive }
 
-    public var statusSummary: String {
+    package var statusSummary: String {
         switch status {
         case .running: "Working"
         case .completed: "Completed"
@@ -42,12 +42,12 @@ public struct CodexSubagentsWorkspaceRow: Identifiable, Equatable, Sendable {
 }
 
 /// The stable, transcript-free master-list projection for Subagents.
-public struct CodexSubagentsWorkspaceSnapshot: Equatable, Sendable {
-    public let active: [CodexSubagentsWorkspaceRow]
-    public let done: [CodexSubagentsWorkspaceRow]
-    public let selectedThreadID: String?
+package struct CodexSubagentsWorkspaceSnapshot: Equatable, Sendable {
+    package let active: [CodexSubagentsWorkspaceRow]
+    package let done: [CodexSubagentsWorkspaceRow]
+    package let selectedThreadID: String?
 
-    public init(
+    package init(
         active: [CodexSubagentsWorkspaceRow],
         done: [CodexSubagentsWorkspaceRow],
         selectedThreadID: String?
@@ -57,9 +57,9 @@ public struct CodexSubagentsWorkspaceSnapshot: Equatable, Sendable {
         self.selectedThreadID = selectedThreadID
     }
 
-    public var allRows: [CodexSubagentsWorkspaceRow] { active + done }
+    package var allRows: [CodexSubagentsWorkspaceRow] { active + done }
 
-    public var statusSummary: String {
+    package var statusSummary: String {
         let activeCount = active.count
         let doneCount = done.count
         if activeCount == 0, doneCount == 0 { return "No subagents" }
@@ -72,35 +72,13 @@ public struct CodexSubagentsWorkspaceSnapshot: Equatable, Sendable {
         return String(activeCount) + " active · " + String(doneCount) + " done"
     }
 
-    public func row(id: String) -> CodexSubagentsWorkspaceRow? {
+    package func row(id: String) -> CodexSubagentsWorkspaceRow? {
         allRows.first { $0.id == id }
     }
 }
 
-/// Row-level changes used by the master list. SwiftUI receives stable row IDs;
-/// this value makes the one-row update contract directly testable as well.
-public struct CodexSubagentsWorkspaceListDiff: Equatable, Sendable {
-    public let insertedIDs: [String]
-    public let removedIDs: [String]
-    public let updatedIDs: [String]
-
-    public init(
-        insertedIDs: [String] = [],
-        removedIDs: [String] = [],
-        updatedIDs: [String] = []
-    ) {
-        self.insertedIDs = insertedIDs
-        self.removedIDs = removedIDs
-        self.updatedIDs = updatedIDs
-    }
-
-    public var isEmpty: Bool {
-        insertedIDs.isEmpty && removedIDs.isEmpty && updatedIDs.isEmpty
-    }
-}
-
-public enum CodexSubagentsWorkspaceProjection {
-    public static func snapshot(
+package enum CodexSubagentsWorkspaceProjection {
+    package static func snapshot(
         subagents: [CodexSubagentState],
         selectedThreadID: String? = nil
     ) -> CodexSubagentsWorkspaceSnapshot {
@@ -116,63 +94,41 @@ public enum CodexSubagentsWorkspaceProjection {
         )
     }
 
-    public static func diff(
-        from old: CodexSubagentsWorkspaceSnapshot,
-        to new: CodexSubagentsWorkspaceSnapshot
-    ) -> CodexSubagentsWorkspaceListDiff {
-        let oldRows = Dictionary(
-            old.allRows.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let newRows = Dictionary(
-            new.allRows.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let oldIDs = Set(oldRows.keys)
-        let newIDs = Set(newRows.keys)
-        let inserted = new.allRows.map(\.id).filter { !oldIDs.contains($0) }
-        let removed = old.allRows.map(\.id).filter { !newIDs.contains($0) }
-        let updated = new.allRows.map(\.id).filter { id in
-            guard let oldRow = oldRows[id], let newRow = newRows[id] else { return false }
-            return oldRow != newRow
-        }
-        return .init(insertedIDs: inserted, removedIDs: removed, updatedIDs: updated)
-    }
 }
 
 /// Stable accessibility vocabulary for the master/detail surface.
-public enum CodexSubagentsWorkspaceAccessibility {
-    public static let masterIdentifier = "subagents.master"
-    public static let backToMasterLabel = "Back to subagents"
+package enum CodexSubagentsWorkspaceAccessibility {
+    package static let masterIdentifier = "subagents.master"
+    package static let backToMasterLabel = "Back to subagents"
 
-    public static func rowIdentifier(_ threadID: String) -> String {
+    package static func rowIdentifier(_ threadID: String) -> String {
         "subagent.row." + threadID
     }
 
-    public static func rowLabel(_ row: CodexSubagentsWorkspaceRow) -> String {
+    package static func rowLabel(_ row: CodexSubagentsWorkspaceRow) -> String {
         row.name + ", " + row.statusSummary
     }
 
-    public static let rowHint = "Show subagent transcript"
+    package static let rowHint = "Show subagent transcript"
 }
 
 /// Presentation state persisted with the one Subagents workspace tab.
-public struct CodexSubagentsWorkspaceTabState: Codable, Equatable, Hashable, Sendable {
-    public var selectedThreadID: String?
+package struct CodexSubagentsWorkspaceTabState: Codable, Equatable, Hashable, Sendable {
+    package var selectedThreadID: String?
 
-    public init(selectedThreadID: String? = nil) {
+    package init(selectedThreadID: String? = nil) {
         self.selectedThreadID = selectedThreadID
     }
 
-    public init(_ state: CodexWorkspaceTabState) {
+    package init(_ state: CodexWorkspaceTabState) {
         self = Self.decode(state.data)
     }
 
-    public var workspaceTabState: CodexWorkspaceTabState {
+    package var workspaceTabState: CodexWorkspaceTabState {
         .init(data: Self.encode(self))
     }
 
-    public static func selectedThreadID(in state: CodexWorkspaceTabState) -> String? {
+    package static func selectedThreadID(in state: CodexWorkspaceTabState) -> String? {
         Self(state).selectedThreadID
     }
 
