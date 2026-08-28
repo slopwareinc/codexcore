@@ -189,31 +189,22 @@ public struct CodexSideChatState: Identifiable, Equatable, Sendable {
 
 public enum CodexAgentPanelTab: Identifiable, Equatable, Sendable {
     case sideChat(CodexSideChatState)
-    case subagent(CodexSubagentState)
-
-    public var isSubagent: Bool {
-        if case .subagent = self { return true }
-        return false
-    }
 
     public var id: String {
         switch self {
         case .sideChat(let sideChat): return sideChat.id
-        case .subagent(let subagent): return subagent.id
         }
     }
 
     public var title: String {
         switch self {
         case .sideChat(let sideChat): return sideChat.title
-        case .subagent(let subagent): return subagent.name
         }
     }
 
     public var systemImage: String {
         switch self {
         case .sideChat: return "rectangle.split.2x1"
-        case .subagent: return "person.wave.2"
         }
     }
 }

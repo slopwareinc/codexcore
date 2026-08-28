@@ -832,8 +832,6 @@ public struct CodexAgentSidePanel: View {
     private let onCloseBrowser: (String) -> Void
     private let onCloseFiles: (String) -> Void
     private let onCloseFilePreview: (String) -> Void
-    private let onCloseSubagent: (String) -> Void
-    private let onSelectSubagentTranscript: (String?) -> Void
     private let showsCloseButton: Bool
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
@@ -864,8 +862,6 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
-        onCloseSubagent: @escaping (String) -> Void = { _ in },
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
@@ -893,8 +889,6 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
-        self.onCloseSubagent = onCloseSubagent
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
@@ -925,8 +919,6 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
-        onCloseSubagent: @escaping (String) -> Void = { _ in },
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void
     ) {
@@ -954,8 +946,6 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
-        self.onCloseSubagent = onCloseSubagent
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
@@ -975,16 +965,10 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear {
             ensureSelection()
-            publishSelectedSubagent()
         }
         .onChange(of: legacyTabIDs) { _, _ in
             ensureSelection()
-            publishSelectedSubagent()
         }
-        .onChange(of: workspaceTabs.snapshot.topology.right.activeTab) { _, _ in
-            publishSelectedSubagent()
-        }
-        .onDisappear { onSelectSubagentTranscript(nil) }
     }
 
     // The deck keeps every recent chat's tool surfaces mounted at once; only the
@@ -1146,14 +1130,6 @@ public struct CodexAgentSidePanel: View {
         activeTab == .legacy(id)
     }
 
-    private func publishSelectedSubagent() {
-        guard case .subagent(let subagent)? = selectedTab else {
-            onSelectSubagentTranscript(nil)
-            return
-        }
-        onSelectSubagentTranscript(subagent.id)
-    }
-
     private var selectedTerminalSession: CodexTerminalSession? {
         terminalSessions.first { isSelectedLegacy($0.id) }
     }
@@ -1307,7 +1283,7 @@ public struct CodexAgentSidePanel: View {
                     isSelected: activeTab == handle,
                     width: width,
                     showsLeadingDivider: showsLeadingDivider(for: handle),
-                    closeAction: tab.isSubagent ? { onCloseSubagent(id) } : nil
+                    closeAction: nil
                 ) { workspaceTabs.activateLegacy(id) }
             }
         }
@@ -1569,31 +1545,11 @@ private struct CodexAgentPanelContent: View {
                     transcriptID: sideChat.id,
                     empty: "Side chat is ready for a focused branch of the parent conversation."
                 )
-            case .subagent(let subagent):
-                subagentTranscriptPanel(subagent)
             }
 
             compactComposer(for: tab)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-        }
-    }
-
-    private func subagentHeader(_ subagent: CodexSubagentState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(subagent.name)
-                    .font(theme.fonts.body)
-                    .foregroundStyle(theme.colors.textPrimary)
-                SubagentStatusBadge(status: subagent.status)
-            }
-            if subagent.title != subagent.name {
-                Text(subagent.title)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -1635,24 +1591,6 @@ private struct CodexAgentPanelContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func subagentTranscriptPanel(_ subagent: CodexSubagentState) -> some View {
-        VStack(spacing: 0) {
-            subagentHeader(subagent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-
-            CodexTranscriptViewV2(
-                transcript: subagent.transcript,
-                bottomContentInset: 16
-            ) {
-                emptyText(subagent.emptyTranscriptMessage)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func emptyText(_ text: String) -> some View {
         Text(text)
             .font(theme.fonts.chat)
@@ -1674,8 +1612,6 @@ private struct CodexAgentPanelContent: View {
                 onSend: onSendSideChatMessage,
                 onInterrupt: onInterruptSideChatMessage
             )
-        case .subagent:
-            EmptyView()
         }
     }
 }
@@ -1764,24 +1700,5 @@ private struct AgentPanelComposer: View {
     private func submit() {
         guard canSend else { return }
         onSend()
-    }
-}
-
-private struct SubagentStatusBadge: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let status: CodexSubagentState.Status
-
-    var body: some View {
-        CodexStatusChip(color: color, label: status.rawValue, isStreaming: false)
-    }
-
-    private var color: Color {
-        switch status {
-        case .running: return theme.colors.running
-        case .completed: return theme.colors.success
-        case .closed: return theme.colors.textTertiary
-        case .failed: return theme.colors.danger
-        }
     }
 }

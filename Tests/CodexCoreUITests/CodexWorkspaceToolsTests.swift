@@ -153,8 +153,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testDiscoveredSubagentsStayOutOfTabsUntilUserSelectsOne() {
-        let panel = CodexWorkspacePanelState()
+    func testDiscoveredSubagentsUseOneMasterListInsteadOfPerAgentTabs() {
         let agents = [
             CodexSubagentState(
                 id: "agent-a",
@@ -172,36 +171,10 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             ),
         ]
 
-        XCTAssertTrue(panel.agentTabs(subagents: agents).isEmpty)
-
-        panel.openSubagent(id: "agent-a")
-        XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-a"])
-
-        panel.openSubagent(id: "agent-b")
-        XCTAssertEqual(panel.agentTabs(subagents: agents).map(\.id), ["agent-b"])
-    }
-
-    @MainActor
-    func testClosingSelectedSubagentFallsBackThroughTheWorkspaceTabReducer() {
-        let panel = CodexWorkspacePanelState()
-        let reviewID = panel.workspaceTabs.open(
-            CodexReviewWorkspaceTabAdapter(
-                workspaceURL: URL(fileURLWithPath: "/tmp"),
-                session: CodexGitReviewSession(
-                    snapshot: CodexGitReviewSnapshot(branchName: "main")
-                )
-            ),
-            from: .summary
-        )
-        panel.openSubagent(id: "agent-a")
-
-        panel.closeSubagent(id: "agent-a")
-
-        XCTAssertNil(panel.openSubagentTabID)
-        XCTAssertEqual(
-            panel.workspaceTabs.snapshot.topology.right.activeTab,
-            .workspace(reviewID)
-        )
+        let snapshot = CodexSubagentsWorkspaceProjection.snapshot(subagents: agents)
+        XCTAssertEqual(snapshot.active.map(\.id), ["agent-a", "agent-b"])
+        XCTAssertTrue(snapshot.done.isEmpty)
+        XCTAssertEqual(snapshot.statusSummary, "2 active")
     }
 
     @MainActor
@@ -234,7 +207,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             panel.workspaceTabs.snapshot.instances.map(\.title),
             ["Plan", "Review"]
         )
-        XCTAssertTrue(panel.agentTabs(subagents: []).isEmpty)
+        XCTAssertTrue(panel.agentTabs().isEmpty)
     }
 
     @MainActor
