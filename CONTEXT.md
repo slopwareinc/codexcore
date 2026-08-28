@@ -122,3 +122,32 @@ projection may be dropped and rebuilt without replaying wire events.
 MainActor-owned user interface state such as selected thread, scroll anchor, bottom pin,
 expanded rows, drafts, and last-seen attention revision. It never reduces protocol
 messages.
+
+## Workspace tab
+
+A presentation-state resource opened beside a thread, such as Plan, Review, Files,
+Subagents, Terminal, Browser, an artifact, or Sources. One tab identity owns its route,
+selection state, placement, restoration state, and heavy-host retention policy. Feature
+views adapt to this shared ownership model rather than implementing parallel tab
+lifecycle state.
+
+## Panel topology
+
+The presentation-state arrangement of workspace tabs across the right and bottom panels:
+ordered tab identities, active tab per panel, open state, focus area, and full-width mode.
+Topology contains no protocol facts and can be persisted or discarded independently of
+the canonical replica.
+
+## Tab route
+
+The versioned, durable description required to restore one workspace tab without eagerly
+creating its heavy host. Preview tabs have no durable route. A feature adapter owns route
+encoding, availability, restoration, and resource-specific tab state behind the workspace
+tab seam.
+
+## Thread resource
+
+A deterministic projection of something a thread can expose in Summary or New Tab—plans,
+subagents, changed or output files, images, visualizations, artifacts, sources, browser
+pages, MCP apps, terminals, reviews, and pull requests. Thread resources retain canonical
+origin identities but not panel selection or layout choices.
