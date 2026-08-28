@@ -576,9 +576,16 @@ struct CodexCoreAppShell: View {
             model.openSideChat()
         case .openReviewPanel:
             if let review = model.gitReviewSession {
-                let tabID = CodexAgentPanelTab.review(review).id
-                model.workspacePanelState.selectedTabID = tabID
-                model.workspacePanelState.isAgentPanelOpen = true
+                model.workspacePanelState.workspaceTabs.open(
+                    CodexReviewWorkspaceTabAdapter(
+                        workspaceURL: URL(fileURLWithPath: model.workspacePath),
+                        session: review,
+                        onStartReview: { target in
+                            Task { await model.startCodeReview(target) }
+                        }
+                    ),
+                    from: .commandMenu
+                )
             } else {
             }
         case .openMCPDetails:

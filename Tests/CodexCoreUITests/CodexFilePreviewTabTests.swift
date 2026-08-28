@@ -20,7 +20,7 @@ final class CodexFilePreviewTabTests: XCTestCase {
         let panel = CodexWorkspacePanelState()
         let id = panel.openFilePreview(fileURL: url("a.swift"))
         XCTAssertEqual(panel.filePreviewSessions.count, 1)
-        XCTAssertEqual(panel.selectedTabID, id)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(id))
     }
 
     func testReopeningSameFileReactivatesWithoutDuplicating() {
@@ -31,7 +31,7 @@ final class CodexFilePreviewTabTests: XCTestCase {
 
         XCTAssertEqual(first, reopened, "same file/ref returns the existing tab id")
         XCTAssertEqual(panel.filePreviewSessions.count, 2)
-        XCTAssertEqual(panel.selectedTabID, first)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(first))
     }
 
     func testSameFileDifferentRefOpensSeparateTabs() {
@@ -45,13 +45,13 @@ final class CodexFilePreviewTabTests: XCTestCase {
         let panel = CodexWorkspacePanelState()
         let a = panel.openFilePreview(fileURL: url("a.swift"))
         panel.openFilePreview(fileURL: url("b.json"))
-        panel.selectedTabID = a
+        panel.workspaceTabs.activateLegacy(a)
 
-        panel.closeFilePreview(id: a, fallbackTabIDs: [])
+        panel.closeFilePreview(id: a)
 
         XCTAssertEqual(panel.filePreviewSessions.count, 1)
-        XCTAssertNotNil(panel.selectedTabID)
-        XCTAssertNotEqual(panel.selectedTabID, a)
+        XCTAssertNotNil(panel.workspaceTabs.snapshot.topology.right.activeTab)
+        XCTAssertNotEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(a))
     }
 
     func testPurgeClearsFilePreviewSessions() {
@@ -59,6 +59,6 @@ final class CodexFilePreviewTabTests: XCTestCase {
         panel.openFilePreview(fileURL: url("a.swift"))
         panel.purge()
         XCTAssertTrue(panel.filePreviewSessions.isEmpty)
-        XCTAssertNil(panel.selectedTabID)
+        XCTAssertNil(panel.workspaceTabs.snapshot.topology.right.activeTab)
     }
 }

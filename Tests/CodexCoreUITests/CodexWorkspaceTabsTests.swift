@@ -236,6 +236,100 @@ struct CodexWorkspaceTabsTests {
             ) == nil
         )
     }
+
+    @Test func legacyBridgeSharesManagedOrderingSelectionAndFallback() {
+        let tabs = CodexWorkspaceTabs()
+        tabs.openLegacy("terminal")
+        let planID = tabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: [])),
+            from: .summary
+        )
+
+        #expect(
+            tabs.snapshot.topology.right.orderedTabs
+                == [.legacy("terminal"), .workspace(planID)]
+        )
+        #expect(tabs.snapshot.topology.right.activeTab == .workspace(planID))
+
+        tabs.activateLegacy("terminal")
+        #expect(tabs.snapshot.topology.right.activeTab == .legacy("terminal"))
+
+        tabs.closeLegacy("terminal")
+        #expect(tabs.snapshot.topology.right.orderedTabs == [.workspace(planID)])
+        #expect(tabs.snapshot.topology.right.activeTab == .workspace(planID))
+    }
+
+    @Test func reducerStressPreservesIdentityTopologyAndDurabilityInvariants() {
+        let tabs = CodexWorkspaceTabs()
+
+        for index in 0..<20_000 {
+            switch index % 10 {
+            case 0:
+                tabs.open(
+                    TestWorkspaceTabAdapter(
+                        resourceKey: "pinned-\(index % 23)",
+                        lifetime: .pinned
+                    ),
+                    from: .summary
+                )
+            case 1:
+                tabs.open(
+                    TestWorkspaceTabAdapter(
+                        resourceKey: "preview-\(index % 31)",
+                        lifetime: .preview
+                    ),
+                    from: .transcript
+                )
+            case 2:
+                if let id = tabs.snapshot.instances.first?.id { tabs.activate(id) }
+            case 3:
+                if let id = tabs.snapshot.instances.last?.id {
+                    tabs.move(id, to: index.isMultiple(of: 2) ? .right : .bottom)
+                }
+            case 4:
+                if let id = tabs.snapshot.instances.first(where: { !$0.isPinned })?.id {
+                    tabs.pin(id)
+                }
+            case 5:
+                if let id = tabs.snapshot.instances.first?.id { tabs.close(id) }
+            case 6:
+                tabs.openLegacy("legacy-\(index % 13)")
+            case 7:
+                tabs.activateLegacy("legacy-\((index - 1) % 13)")
+            case 8:
+                tabs.closeLegacy("legacy-\((index - 2) % 13)")
+            default:
+                _ = tabs.undoClose()
+            }
+
+            assertInvariants(tabs.snapshot, restoration: tabs.restorationState)
+        }
+    }
+
+    private func assertInvariants(
+        _ snapshot: CodexWorkspaceTabSnapshot,
+        restoration: CodexWorkspaceTabRestorationState
+    ) {
+        let right = snapshot.topology.right
+        let bottom = snapshot.topology.bottom
+        #expect(Set(right.orderedTabs).count == right.orderedTabs.count)
+        #expect(Set(bottom.orderedTabs).count == bottom.orderedTabs.count)
+        #expect(Set(right.orderedTabs).isDisjoint(with: Set(bottom.orderedTabs)))
+        #expect(right.activeTab.map(right.orderedTabs.contains) ?? true)
+        #expect(bottom.activeTab.map(bottom.orderedTabs.contains) ?? true)
+        #expect(!right.orderedTabs.isEmpty || !right.isOpen)
+        #expect(!bottom.orderedTabs.isEmpty || !bottom.isOpen)
+
+        let instanceIDs = snapshot.instances.map(\.id)
+        let topologyIDs = (right.orderedTabs + bottom.orderedTabs).compactMap(\.workspaceTabID)
+        #expect(Set(instanceIDs).count == instanceIDs.count)
+        #expect(Set(snapshot.instances.map(\.contentID)).count == snapshot.instances.count)
+        #expect(Set(instanceIDs) == Set(topologyIDs))
+        #expect(snapshot.instances.allSatisfy { $0.isPinned || $0.durableRoute == nil })
+        #expect(restoration.tabs.allSatisfy { tab in
+            snapshot.instance(id: tab.id)?.isPinned == true && tab.route == snapshot.instance(id: tab.id)?.durableRoute
+        })
+    }
 }
 
 @MainActor

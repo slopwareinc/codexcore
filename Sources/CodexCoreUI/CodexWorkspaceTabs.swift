@@ -20,6 +20,23 @@ public struct CodexWorkspaceTabContentID: Hashable, Codable, Sendable {
     }
 }
 
+public enum CodexWorkspaceTabHandle: Hashable, Codable, Sendable, Identifiable {
+    case workspace(CodexWorkspaceTabID)
+    case legacy(String)
+
+    public var id: Self { self }
+
+    public var workspaceTabID: CodexWorkspaceTabID? {
+        guard case .workspace(let id) = self else { return nil }
+        return id
+    }
+
+    public var legacyID: String? {
+        guard case .legacy(let id) = self else { return nil }
+        return id
+    }
+}
+
 public enum CodexWorkspaceTabPlacement: String, Codable, Sendable {
     case right
     case bottom
@@ -84,17 +101,25 @@ public struct CodexWorkspaceTabInstanceSnapshot: Identifiable, Sendable, Equatab
 }
 
 public struct CodexWorkspaceTabPanelSnapshot: Codable, Sendable, Equatable {
-    public var orderedTabIDs: [CodexWorkspaceTabID]
-    public var activeTabID: CodexWorkspaceTabID?
+    public var orderedTabs: [CodexWorkspaceTabHandle]
+    public var activeTab: CodexWorkspaceTabHandle?
     public var isOpen: Bool
+
+    public var orderedTabIDs: [CodexWorkspaceTabID] {
+        orderedTabs.compactMap(\.workspaceTabID)
+    }
+
+    public var activeTabID: CodexWorkspaceTabID? {
+        activeTab?.workspaceTabID
+    }
 
     init(
         orderedTabIDs: [CodexWorkspaceTabID] = [],
         activeTabID: CodexWorkspaceTabID? = nil,
         isOpen: Bool = false
     ) {
-        self.orderedTabIDs = orderedTabIDs
-        self.activeTabID = activeTabID
+        self.orderedTabs = orderedTabIDs.map(CodexWorkspaceTabHandle.workspace)
+        self.activeTab = activeTabID.map(CodexWorkspaceTabHandle.workspace)
         self.isOpen = isOpen
     }
 }
@@ -252,13 +277,17 @@ public final class CodexWorkspaceTabs: ObservableObject {
         }
         let durableIDs = Set(durable.map(\.id))
         var topology = snapshot.topology
-        topology.right.orderedTabIDs.removeAll { !durableIDs.contains($0) }
-        topology.bottom.orderedTabIDs.removeAll { !durableIDs.contains($0) }
-        if topology.right.activeTabID.map({ !durableIDs.contains($0) }) == true {
-            topology.right.activeTabID = topology.right.orderedTabIDs.last
+        topology.right.orderedTabs.removeAll {
+            $0.workspaceTabID.map { !durableIDs.contains($0) } ?? true
         }
-        if topology.bottom.activeTabID.map({ !durableIDs.contains($0) }) == true {
-            topology.bottom.activeTabID = topology.bottom.orderedTabIDs.last
+        topology.bottom.orderedTabs.removeAll {
+            $0.workspaceTabID.map { !durableIDs.contains($0) } ?? true
+        }
+        if topology.right.activeTab?.workspaceTabID.map({ !durableIDs.contains($0) }) ?? true {
+            topology.right.activeTab = topology.right.orderedTabs.last
+        }
+        if topology.bottom.activeTab?.workspaceTabID.map({ !durableIDs.contains($0) }) ?? true {
+            topology.bottom.activeTab = topology.bottom.orderedTabs.last
         }
         return CodexWorkspaceTabRestorationState(tabs: durable, topology: topology)
     }
@@ -266,7 +295,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
     public func register(_ adapters: [any CodexWorkspaceTabAdapter]) {
         let registrations = adapters.map(\.workspaceTabRegistration)
         var changed = false
-        for index in instances.indices where instances[index].registration == nil {
+        for index in instances.indices {
             guard let route = instances[index].durableRoute,
                   let registration = registrations.first(where: {
                       $0.durableRoute == route
@@ -289,6 +318,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         if let index = instances.firstIndex(where: {
             $0.resourceKey == registration.resourceKey
         }) {
+            let placement = placement(of: instances[index].id) ?? .right
             let replacedRoute = instances[index].durableRoute
             instances[index].registration = registration
             instances[index].title = registration.title
@@ -302,22 +332,22 @@ public final class CodexWorkspaceTabs: ObservableObject {
             }
             instances[index].openMetadata = CodexWorkspaceTabOpenMetadata(
                 opener: opener,
-                insertionIndex: snapshot.topology.right.orderedTabIDs.firstIndex(
-                    of: instances[index].id
+                insertionIndex: panel(for: placement).orderedTabs.firstIndex(
+                    of: .workspace(instances[index].id)
                 ) ?? index,
                 replacedResourceKey: nil,
                 replacedRoute: replacedRoute == registration.durableRoute ? nil : replacedRoute
             )
-            snapshot.topology.right.activeTabID = instances[index].id
-            snapshot.topology.right.isOpen = true
-            snapshot.topology.focusedPlacement = .right
+            setActive(instances[index].id, in: placement)
+            snapshot.topology.focusedPlacement = placement
             publishInstances()
             return instances[index].id
         }
 
         if registration.lifetime == .preview,
            let index = instances.firstIndex(where: { !$0.isPinned }),
-           let orderIndex = snapshot.topology.right.orderedTabIDs.firstIndex(of: instances[index].id) {
+           let placement = placement(of: instances[index].id),
+           let orderIndex = panel(for: placement).orderedTabs.firstIndex(of: .workspace(instances[index].id)) {
             let replacedResourceKey = instances[index].resourceKey
             let replacedRoute = instances[index].durableRoute
             instances[index].resourceKey = registration.resourceKey
@@ -333,14 +363,13 @@ public final class CodexWorkspaceTabs: ObservableObject {
                 replacedResourceKey: replacedResourceKey,
                 replacedRoute: replacedRoute
             )
-            snapshot.topology.right.activeTabID = instances[index].id
-            snapshot.topology.right.isOpen = true
-            snapshot.topology.focusedPlacement = .right
+            setActive(instances[index].id, in: placement)
+            snapshot.topology.focusedPlacement = placement
             publishInstances()
             return instances[index].id
         }
 
-        let insertionIndex = snapshot.topology.right.orderedTabIDs.count
+        let insertionIndex = snapshot.topology.right.orderedTabs.count
         let instance = Instance(
             id: CodexWorkspaceTabID(),
             contentID: CodexWorkspaceTabContentID(),
@@ -360,8 +389,8 @@ public final class CodexWorkspaceTabs: ObservableObject {
             isMaterialized: true
         )
         instances.append(instance)
-        snapshot.topology.right.orderedTabIDs.append(instance.id)
-        snapshot.topology.right.activeTabID = instance.id
+        snapshot.topology.right.orderedTabs.append(.workspace(instance.id))
+        snapshot.topology.right.activeTab = .workspace(instance.id)
         snapshot.topology.right.isOpen = true
         snapshot.topology.focusedPlacement = .right
         publishInstances()
@@ -387,6 +416,87 @@ public final class CodexWorkspaceTabs: ObservableObject {
         publishInstances()
     }
 
+    func openLegacy(_ id: String) {
+        let handle = CodexWorkspaceTabHandle.legacy(id)
+        if !snapshot.topology.right.orderedTabs.contains(handle) {
+            snapshot.topology.right.orderedTabs.append(handle)
+        }
+        setActive(handle, in: .right)
+        snapshot.topology.focusedPlacement = .right
+        publishInstances()
+    }
+
+    func activateLegacy(_ id: String) {
+        let handle = CodexWorkspaceTabHandle.legacy(id)
+        guard snapshot.topology.right.orderedTabs.contains(handle) else { return }
+        setActive(handle, in: .right)
+        snapshot.topology.focusedPlacement = .right
+        publishInstances()
+    }
+
+    func closeLegacy(_ id: String) {
+        let handle = CodexWorkspaceTabHandle.legacy(id)
+        guard snapshot.topology.right.orderedTabs.contains(handle) else { return }
+        remove(handle, from: .right)
+        if snapshot.topology.focusedPlacement == .right,
+           !snapshot.topology.right.isOpen {
+            snapshot.topology.focusedPlacement = snapshot.topology.bottom.isOpen ? .bottom : nil
+        }
+        publishInstances()
+    }
+
+    func reconcileLegacy(_ ids: [String]) {
+        let available = Set(ids)
+        let previous = snapshot.topology.right.orderedTabs
+        snapshot.topology.right.orderedTabs.removeAll { handle in
+            handle.legacyID.map { !available.contains($0) } ?? false
+        }
+        let existing = Set(snapshot.topology.right.orderedTabs.compactMap(\.legacyID))
+        snapshot.topology.right.orderedTabs.append(contentsOf: ids.compactMap {
+            existing.contains($0) ? nil : .legacy($0)
+        })
+        if let active = snapshot.topology.right.activeTab,
+           !snapshot.topology.right.orderedTabs.contains(active) {
+            snapshot.topology.right.activeTab = snapshot.topology.right.orderedTabs.last
+        }
+        if snapshot.topology.right.orderedTabs.isEmpty {
+            snapshot.topology.right.activeTab = nil
+            snapshot.topology.right.isOpen = false
+        }
+        if previous != snapshot.topology.right.orderedTabs { publishInstances() }
+    }
+
+    func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
+        switch placement {
+        case .right:
+            snapshot.topology.right.isOpen = isOpen && !snapshot.topology.right.orderedTabs.isEmpty
+            if snapshot.topology.right.isOpen, snapshot.topology.right.activeTab == nil {
+                snapshot.topology.right.activeTab = snapshot.topology.right.orderedTabs.first
+            }
+        case .bottom:
+            snapshot.topology.bottom.isOpen = isOpen && !snapshot.topology.bottom.orderedTabs.isEmpty
+            if snapshot.topology.bottom.isOpen, snapshot.topology.bottom.activeTab == nil {
+                snapshot.topology.bottom.activeTab = snapshot.topology.bottom.orderedTabs.first
+            }
+        }
+        if isOpen { snapshot.topology.focusedPlacement = placement }
+        publishInstances()
+    }
+
+    func clearActive(placement: CodexWorkspaceTabPlacement = .right) {
+        switch placement {
+        case .right: snapshot.topology.right.activeTab = nil
+        case .bottom: snapshot.topology.bottom.activeTab = nil
+        }
+        publishInstances()
+    }
+
+    func removeAll() {
+        instances.removeAll()
+        closedInstances.removeAll()
+        snapshot = CodexWorkspaceTabSnapshot(instances: [], topology: .init())
+    }
+
     public func move(_ id: CodexWorkspaceTabID, to destination: CodexWorkspaceTabPlacement) {
         guard let source = placement(of: id), source != destination else {
             activate(id)
@@ -395,9 +505,9 @@ public final class CodexWorkspaceTabs: ObservableObject {
         remove(id, from: source)
         switch destination {
         case .right:
-            snapshot.topology.right.orderedTabIDs.append(id)
+            snapshot.topology.right.orderedTabs.append(.workspace(id))
         case .bottom:
-            snapshot.topology.bottom.orderedTabIDs.append(id)
+            snapshot.topology.bottom.orderedTabs.append(.workspace(id))
         }
         setActive(id, in: destination)
         snapshot.topology.focusedPlacement = destination
@@ -427,7 +537,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
     public func close(_ id: CodexWorkspaceTabID) {
         guard let placement = placement(of: id),
               let instanceIndex = instances.firstIndex(where: { $0.id == id }),
-              let insertionIndex = panel(for: placement).orderedTabIDs.firstIndex(of: id) else { return }
+              let insertionIndex = panel(for: placement).orderedTabs.firstIndex(of: .workspace(id)) else { return }
         closedInstances.append(ClosedInstance(
             instance: instances.remove(at: instanceIndex),
             placement: placement,
@@ -454,14 +564,14 @@ public final class CodexWorkspaceTabs: ObservableObject {
         )
         switch closed.placement {
         case .right:
-            snapshot.topology.right.orderedTabIDs.insert(
-                closed.instance.id,
-                at: min(closed.insertionIndex, snapshot.topology.right.orderedTabIDs.count)
+            snapshot.topology.right.orderedTabs.insert(
+                .workspace(closed.instance.id),
+                at: min(closed.insertionIndex, snapshot.topology.right.orderedTabs.count)
             )
         case .bottom:
-            snapshot.topology.bottom.orderedTabIDs.insert(
-                closed.instance.id,
-                at: min(closed.insertionIndex, snapshot.topology.bottom.orderedTabIDs.count)
+            snapshot.topology.bottom.orderedTabs.insert(
+                .workspace(closed.instance.id),
+                at: min(closed.insertionIndex, snapshot.topology.bottom.orderedTabs.count)
             )
         }
         setActive(closed.instance.id, in: closed.placement)
@@ -491,8 +601,8 @@ public final class CodexWorkspaceTabs: ObservableObject {
     }
 
     private func placement(of id: CodexWorkspaceTabID) -> CodexWorkspaceTabPlacement? {
-        if snapshot.topology.right.orderedTabIDs.contains(id) { return .right }
-        if snapshot.topology.bottom.orderedTabIDs.contains(id) { return .bottom }
+        if snapshot.topology.right.orderedTabs.contains(.workspace(id)) { return .right }
+        if snapshot.topology.bottom.orderedTabs.contains(.workspace(id)) { return .bottom }
         return nil
     }
 
@@ -504,35 +614,52 @@ public final class CodexWorkspaceTabs: ObservableObject {
     }
 
     private func setActive(_ id: CodexWorkspaceTabID, in placement: CodexWorkspaceTabPlacement) {
+        setActive(.workspace(id), in: placement)
+    }
+
+    private func setActive(
+        _ handle: CodexWorkspaceTabHandle,
+        in placement: CodexWorkspaceTabPlacement
+    ) {
         switch placement {
         case .right:
-            snapshot.topology.right.activeTabID = id
+            snapshot.topology.right.activeTab = handle
             snapshot.topology.right.isOpen = true
         case .bottom:
-            snapshot.topology.bottom.activeTabID = id
+            snapshot.topology.bottom.activeTab = handle
             snapshot.topology.bottom.isOpen = true
         }
     }
 
     private func remove(_ id: CodexWorkspaceTabID, from placement: CodexWorkspaceTabPlacement) {
+        remove(.workspace(id), from: placement)
+    }
+
+    private func remove(
+        _ handle: CodexWorkspaceTabHandle,
+        from placement: CodexWorkspaceTabPlacement
+    ) {
         switch placement {
         case .right:
-            remove(id, from: &snapshot.topology.right)
+            remove(handle, from: &snapshot.topology.right)
         case .bottom:
-            remove(id, from: &snapshot.topology.bottom)
+            remove(handle, from: &snapshot.topology.bottom)
         }
     }
 
-    private func remove(_ id: CodexWorkspaceTabID, from panel: inout CodexWorkspaceTabPanelSnapshot) {
-        guard let index = panel.orderedTabIDs.firstIndex(of: id) else { return }
-        panel.orderedTabIDs.remove(at: index)
-        if panel.activeTabID == id {
-            panel.activeTabID = panel.orderedTabIDs.indices.contains(index)
-                ? panel.orderedTabIDs[index]
-                : panel.orderedTabIDs.last
+    private func remove(
+        _ handle: CodexWorkspaceTabHandle,
+        from panel: inout CodexWorkspaceTabPanelSnapshot
+    ) {
+        guard let index = panel.orderedTabs.firstIndex(of: handle) else { return }
+        panel.orderedTabs.remove(at: index)
+        if panel.activeTab == handle {
+            panel.activeTab = panel.orderedTabs.indices.contains(index)
+                ? panel.orderedTabs[index]
+                : panel.orderedTabs.last
         }
-        if panel.orderedTabIDs.isEmpty {
-            panel.activeTabID = nil
+        if panel.orderedTabs.isEmpty {
+            panel.activeTab = nil
             panel.isOpen = false
         }
     }
@@ -624,8 +751,12 @@ public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 workspaceURL: workspaceURL,
                 lastTurnSession: session,
                 selectedFilePath: Self.selectedFilePath(in: state.wrappedValue),
+                onSelectedFilePathChange: { path in
+                    state.wrappedValue = Self.state(selectedFilePath: path)
+                },
                 onStartReview: onStartReview
-            ))
+            )
+            .id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)"))
         }
     }
 
