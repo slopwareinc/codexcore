@@ -734,7 +734,9 @@ public struct CodexChatWorkspaceView: View {
         _ id: String,
         from opener: CodexWorkspaceTabOpener
     ) {
-        if subagents.contains(where: { $0.id == id }) {
+        let isSubagent = subagents.contains(where: { $0.id == id })
+            || subagentCoordinator?.agent(threadID: ThreadID(id)) != nil
+        if isSubagent {
             guard let adapter = subagentsAdapter else { return }
             workspaceTabs.open(
                 CodexSubagentsWorkspaceTabAdapter(
