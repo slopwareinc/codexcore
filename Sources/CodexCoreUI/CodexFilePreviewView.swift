@@ -90,7 +90,26 @@ enum CodexFilePreviewLoader {
     static let maxHighlightBytes = 512 * 1024
 
     static func load(url: URL) -> CodexFilePreviewState {
+        loadImplementation(url: url, checkpoint: {})
+    }
+
+    /// Structured owners use this entry point so cancellation propagates into
+    /// the off-main worker instead of leaving an unowned detached task behind.
+    @concurrent
+    nonisolated static func loadAsync(url: URL) async throws -> CodexFilePreviewState {
+        try Task.checkCancellation()
+        return try loadImplementation(url: url) {
+            try Task.checkCancellation()
+        }
+    }
+
+    private static func loadImplementation(
+        url: URL,
+        checkpoint: @Sendable () throws -> Void
+    ) rethrows -> CodexFilePreviewState {
+        try checkpoint()
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        try checkpoint()
         if values?.isDirectory == true { return .empty }
 
         if let size = values?.fileSize, size > maxByteSize {
@@ -103,6 +122,7 @@ enum CodexFilePreviewLoader {
             return .notice("Unable to read this file.")
         }
         defer { try? handle.close() }
+        try checkpoint()
         if data.count > maxByteSize {
             let reportedSize: Int64 = values?.fileSize.map(Int64.init) ?? Int64(data.count)
             let human = ByteCountFormatter.string(
@@ -112,13 +132,18 @@ enum CodexFilePreviewLoader {
             return .notice("File is too large to preview (\(human)).")
         }
         if isBinary(data) {
+            try checkpoint()
             return .notice("Binary file — no preview available.")
         }
-        guard let text = decodeText(data) else {
+        let text = decodeText(data)
+        try checkpoint()
+        guard let text else {
             return .notice("Unable to decode this file as text.")
         }
 
+        try checkpoint()
         let spans = data.count <= maxHighlightBytes ? highlight(text: text, url: url) : []
+        try checkpoint()
         return .text(text, spans)
     }
 
@@ -213,6 +238,13 @@ final class CodexFilePreviewModel: ObservableObject {
 
     private var currentURL: URL?
     private var loadTask: Task<Void, Never>?
+    private let loader: @Sendable (URL) async throws -> CodexFilePreviewState
+
+    init(
+        loader: @escaping @Sendable (URL) async throws -> CodexFilePreviewState = CodexFilePreviewLoader.loadAsync
+    ) {
+        self.loader = loader
+    }
 
     deinit { loadTask?.cancel() }
 
@@ -228,15 +260,20 @@ final class CodexFilePreviewModel: ObservableObject {
         }
 
         state = .loading
-        let worker = Task.detached(priority: .userInitiated) {
-            CodexFilePreviewLoader.load(url: url)
-        }
-        loadTask = Task { [weak self, worker] in
-            let result = await worker.value
-            guard !Task.isCancelled else { return }
-            guard let self, self.currentURL == url else { return }
-            if case .text = result { self.contentIdentity = UUID() }
-            self.state = result
+        loadTask = Task { [weak self, loader] in
+            do {
+                let result = try await loader(url)
+                guard !Task.isCancelled else { return }
+                guard let self, self.currentURL == url else { return }
+                if case .text = result { self.contentIdentity = UUID() }
+                self.state = result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                guard let self, self.currentURL == url else { return }
+                self.state = .notice("Unable to read this file.")
+            }
         }
     }
 }
