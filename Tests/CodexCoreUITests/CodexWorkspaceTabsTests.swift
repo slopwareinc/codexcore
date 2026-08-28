@@ -276,7 +276,7 @@ struct CodexWorkspaceTabsTests {
         #expect(tabs.snapshot.topology.right.activeTab == .workspace(planID))
     }
 
-    @Test func reducerStressPreservesIdentityTopologyAndDurabilityInvariants() {
+    @Test func reducerStressPreservesIdentityTopologyAndDurabilityInvariants() async {
         let tabs = CodexWorkspaceTabs()
 
         for index in 0..<20_000 {
@@ -320,6 +320,7 @@ struct CodexWorkspaceTabsTests {
             }
 
             assertInvariants(tabs.snapshot, restoration: tabs.restorationState)
+            if index.isMultiple(of: 16) { await Task.yield() }
         }
     }
 

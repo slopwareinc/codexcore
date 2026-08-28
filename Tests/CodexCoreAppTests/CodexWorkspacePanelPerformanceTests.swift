@@ -123,7 +123,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         for _ in 0..<iterations {
             samples.append(signposted("panel_open_close") {
                 let panel = CodexWorkspacePanelState()
-                _ = panel.openTerminal(workspacePath: "/tmp")
+                panel.workspaceTabs.openLegacy("oracle-panel")
                 panel.isAgentPanelOpen = true
                 panel.isAgentPanelOpen = false
                 panel.isAgentPanelOpen = true

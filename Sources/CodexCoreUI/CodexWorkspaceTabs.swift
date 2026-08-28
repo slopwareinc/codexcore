@@ -396,12 +396,13 @@ public final class CodexWorkspaceTabs: ObservableObject {
     func reconcileLegacy(_ ids: [String]) {
         let available = Set(ids)
         var panel = snapshot.topology.right
+        let previous = panel
         panel.orderedTabs.removeAll { $0.legacyID.map { !available.contains($0) } ?? false }
         var existing = Set(panel.orderedTabs.compactMap(\.legacyID))
         for id in ids where existing.insert(id).inserted { panel.orderedTabs.append(.legacy(id)) }
         if let active = panel.activeTab, !panel.orderedTabs.contains(active) { panel.activeTab = panel.orderedTabs.last }
         if panel.orderedTabs.isEmpty { panel.activeTab = nil; panel.isOpen = false }
-        snapshot.topology.right = panel
+        if panel != previous { snapshot.topology.right = panel }
     }
 
     func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
