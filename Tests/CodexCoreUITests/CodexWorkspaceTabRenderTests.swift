@@ -209,19 +209,17 @@ struct CodexWorkspaceTabRenderTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
         hosting.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(80))
-        _ = window
+        let initialEditorCount = await waitForTextViews(in: hosting, window: window)
 
         #expect(tabs.snapshot.topology.right.activeTabID == second)
         #expect(tabs.snapshot.instance(id: first)?.contentID != tabs.snapshot.instance(id: second)?.contentID)
-        #expect(countTextViews(in: hosting) == 1)
+        #expect(initialEditorCount == 1)
 
         tabs.activate(first)
         hosting.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(80))
-        _ = window
-        #expect(countTextViews(in: hosting) == 1)
+        #expect(await waitForTextViews(in: hosting, window: window) == 1)
     }
 }
 
@@ -318,4 +316,16 @@ private func countTextViews(in root: NSView) -> Int {
     return own + root.subviews.reduce(into: 0) { count, child in
         count += countTextViews(in: child)
     }
+}
+
+@MainActor
+private func waitForTextViews(in root: NSView, window: NSWindow) async -> Int {
+    for _ in 0..<100 {
+        _ = window
+        root.layoutSubtreeIfNeeded()
+        let count = countTextViews(in: root)
+        if count > 0 { return count }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return countTextViews(in: root)
 }

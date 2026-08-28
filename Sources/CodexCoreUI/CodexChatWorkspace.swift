@@ -807,7 +807,9 @@ public struct CodexChatWorkspaceView: View {
                     continue
                 }
                 let url = URL(fileURLWithPath: route.resourceID)
-                adapters.append(CodexFilesWorkspaceTabAdapter(workspaceURL: url))
+                let session = CodexFilesSession(rootURL: url)
+                panel.filesSession = session
+                adapters.append(filesAdapter(session: session))
             }
         }
         for instance in workspaceTabs.snapshot.instances {

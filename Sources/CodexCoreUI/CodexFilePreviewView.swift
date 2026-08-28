@@ -98,8 +98,18 @@ enum CodexFilePreviewLoader {
             return .notice("File is too large to preview (\(human)).")
         }
 
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+              let data = try? handle.read(upToCount: maxByteSize + 1) else {
             return .notice("Unable to read this file.")
+        }
+        defer { try? handle.close() }
+        if data.count > maxByteSize {
+            let reportedSize: Int64 = values?.fileSize.map(Int64.init) ?? Int64(data.count)
+            let human = ByteCountFormatter.string(
+                fromByteCount: reportedSize,
+                countStyle: .file
+            )
+            return .notice("File is too large to preview (\(human)).")
         }
         if isBinary(data) {
             return .notice("Binary file — no preview available.")
@@ -219,7 +229,7 @@ final class CodexFilePreviewModel: ObservableObject {
 
         state = .loading
         let worker = Task.detached(priority: .userInitiated) {
-                CodexFilePreviewLoader.load(url: url)
+            CodexFilePreviewLoader.load(url: url)
         }
         loadTask = Task { [weak self, worker] in
             let result = await worker.value
