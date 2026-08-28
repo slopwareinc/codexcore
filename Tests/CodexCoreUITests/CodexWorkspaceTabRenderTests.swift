@@ -82,13 +82,17 @@ struct CodexWorkspaceTabRenderTests {
         try await Task.sleep(for: .milliseconds(30))
 
         let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: []))
+        let reviewSourceID = "canonical/thread/turn"
         let review = CodexReviewWorkspaceTabAdapter(
             workspaceURL: URL(fileURLWithPath: "/tmp"),
             session: CodexGitReviewSession(
-                snapshot: CodexGitReviewSnapshot(branchName: "main")
+                snapshot: CodexGitReviewSnapshot(
+                    revision: .init(sourceID: reviewSourceID, value: 7),
+                    branchName: "main"
+                )
             )
         )
-        let available: [any CodexWorkspaceTabAdapter] = [plan, review]
+        var available: [any CodexWorkspaceTabAdapter] = [plan, review]
         let planID = tabs.open(plan, from: .summary)
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(30))
@@ -102,8 +106,21 @@ struct CodexWorkspaceTabRenderTests {
         // The panel is already open and width-stable. Opening the second tab,
         // activation, and adapter availability changes must now be transcript-neutral.
         let reviewID = tabs.open(review, from: .summary)
+        let originalReview = try #require(tabs.snapshot.instance(id: reviewID))
 
         for index in 0..<100 {
+            if index == 50 {
+                let refreshedReview = CodexReviewWorkspaceTabAdapter(
+                    workspaceURL: URL(fileURLWithPath: "/tmp"),
+                    session: CodexGitReviewSession(
+                        snapshot: CodexGitReviewSnapshot(
+                            revision: .init(sourceID: reviewSourceID, value: 8),
+                            branchName: "main"
+                        )
+                    )
+                )
+                available = [plan, refreshedReview]
+            }
             tabs.register(index.isMultiple(of: 4) ? [] : available)
             tabs.activate(index.isMultiple(of: 2) ? planID : reviewID)
             hosting.layoutSubtreeIfNeeded()
@@ -114,6 +131,9 @@ struct CodexWorkspaceTabRenderTests {
         await reconciledHost.waitForProjectionForTesting?()
 
         #expect(reconciledHost === transcriptHost)
+        #expect(tabs.snapshot.instance(id: reviewID)?.contentID == originalReview.contentID)
+        #expect(tabs.snapshot.instance(id: reviewID)?.durableRoute == originalReview.durableRoute)
+        #expect(tabs.registeredContentRevision(for: reviewID) == 8)
         #expect(
             reconciledHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount

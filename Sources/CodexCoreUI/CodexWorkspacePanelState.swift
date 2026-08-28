@@ -21,9 +21,23 @@ public final class CodexWorkspacePanelState: ObservableObject {
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
 
-    public init(panelWidth: CGFloat = 400) {
+    public init(
+        panelWidth: CGFloat = 400,
+        restorationState: CodexWorkspaceTabRestorationState? = nil
+    ) {
         self.panelWidth = panelWidth
-        self.workspaceTabs = CodexWorkspaceTabs()
+        self.workspaceTabs = restorationState.map(CodexWorkspaceTabs.init(restoring:))
+            ?? CodexWorkspaceTabs()
+    }
+
+    public var workspaceTabRestorationState: CodexWorkspaceTabRestorationState {
+        workspaceTabs.restorationState
+    }
+
+    public func applyWorkspaceTabRestoration(
+        _ restorationState: CodexWorkspaceTabRestorationState
+    ) {
+        workspaceTabs.apply(restoration: restorationState)
     }
 
     public var isAgentPanelOpen: Bool {

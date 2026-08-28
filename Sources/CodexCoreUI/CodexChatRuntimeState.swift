@@ -12,6 +12,8 @@ public struct CodexChatRuntimeState: Sendable {
     private var canonicalPlan: [TurnPlanStep] = []
     private var canonicalPlanExplanation: String?
     private var canonicalDiff: String?
+    private var canonicalDiffSourceID: String?
+    private var canonicalDiffRevision: StateRevision?
     private var canonicalGoal: ThreadGoal?
 
     public init(
@@ -59,6 +61,9 @@ public struct CodexChatRuntimeState: Sendable {
     public var currentDiff: String? {
         canonicalDiff
     }
+
+    public var currentDiffSourceID: String? { canonicalDiffSourceID }
+    public var currentDiffRevision: StateRevision? { canonicalDiffRevision }
 
     public var activeGoal: ThreadGoal? {
         hasCanonicalSnapshot ? canonicalGoal : goalSession.activeGoal
@@ -220,6 +225,13 @@ public struct CodexChatRuntimeState: Sendable {
         }
         canonicalPlanExplanation = latestTurn?.planExplanation
         canonicalDiff = latestTurn?.diff
+        if canonicalDiff != nil, let latestTurn {
+            canonicalDiffSourceID = "canonical/\(selectedThreadID.rawValue)/\(latestTurn.key.turnID.rawValue)"
+            canonicalDiffRevision = latestTurn.lastChangedRevision
+        } else {
+            canonicalDiffSourceID = nil
+            canonicalDiffRevision = nil
+        }
         canonicalGoal = thread.goal.map(Self.threadGoal)
     }
 
@@ -261,6 +273,8 @@ public struct CodexChatRuntimeState: Sendable {
         canonicalPlan = []
         canonicalPlanExplanation = nil
         canonicalDiff = nil
+        canonicalDiffSourceID = nil
+        canonicalDiffRevision = nil
         canonicalGoal = nil
     }
 

@@ -261,7 +261,8 @@ extension CodexCoreAppModel {
     var gitReviewSession: CodexGitReviewSession? {
         if let snapshot = CodexGitReviewSnapshot.fromTurnDiff(
             branchName: gitBranch,
-            turnDiff: currentDiff
+            turnDiff: currentDiff,
+            revision: currentDiffReviewRevision
         ) {
             return CodexGitReviewSession(snapshot: snapshot)
         }
@@ -274,6 +275,12 @@ extension CodexCoreAppModel {
         return CodexGitReviewSession(
             snapshot: CodexGitReviewSnapshot(branchName: branch)
         )
+    }
+
+    private var currentDiffReviewRevision: CodexGitReviewRevision {
+        guard let sourceID = runtimeSession.currentDiffSourceID,
+              let revision = runtimeSession.currentDiffRevision else { return .manual }
+        return CodexGitReviewRevision(sourceID: sourceID, value: revision.rawValue)
     }
 
     var followUpBehavior: CodexFollowUpBehavior {

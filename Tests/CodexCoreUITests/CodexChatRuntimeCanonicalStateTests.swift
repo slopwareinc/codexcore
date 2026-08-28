@@ -61,6 +61,33 @@ struct CodexChatRuntimeCanonicalStateTests {
         #expect(runtime.currentPlanExplanation == "Reading canonical state")
     }
 
+    @Test func canonicalDiffCarriesStableTurnIdentityAndCheapChangeRevision() throws {
+        let runtime = CodexChatRuntimeSession()
+        runtime.selectThread("thread")
+
+        runtime.applyCanonicalSnapshot(snapshot(
+            status: .inProgress,
+            threadStatus: .active(flags: []),
+            revision: 7,
+            diff: "diff --git a/a b/a\n+first"
+        ))
+        let sourceID = try #require(runtime.currentDiffSourceID)
+
+        #expect(sourceID == "canonical/thread/turn")
+        #expect(runtime.currentDiffRevision == StateRevision(7))
+
+        runtime.applyCanonicalSnapshot(snapshot(
+            status: .inProgress,
+            threadStatus: .active(flags: []),
+            revision: 8,
+            diff: "diff --git a/a b/a\n+second"
+        ))
+
+        #expect(runtime.currentDiffSourceID == sourceID)
+        #expect(runtime.currentDiffRevision == StateRevision(8))
+        #expect(runtime.currentDiff == "diff --git a/a b/a\n+second")
+    }
+
     @Test func optimisticLifecycleFinishesOnlyTheMatchingTurnAndFlushesQueue() throws {
         let runtime = CodexChatRuntimeSession()
         _ = runtime.beginMainTurnSubmission(.init(prompt: "Hello"))
@@ -122,9 +149,11 @@ struct CodexChatRuntimeCanonicalStateTests {
     private func snapshot(
         status: CanonicalTurnStatus,
         threadStatus: CanonicalThreadStatus,
-        turnOrder: [TurnID] = ["turn"]
+        turnOrder: [TurnID] = ["turn"],
+        revision revisionValue: UInt64 = 1,
+        diff: String = "diff --git a/a b/a"
     ) -> CodexSessionStateSnapshot {
-        let revision = StateRevision(1)
+        let revision = StateRevision(revisionValue)
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
         let turnKey = TurnKey(threadID: threadID, turnID: turnID)
@@ -151,7 +180,7 @@ struct CodexChatRuntimeCanonicalStateTests {
             status: status,
             plan: [.init(step: "Inspect", status: .inProgress)],
             planExplanation: "Reading canonical state",
-            diff: "diff --git a/a b/a",
+            diff: diff,
             lastChangedRevision: revision
         )
         let canonical = CanonicalStateSnapshot(
