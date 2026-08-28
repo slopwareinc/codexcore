@@ -340,6 +340,21 @@ final class CodexVoiceChatSession {
             // Item payloads can contain arbitrary transcript or audio content;
             // keep the telemetry event metadata-only.
             log("protocol.event.item_added")
+        case .itemStarted:
+            log("protocol.event.item.started")
+        case .itemTranscriptDelta(let value):
+            // Session-level transcript events remain the presentation source;
+            // recording this event as metadata avoids rendering the same delta
+            // twice while preserving the new item lifecycle in diagnostics.
+            log(
+                "protocol.event.item.transcript_delta",
+                fields: [
+                    "itemID": value.itemID,
+                    "deltaBytes": String(value.delta.utf8.count),
+                ]
+            )
+        case .itemCompleted:
+            log("protocol.event.item.completed")
         }
     }
 

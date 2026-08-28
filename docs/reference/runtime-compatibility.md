@@ -2,7 +2,8 @@
 
 | CodexCore release | Codex CLI / app-server | Status |
 | --- | --- | --- |
-| `0.12.0` | `>= 0.148.0` | Current supported range; types generated from stable `0.149.0` |
+| `0.13.0` | `>= 0.148.0` | Current supported range; types generated from stable `0.150.1` |
+| `0.12.0` | `>= 0.148.0` | Historical release; types generated from stable `0.149.0` |
 | `0.11.0` | `>= 0.148.0` | Historical release; types generated from stable `0.148.0` |
 | `0.10.0` | `>= 0.147.0` | Historical release; types generated from stable `0.147.0` |
 | `0.9.0` | `>= 0.145.0` | Historical release; types generated from `0.146.0-alpha.9.2` |
@@ -14,10 +15,25 @@
 The composite release tag records both identities:
 
 ```text
-v0.149.0+codexcore.0.12.0
+v0.150.1+codexcore.0.13.0
 ```
 
 CodexCore requires the generated major/minor line and accepts newer patch releases with a warning. A stable CLI release does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
+
+## 0.150.1 migration
+
+The stable 0.150 schema adds thread timeline reads, MCP event-stream start and
+stop requests, MCP connection state, item-scoped realtime lifecycle and
+transcript notifications, interrupt hooks, command-approval kind metadata,
+Bedrock access-key login, additional collaboration controls, and expanded
+browser/computer-use configuration requirements. CodexCore routes the new
+realtime notifications through `CodexRealtimeEvent` and exposes
+connection-scoped MCP event notifications for clients that opt into the new
+subscription methods.
+
+The minimum accepted runtime remains 0.148.0 because the core thread lifecycle
+does not require the new methods. Applications using timeline reads, MCP event
+streams, or the new realtime item events must run against 0.150.1 or newer.
 
 ## 0.149.0 migration
 

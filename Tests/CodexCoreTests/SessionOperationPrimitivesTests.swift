@@ -194,6 +194,27 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertTrue(hub.cancel(observation.id))
     }
 
+    func testRealtimeItemEventsExposeTheirThreadIdentity() {
+        let item = CodexSchemaThreadRealtimeItem(.dictionary(["id": .string("item-1")]))
+
+        XCTAssertEqual(
+            CodexRealtimeEvent.itemStarted(.init(item: item, threadID: "voice")).threadID,
+            "voice"
+        )
+        XCTAssertEqual(
+            CodexRealtimeEvent.itemTranscriptDelta(.init(
+                delta: "hello",
+                itemID: "item-1",
+                threadID: "voice"
+            )).threadID,
+            "voice"
+        )
+        XCTAssertEqual(
+            CodexRealtimeEvent.itemCompleted(.init(item: item, threadID: "voice")).threadID,
+            "voice"
+        )
+    }
+
     func testRealtimeHubDisconnectFailsTheStream() async throws {
         var hub = CodexRealtimeObserverHub()
         let observation = hub.observe(connectionEpoch: 9, threadID: "voice")

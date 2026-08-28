@@ -723,7 +723,10 @@ private extension ProtocolStateAdapter {
             ))
 
         case .fuzzyFileSearchSessionUpdated, .fuzzyFileSearchSessionCompleted,
+             .mcpServerEventStreamNotification,
              .threadRealtimeStarted, .threadRealtimeItemAdded,
+             .threadRealtimeItemStarted, .threadRealtimeItemTranscriptDelta,
+             .threadRealtimeItemCompleted,
              .threadRealtimeTranscriptDelta, .threadRealtimeTranscriptDone,
              .threadRealtimeOutputAudioDelta, .threadRealtimeSdp,
              .threadRealtimeError, .threadRealtimeClosed,

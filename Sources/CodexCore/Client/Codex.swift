@@ -160,8 +160,8 @@ private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
 }
 
 /// `CodexPinnedRuntime` records the exact runtime used to generate the protocol
-/// types. CodexCore 0.12.0 accepts the 0.148 runtime floor and the generated
-/// 0.149 line; callers of 0.149-only project and Bedrock methods must use 0.149.
+/// types. CodexCore 0.13.0 accepts the 0.148 runtime floor and the generated
+/// 0.150 line; callers of newer generated methods must use their source runtime.
 public enum CodexSupportedRuntime {
     fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 148, patch: 0)
 

@@ -24,6 +24,15 @@ public extension Codex {
         try await session.observeMCPServerOAuthLogin(name: name, threadID: threadID)
     }
 
+    /// Register before `mcpServerEventStreamStart(_:)`; filter concurrent
+    /// subscriptions by the notification's `subscriptionID`.
+    func observeMCPServerEventStreamNotifications() async throws -> AsyncThrowingStream<
+        CodexSchemaMCPServerEventStreamNotification,
+        Error
+    > {
+        try await session.observeMCPServerEventStreamNotifications()
+    }
+
     /// Register before `externalAgentConfigImport(_:)` to receive progress and
     /// completion for its returned import id.
     func observeExternalAgentConfigImport(

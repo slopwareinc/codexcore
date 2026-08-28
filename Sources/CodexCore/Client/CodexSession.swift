@@ -705,6 +705,8 @@ public actor CodexSession:
     private var processEvents = CodexProcessObserverHub()
     private var fuzzyFileSearchEvents = CodexFuzzyFileSearchObserverHub()
     private var mcpServerOAuthLogins = CodexMCPServerOAuthLoginObserverHub()
+    private var mcpServerEventStreamNotifications =
+        CodexGlobalOperationObserverHub<CodexSchemaMCPServerEventStreamNotification>()
     private var externalAgentConfigImports = CodexExternalAgentConfigImportObserverHub()
     private var appListChanges = CodexAppListObserverHub()
     private var remoteControlStatusChanges = CodexRemoteControlStatusObserverHub()
@@ -1199,6 +1201,25 @@ public actor CodexSession:
         _ = mcpServerOAuthLogins.cancel(id)
     }
 
+    /// Observes notifications from MCP event subscriptions in this connection.
+    /// Register before `mcpServer/event/stream/start`; callers can distinguish
+    /// concurrent subscriptions using each notification's `subscriptionID`.
+    public func observeMCPServerEventStreamNotifications() throws -> AsyncThrowingStream<
+        CodexSchemaMCPServerEventStreamNotification,
+        Error
+    > {
+        try observeGlobalOperation(
+            hub: &mcpServerEventStreamNotifications,
+            cancellation: { [weak self] id in
+                Task { await self?.cancelMCPServerEventStreamObservation(id) }
+            }
+        )
+    }
+
+    func cancelMCPServerEventStreamObservation(_ id: UInt64) {
+        _ = mcpServerEventStreamNotifications.cancel(id)
+    }
+
     /// Observes progress and completion for one external-agent configuration
     /// import. Register before `externalAgentConfig/import`.
     public func observeExternalAgentConfigImport(
@@ -1322,7 +1343,7 @@ public actor CodexSession:
 
         let expectsAnonymous: Bool
         switch params {
-        case .apiKey, .chatgptAuthTokens, .amazonBedrock:
+        case .apiKey, .chatgptAuthTokens, .amazonBedrock, .amazonBedrockAccessKeys:
             expectsAnonymous = true
         case .chatgpt, .chatgptDeviceCode:
             expectsAnonymous = false
@@ -2077,6 +2098,7 @@ private extension CodexSession {
         _ = processEvents.disconnect(connectionEpoch: epoch)
         _ = fuzzyFileSearchEvents.disconnect(connectionEpoch: epoch)
         _ = mcpServerOAuthLogins.disconnect(connectionEpoch: epoch)
+        _ = mcpServerEventStreamNotifications.disconnect(connectionEpoch: epoch)
         _ = externalAgentConfigImports.disconnect(connectionEpoch: epoch)
         _ = appListChanges.disconnect(connectionEpoch: epoch)
         _ = remoteControlStatusChanges.disconnect(connectionEpoch: epoch)
@@ -2683,6 +2705,14 @@ private extension CodexSession {
                         notification: completion
                     )
 
+                case .mcpServerEventStreamNotification:
+                    _ = mcpServerEventStreamNotifications.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: try notification.params.decode(
+                            CodexSchemaMCPServerEventStreamNotification.self
+                        )
+                    )
+
                 case .appListUpdated:
                     _ = appListChanges.publish(
                         connectionEpoch: cursor.connectionEpoch,
@@ -2735,6 +2765,27 @@ private extension CodexSession {
                         connectionEpoch: cursor.connectionEpoch,
                         event: .itemAdded(try notification.params.decode(
                             CodexSchemaThreadRealtimeItemAddedNotification.self
+                        ))
+                    )
+                case .threadRealtimeItemStarted:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .itemStarted(try notification.params.decode(
+                            CodexSchemaThreadRealtimeItemStartedNotification.self
+                        ))
+                    )
+                case .threadRealtimeItemTranscriptDelta:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .itemTranscriptDelta(try notification.params.decode(
+                            CodexSchemaThreadRealtimeItemTranscriptDeltaNotification.self
+                        ))
+                    )
+                case .threadRealtimeItemCompleted:
+                    _ = realtimeEvents.publish(
+                        connectionEpoch: cursor.connectionEpoch,
+                        event: .itemCompleted(try notification.params.decode(
+                            CodexSchemaThreadRealtimeItemCompletedNotification.self
                         ))
                     )
                 case .threadRealtimeTranscriptDelta:

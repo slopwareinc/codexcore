@@ -1434,6 +1434,61 @@ final class CodexSessionOrderingTests: XCTestCase {
         await session.stop()
     }
 
+    func testMCPEventStreamNotificationReachesConnectionObserver() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let events = try await session.observeMCPServerEventStreamNotifications()
+        var iterator = events.makeAsyncIterator()
+
+        try await transport.sendNotification(
+            method: "mcpServer/event/stream/notification",
+            params: [
+                "subscriptionId": .string("subscription-1"),
+                "notification": .dictionary([
+                    "method": .string("notifications/progress"),
+                    "params": .dictionary(["progress": .int(1)]),
+                ]),
+            ]
+        )
+
+        let event = try await iterator.next()
+        XCTAssertEqual(event?.subscriptionID, "subscription-1")
+        XCTAssertEqual(event?.notification.method, "notifications/progress")
+        XCTAssertEqual(event?.notification.params.objectValue?["progress"], .int(1))
+        await session.stop()
+    }
+
+    func testRealtimeItemTranscriptDeltaReachesThreadObserver() async throws {
+        let transport = ControllableCodexFrameTransport()
+        let session = CodexSession(
+            transport: transport,
+            configuration: .init(reconnectPolicy: .disabled)
+        )
+        _ = try await session.start()
+        let events = try await session.observeRealtimeEvents(threadID: "voice-thread")
+        var iterator = events.makeAsyncIterator()
+
+        try await transport.sendNotification(
+            method: "thread/realtime/item/transcript/delta",
+            params: [
+                "threadId": .string("voice-thread"),
+                "itemId": .string("item-1"),
+                "delta": .string("hello"),
+            ]
+        )
+
+        guard case .itemTranscriptDelta(let event)? = try await iterator.next() else {
+            return XCTFail("Expected item-scoped realtime transcript delta")
+        }
+        XCTAssertEqual(event.itemID, "item-1")
+        XCTAssertEqual(event.delta, "hello")
+        await session.stop()
+    }
+
     func testIdentifiedLoginCancelUsesExactKeyAndAwaitsFalseTerminal() async throws {
         let transport = ControllableCodexFrameTransport(
             autoLoginStartResult: .dictionary([

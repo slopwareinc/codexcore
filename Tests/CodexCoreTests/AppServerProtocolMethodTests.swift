@@ -58,6 +58,13 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionCreate))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionUpdate))
         XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadSectionDelete))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.threadTimelineList))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.mcpServerEventStreamStart))
+        XCTAssertTrue(CodexAppServerClientMethod.allCases.contains(.mcpServerEventStreamStop))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.mcpServerEventStreamNotification))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.threadRealtimeItemStarted))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.threadRealtimeItemTranscriptDelta))
+        XCTAssertTrue(CodexAppServerNotificationMethod.allCases.contains(.threadRealtimeItemCompleted))
 
         XCTAssertEqual(
             CodexAppServerSchemaInventory.notificationPayloadByMethod["externalAgentConfig/import/progress"]?.typeName,
@@ -80,6 +87,9 @@ final class AppServerProtocolMethodTests: XCTestCase {
         XCTAssertTrue(definitions.contains("PluginSearchResponse"))
         XCTAssertTrue(definitions.contains("PluginDisabledReason"))
         XCTAssertTrue(definitions.contains("ThreadSection"))
+        XCTAssertTrue(definitions.contains("ThreadTimelineEntry"))
+        XCTAssertTrue(definitions.contains("McpServerEventStreamNotification"))
+        XCTAssertTrue(definitions.contains("ThreadRealtimeItemTranscriptDeltaNotification"))
     }
 
     func testGeneratedSchemaTypeInventoryIsConsistent() {
