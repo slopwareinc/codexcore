@@ -732,8 +732,10 @@ public struct CodexChatWorkspaceView: View {
         _ id: String,
         from opener: CodexWorkspaceTabOpener
     ) {
-        if let adapter = subagentsAdapter,
-           adapter.coordinator.agent(threadID: ThreadID(id)) != nil {
+        let isSubagent = subagents.contains(where: { $0.id == id })
+            || subagentCoordinator?.agent(threadID: ThreadID(id)) != nil
+        if isSubagent {
+            guard let adapter = subagentsAdapter else { return }
             workspaceTabs.open(
                 CodexSubagentsWorkspaceTabAdapter(
                     parentThreadID: adapter.parentThreadID,
