@@ -130,6 +130,23 @@ struct CodexWorkspaceTabsTests {
         #expect(contentBuildCount == 1)
     }
 
+    @Test func unavailableRestoredRouteFailsClosedWithoutMaterializingContent() throws {
+        let source = CodexWorkspaceTabs()
+        let id = source.open(
+            TestWorkspaceTabAdapter(resourceKey: "available-before-restart", lifetime: .pinned),
+            from: .summary
+        )
+        let restored = CodexWorkspaceTabs(restoring: source.restorationState)
+        restored.register([
+            TestWorkspaceTabAdapter(resourceKey: "different-resource", lifetime: .pinned)
+        ])
+
+        restored.activate(id)
+
+        #expect(restored.snapshot.instance(id: id)?.isMaterialized == false)
+        #expect(restored.content(for: id) == nil)
+    }
+
     @Test func movingBetweenPanelsPreservesContentAndPanelLocalFallback() throws {
         let tabs = CodexWorkspaceTabs()
         let planID = tabs.open(
@@ -176,7 +193,7 @@ struct CodexWorkspaceTabsTests {
 
         tabs.close(id)
 
-        #expect(tabs.lastClosedRoute?.route == original.durableRoute)
+        #expect(tabs.lastClosedRoute == original.durableRoute)
         let restoredID = try #require(tabs.undoClose())
 
         #expect(restoredID == id)
@@ -327,7 +344,8 @@ struct CodexWorkspaceTabsTests {
         #expect(Set(instanceIDs) == Set(topologyIDs))
         #expect(snapshot.instances.allSatisfy { $0.isPinned || $0.durableRoute == nil })
         #expect(restoration.tabs.allSatisfy { tab in
-            snapshot.instance(id: tab.id)?.isPinned == true && tab.route == snapshot.instance(id: tab.id)?.durableRoute
+            snapshot.instance(id: tab.id)?.isPinned == true
+                && tab.durableRoute == snapshot.instance(id: tab.id)?.durableRoute
         })
     }
 }

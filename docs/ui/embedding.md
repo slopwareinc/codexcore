@@ -67,6 +67,17 @@ The canonical projection keeps the opening prompt in `CodexTurnV2.userMessage`, 
 4. Route approval and input requests through explicit host actions.
 5. Close leases when their presentation or operation reason ends.
 
+## Workspace tabs
+
+Keep one `CodexWorkspacePanelState` per thread outside transient SwiftUI view
+lifetimes. Its `workspaceTabs` module owns tab identity, activation, ordering,
+close fallback, right/bottom topology, routes, and restoration. Open Plan and
+Review through `CodexPlanWorkspaceTabAdapter` and
+`CodexReviewWorkspaceTabAdapter`; callers never construct or switch on tab IDs.
+Only routes and per-tab presentation state are durable. Current Plan/Review
+facts remain disposable projections and are supplied again when adapters
+register after restoration.
+
 CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
 by default. For product-specific live progress, configure the presentation
 store with `CodexTranscriptItemPresentationPolicyV2`. The policy can preserve,

@@ -1063,8 +1063,13 @@ public struct CodexAgentSidePanel: View {
 
             if let id = activeWorkspaceTabID,
                workspaceTabs.snapshot.instance(id: id)?.isMaterialized == false {
-                ProgressView("Restoring tab…")
-                    .task(id: id) { workspaceTabs.activate(id) }
+                if workspaceTabs.isAvailable(id) {
+                    ProgressView("Restoring tab…")
+                        .task(id: id) { workspaceTabs.activate(id) }
+                } else {
+                    Text("This tab is unavailable in the current workspace.")
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
             }
         }
     }

@@ -4,20 +4,13 @@ import SwiftUI
 
 public struct CodexWorkspaceTabID: Hashable, Codable, Identifiable, Sendable {
     public let rawValue: UUID
-
     public var id: UUID { rawValue }
-
-    init(rawValue: UUID = UUID()) {
-        self.rawValue = rawValue
-    }
+    init(_ rawValue: UUID = UUID()) { self.rawValue = rawValue }
 }
 
 public struct CodexWorkspaceTabContentID: Hashable, Codable, Sendable {
     public let rawValue: UUID
-
-    init(rawValue: UUID = UUID()) {
-        self.rawValue = rawValue
-    }
+    init(_ rawValue: UUID = UUID()) { self.rawValue = rawValue }
 }
 
 public enum CodexWorkspaceTabHandle: Hashable, Codable, Sendable, Identifiable {
@@ -25,12 +18,10 @@ public enum CodexWorkspaceTabHandle: Hashable, Codable, Sendable, Identifiable {
     case legacy(String)
 
     public var id: Self { self }
-
     public var workspaceTabID: CodexWorkspaceTabID? {
         guard case .workspace(let id) = self else { return nil }
         return id
     }
-
     public var legacyID: String? {
         guard case .legacy(let id) = self else { return nil }
         return id
@@ -40,6 +31,7 @@ public enum CodexWorkspaceTabHandle: Hashable, Codable, Sendable, Identifiable {
 public enum CodexWorkspaceTabPlacement: String, Codable, Sendable {
     case right
     case bottom
+    var other: Self { self == .right ? .bottom : .right }
 }
 
 public enum CodexWorkspaceTabOpener: String, Codable, Sendable {
@@ -75,10 +67,7 @@ public struct CodexWorkspaceTabRoute: Hashable, Codable, Sendable {
 
 public struct CodexWorkspaceTabState: Hashable, Codable, Sendable {
     public var data: Data
-
-    public init(data: Data = Data()) {
-        self.data = data
-    }
+    public init(data: Data = Data()) { self.data = data }
 }
 
 public struct CodexWorkspaceTabOpenMetadata: Codable, Sendable, Equatable {
@@ -88,73 +77,62 @@ public struct CodexWorkspaceTabOpenMetadata: Codable, Sendable, Equatable {
     public let replacedRoute: CodexWorkspaceTabRoute?
 }
 
-public struct CodexWorkspaceTabInstanceSnapshot: Identifiable, Sendable, Equatable {
+public struct CodexWorkspaceTabInstanceSnapshot: Identifiable, Codable, Sendable, Equatable {
     public let id: CodexWorkspaceTabID
     public let contentID: CodexWorkspaceTabContentID
-    public let title: String
-    public let systemImage: String
-    public let isPinned: Bool
-    public let durableRoute: CodexWorkspaceTabRoute?
-    public let openMetadata: CodexWorkspaceTabOpenMetadata
-    public let state: CodexWorkspaceTabState
-    public let isMaterialized: Bool
+    public fileprivate(set) var title: String
+    public fileprivate(set) var systemImage: String
+    public fileprivate(set) var isPinned: Bool
+    public fileprivate(set) var durableRoute: CodexWorkspaceTabRoute?
+    public fileprivate(set) var openMetadata: CodexWorkspaceTabOpenMetadata
+    public fileprivate(set) var state: CodexWorkspaceTabState
+    public fileprivate(set) var isMaterialized: Bool
+    fileprivate var resourceKey: String
+    fileprivate var restorableRoute: CodexWorkspaceTabRoute?
 }
 
 public struct CodexWorkspaceTabPanelSnapshot: Codable, Sendable, Equatable {
-    public var orderedTabs: [CodexWorkspaceTabHandle]
+    public var orderedTabs: [CodexWorkspaceTabHandle] = []
     public var activeTab: CodexWorkspaceTabHandle?
-    public var isOpen: Bool
+    public var isOpen = false
+    public var orderedTabIDs: [CodexWorkspaceTabID] { orderedTabs.compactMap(\.workspaceTabID) }
+    public var activeTabID: CodexWorkspaceTabID? { activeTab?.workspaceTabID }
 
-    public var orderedTabIDs: [CodexWorkspaceTabID] {
-        orderedTabs.compactMap(\.workspaceTabID)
+    mutating func remove(_ handle: CodexWorkspaceTabHandle) {
+        guard let index = orderedTabs.firstIndex(of: handle) else { return }
+        orderedTabs.remove(at: index)
+        if activeTab == handle {
+            activeTab = orderedTabs.indices.contains(index) ? orderedTabs[index] : orderedTabs.last
+        }
+        if orderedTabs.isEmpty { activeTab = nil; isOpen = false }
     }
 
-    public var activeTabID: CodexWorkspaceTabID? {
-        activeTab?.workspaceTabID
-    }
-
-    init(
-        orderedTabIDs: [CodexWorkspaceTabID] = [],
-        activeTabID: CodexWorkspaceTabID? = nil,
-        isOpen: Bool = false
-    ) {
-        self.orderedTabs = orderedTabIDs.map(CodexWorkspaceTabHandle.workspace)
-        self.activeTab = activeTabID.map(CodexWorkspaceTabHandle.workspace)
-        self.isOpen = isOpen
+    mutating func retainWorkspaceTabs(_ ids: Set<CodexWorkspaceTabID>) {
+        orderedTabs.removeAll { $0.workspaceTabID.map { !ids.contains($0) } ?? true }
+        if let activeTab, !orderedTabs.contains(activeTab) { self.activeTab = orderedTabs.last }
+        if orderedTabs.isEmpty { activeTab = nil; isOpen = false }
     }
 }
 
 public struct CodexWorkspaceTabTopologySnapshot: Codable, Sendable, Equatable {
     public var right = CodexWorkspaceTabPanelSnapshot()
     public var bottom = CodexWorkspaceTabPanelSnapshot()
-    public var focusedPlacement: CodexWorkspaceTabPlacement? = nil
+    public var focusedPlacement: CodexWorkspaceTabPlacement?
+
+    subscript(_ placement: CodexWorkspaceTabPlacement) -> CodexWorkspaceTabPanelSnapshot {
+        get { placement == .right ? right : bottom }
+        set { if placement == .right { right = newValue } else { bottom = newValue } }
+    }
 }
 
 public struct CodexWorkspaceTabRestorationState: Codable, Sendable, Equatable {
-    public struct Tab: Codable, Sendable, Equatable, Identifiable {
-        public let id: CodexWorkspaceTabID
-        public let contentID: CodexWorkspaceTabContentID
-        public let title: String
-        public let systemImage: String
-        public let route: CodexWorkspaceTabRoute
-        public let openMetadata: CodexWorkspaceTabOpenMetadata
-        public let state: CodexWorkspaceTabState
-    }
-
-    public let tabs: [Tab]
+    public let tabs: [CodexWorkspaceTabInstanceSnapshot]
     public let topology: CodexWorkspaceTabTopologySnapshot
-}
-
-public struct CodexWorkspaceTabClosedRoute: Sendable, Equatable {
-    public let route: CodexWorkspaceTabRoute
-    public let placement: CodexWorkspaceTabPlacement
-    public let insertionIndex: Int
 }
 
 public struct CodexWorkspaceTabSnapshot: Sendable, Equatable {
     public var instances: [CodexWorkspaceTabInstanceSnapshot]
     public var topology: CodexWorkspaceTabTopologySnapshot
-
     public func instance(id: CodexWorkspaceTabID) -> CodexWorkspaceTabInstanceSnapshot? {
         instances.first { $0.id == id }
     }
@@ -181,7 +159,7 @@ public struct CodexWorkspaceTabRegistration {
         systemImage: String,
         lifetime: CodexWorkspaceTabLifetime = .pinned,
         durableRoute: CodexWorkspaceTabRoute? = nil,
-        initialState: CodexWorkspaceTabState = CodexWorkspaceTabState(),
+        initialState: CodexWorkspaceTabState = .init(),
         reopenState: CodexWorkspaceTabState? = nil,
         makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     ) {
@@ -196,26 +174,16 @@ public struct CodexWorkspaceTabRegistration {
     }
 }
 
+/// Reducer-owned presentation state plus a runtime-only adapter registry.
+/// Routes/state encode no canonical Plan or Review payloads; adapters resolve
+/// current projected facts lazily when a tab becomes visible.
 @MainActor
 public final class CodexWorkspaceTabs: ObservableObject {
-    private struct Instance {
-        var id: CodexWorkspaceTabID
-        var contentID: CodexWorkspaceTabContentID
-        var resourceKey: String
-        var title: String
-        var systemImage: String
+    private struct Closed {
+        var tab: CodexWorkspaceTabInstanceSnapshot
         var registration: CodexWorkspaceTabRegistration?
-        var isPinned: Bool
-        var durableRoute: CodexWorkspaceTabRoute?
-        var openMetadata: CodexWorkspaceTabOpenMetadata
-        var state: CodexWorkspaceTabState
-        var isMaterialized: Bool
-    }
-
-    private struct ClosedInstance {
-        var instance: Instance
         var placement: CodexWorkspaceTabPlacement
-        var insertionIndex: Int
+        var tabIndex: Int
         var instanceIndex: Int
     }
 
@@ -223,90 +191,49 @@ public final class CodexWorkspaceTabs: ObservableObject {
         instances: [],
         topology: .init()
     )
-
-    private var instances: [Instance] = []
-    private var closedInstances: [ClosedInstance] = []
+    private var registrations: [CodexWorkspaceTabID: CodexWorkspaceTabRegistration] = [:]
+    private var closed: [Closed] = []
 
     public init() {}
 
     public init(restoring restoration: CodexWorkspaceTabRestorationState) {
-        instances = restoration.tabs.map { tab in
-            Instance(
-                id: tab.id,
-                contentID: tab.contentID,
-                resourceKey: Self.resourceKey(for: tab.route),
-                title: tab.title,
-                systemImage: tab.systemImage,
-                registration: nil,
-                isPinned: true,
-                durableRoute: tab.route,
-                openMetadata: tab.openMetadata,
-                state: tab.state,
-                isMaterialized: false
-            )
+        let tabs = restoration.tabs.map { tab in
+            var tab = tab
+            tab.isMaterialized = false
+            return tab
         }
-        snapshot = CodexWorkspaceTabSnapshot(
-            instances: [],
-            topology: restoration.topology
-        )
-        publishInstances()
+        snapshot = .init(instances: tabs, topology: restoration.topology)
     }
 
-    public var lastClosedRoute: CodexWorkspaceTabClosedRoute? {
-        guard let closed = closedInstances.last,
-              let route = closed.instance.durableRoute else { return nil }
-        return CodexWorkspaceTabClosedRoute(
-            route: route,
-            placement: closed.placement,
-            insertionIndex: closed.insertionIndex
-        )
-    }
+    public var lastClosedRoute: CodexWorkspaceTabRoute? { closed.last?.tab.durableRoute }
 
     public var restorationState: CodexWorkspaceTabRestorationState {
-        let durable = instances.compactMap { instance -> CodexWorkspaceTabRestorationState.Tab? in
-            guard let route = instance.durableRoute else { return nil }
-            return .init(
-                id: instance.id,
-                contentID: instance.contentID,
-                title: instance.title,
-                systemImage: instance.systemImage,
-                route: route,
-                openMetadata: instance.openMetadata,
-                state: instance.state
-            )
+        let tabs = snapshot.instances.compactMap { tab -> CodexWorkspaceTabInstanceSnapshot? in
+            guard tab.durableRoute != nil else { return nil }
+            var tab = tab
+            tab.isMaterialized = false
+            return tab
         }
-        let durableIDs = Set(durable.map(\.id))
+        let ids = Set(tabs.map(\.id))
         var topology = snapshot.topology
-        topology.right.orderedTabs.removeAll {
-            $0.workspaceTabID.map { !durableIDs.contains($0) } ?? true
+        topology.right.retainWorkspaceTabs(ids)
+        topology.bottom.retainWorkspaceTabs(ids)
+        if let focus = topology.focusedPlacement, !topology[focus].isOpen {
+            topology.focusedPlacement = topology[focus.other].isOpen ? focus.other : nil
         }
-        topology.bottom.orderedTabs.removeAll {
-            $0.workspaceTabID.map { !durableIDs.contains($0) } ?? true
-        }
-        if topology.right.activeTab?.workspaceTabID.map({ !durableIDs.contains($0) }) ?? true {
-            topology.right.activeTab = topology.right.orderedTabs.last
-        }
-        if topology.bottom.activeTab?.workspaceTabID.map({ !durableIDs.contains($0) }) ?? true {
-            topology.bottom.activeTab = topology.bottom.orderedTabs.last
-        }
-        return CodexWorkspaceTabRestorationState(tabs: durable, topology: topology)
+        return .init(tabs: tabs, topology: topology)
     }
 
     public func register(_ adapters: [any CodexWorkspaceTabAdapter]) {
-        let registrations = adapters.map(\.workspaceTabRegistration)
-        var changed = false
-        for index in instances.indices {
-            guard let route = instances[index].durableRoute,
-                  let registration = registrations.first(where: {
-                      $0.durableRoute == route
-                  }) else { continue }
-            instances[index].registration = registration
-            instances[index].resourceKey = registration.resourceKey
-            instances[index].title = registration.title
-            instances[index].systemImage = registration.systemImage
-            changed = true
+        let available = adapters.map(\.workspaceTabRegistration)
+        for index in snapshot.instances.indices {
+            guard let route = snapshot.instances[index].durableRoute,
+                  let registration = available.first(where: { $0.durableRoute == route }) else { continue }
+            let id = snapshot.instances[index].id
+            registrations[id] = registration
+            snapshot.instances[index].title = registration.title
+            snapshot.instances[index].systemImage = registration.systemImage
         }
-        if changed { publishInstances() }
     }
 
     @discardableResult
@@ -315,400 +242,237 @@ public final class CodexWorkspaceTabs: ObservableObject {
         from opener: CodexWorkspaceTabOpener
     ) -> CodexWorkspaceTabID {
         let registration = adapter.workspaceTabRegistration
-        if let index = instances.firstIndex(where: {
-            $0.resourceKey == registration.resourceKey
-        }) {
-            let placement = placement(of: instances[index].id) ?? .right
-            let replacedRoute = instances[index].durableRoute
-            instances[index].registration = registration
-            instances[index].title = registration.title
-            instances[index].systemImage = registration.systemImage
-            instances[index].isMaterialized = true
-            if let reopenState = registration.reopenState {
-                instances[index].state = reopenState
-            }
-            if instances[index].isPinned {
-                instances[index].durableRoute = registration.durableRoute
-            }
-            instances[index].openMetadata = CodexWorkspaceTabOpenMetadata(
-                opener: opener,
-                insertionIndex: panel(for: placement).orderedTabs.firstIndex(
-                    of: .workspace(instances[index].id)
-                ) ?? index,
-                replacedResourceKey: nil,
-                replacedRoute: replacedRoute == registration.durableRoute ? nil : replacedRoute
-            )
-            setActive(instances[index].id, in: placement)
-            snapshot.topology.focusedPlacement = placement
-            publishInstances()
-            return instances[index].id
+        if let index = snapshot.instances.firstIndex(where: { $0.resourceKey == registration.resourceKey }) {
+            return reopen(index, registration: registration, opener: opener)
         }
-
         if registration.lifetime == .preview,
-           let index = instances.firstIndex(where: { !$0.isPinned }),
-           let placement = placement(of: instances[index].id),
-           let orderIndex = panel(for: placement).orderedTabs.firstIndex(of: .workspace(instances[index].id)) {
-            let replacedResourceKey = instances[index].resourceKey
-            let replacedRoute = instances[index].durableRoute
-            instances[index].resourceKey = registration.resourceKey
-            instances[index].title = registration.title
-            instances[index].systemImage = registration.systemImage
-            instances[index].registration = registration
-            instances[index].durableRoute = nil
-            instances[index].state = registration.initialState
-            instances[index].isMaterialized = true
-            instances[index].openMetadata = CodexWorkspaceTabOpenMetadata(
-                opener: opener,
-                insertionIndex: orderIndex,
-                replacedResourceKey: replacedResourceKey,
-                replacedRoute: replacedRoute
-            )
-            setActive(instances[index].id, in: placement)
-            snapshot.topology.focusedPlacement = placement
-            publishInstances()
-            return instances[index].id
+           let index = snapshot.instances.firstIndex(where: { !$0.isPinned }) {
+            return replacePreview(index, registration: registration, opener: opener)
         }
-
-        let insertionIndex = snapshot.topology.right.orderedTabs.count
-        let instance = Instance(
-            id: CodexWorkspaceTabID(),
+        let id = CodexWorkspaceTabID()
+        let tab = CodexWorkspaceTabInstanceSnapshot(
+            id: id,
             contentID: CodexWorkspaceTabContentID(),
-            resourceKey: registration.resourceKey,
             title: registration.title,
             systemImage: registration.systemImage,
-            registration: registration,
             isPinned: registration.lifetime == .pinned,
             durableRoute: registration.lifetime == .pinned ? registration.durableRoute : nil,
-            openMetadata: CodexWorkspaceTabOpenMetadata(
+            openMetadata: .init(
                 opener: opener,
-                insertionIndex: insertionIndex,
+                insertionIndex: snapshot.topology.right.orderedTabs.count,
                 replacedResourceKey: nil,
                 replacedRoute: nil
             ),
             state: registration.initialState,
-            isMaterialized: true
+            isMaterialized: true,
+            resourceKey: registration.resourceKey,
+            restorableRoute: registration.durableRoute
         )
-        instances.append(instance)
-        snapshot.topology.right.orderedTabs.append(.workspace(instance.id))
-        snapshot.topology.right.activeTab = .workspace(instance.id)
-        snapshot.topology.right.isOpen = true
-        snapshot.topology.focusedPlacement = .right
-        publishInstances()
-        return instance.id
+        snapshot.instances.append(tab)
+        registrations[id] = registration
+        activate(.workspace(id), in: .right, inserting: true)
+        return id
+    }
+
+    private func reopen(
+        _ index: Int,
+        registration: CodexWorkspaceTabRegistration,
+        opener: CodexWorkspaceTabOpener
+    ) -> CodexWorkspaceTabID {
+        var tab = snapshot.instances[index]
+        let placement = placement(of: .workspace(tab.id)) ?? .right
+        let previousRoute = tab.durableRoute
+        tab.title = registration.title
+        tab.systemImage = registration.systemImage
+        tab.isMaterialized = true
+        tab.restorableRoute = registration.durableRoute
+        if tab.isPinned { tab.durableRoute = registration.durableRoute }
+        if let state = registration.reopenState { tab.state = state }
+        tab.openMetadata = .init(
+            opener: opener,
+            insertionIndex: snapshot.topology[placement].orderedTabs.firstIndex(of: .workspace(tab.id)) ?? index,
+            replacedResourceKey: nil,
+            replacedRoute: previousRoute == registration.durableRoute ? nil : previousRoute
+        )
+        snapshot.instances[index] = tab
+        registrations[tab.id] = registration
+        activate(.workspace(tab.id), in: placement)
+        return tab.id
+    }
+
+    private func replacePreview(
+        _ index: Int,
+        registration: CodexWorkspaceTabRegistration,
+        opener: CodexWorkspaceTabOpener
+    ) -> CodexWorkspaceTabID {
+        var tab = snapshot.instances[index]
+        let placement = placement(of: .workspace(tab.id)) ?? .right
+        let oldKey = tab.resourceKey
+        let oldRoute = tab.durableRoute
+        tab.title = registration.title
+        tab.systemImage = registration.systemImage
+        tab.resourceKey = registration.resourceKey
+        tab.restorableRoute = registration.durableRoute
+        tab.durableRoute = nil
+        tab.state = registration.initialState
+        tab.isMaterialized = true
+        tab.openMetadata = .init(
+            opener: opener,
+            insertionIndex: snapshot.topology[placement].orderedTabs.firstIndex(of: .workspace(tab.id)) ?? index,
+            replacedResourceKey: oldKey,
+            replacedRoute: oldRoute
+        )
+        snapshot.instances[index] = tab
+        registrations[tab.id] = registration
+        activate(.workspace(tab.id), in: placement)
+        return tab.id
     }
 
     public func pin(_ id: CodexWorkspaceTabID) {
-        guard let index = instances.firstIndex(where: { $0.id == id }),
-              !instances[index].isPinned else { return }
-        instances[index].isPinned = true
-        instances[index].durableRoute = instances[index].registration?.durableRoute
-        publishInstances()
+        guard let index = index(of: id), !snapshot.instances[index].isPinned else { return }
+        snapshot.instances[index].isPinned = true
+        snapshot.instances[index].durableRoute = snapshot.instances[index].restorableRoute
     }
 
     public func activate(_ id: CodexWorkspaceTabID) {
-        guard let index = instances.firstIndex(where: { $0.id == id }),
-              let placement = placement(of: id) else { return }
-        setActive(id, in: placement)
-        snapshot.topology.focusedPlacement = placement
-        if instances[index].registration != nil {
-            instances[index].isMaterialized = true
-        }
-        publishInstances()
-    }
-
-    func openLegacy(_ id: String) {
-        let handle = CodexWorkspaceTabHandle.legacy(id)
-        if !snapshot.topology.right.orderedTabs.contains(handle) {
-            snapshot.topology.right.orderedTabs.append(handle)
-        }
-        setActive(handle, in: .right)
-        snapshot.topology.focusedPlacement = .right
-        publishInstances()
-    }
-
-    func activateLegacy(_ id: String) {
-        let handle = CodexWorkspaceTabHandle.legacy(id)
-        guard snapshot.topology.right.orderedTabs.contains(handle) else { return }
-        setActive(handle, in: .right)
-        snapshot.topology.focusedPlacement = .right
-        publishInstances()
-    }
-
-    func closeLegacy(_ id: String) {
-        let handle = CodexWorkspaceTabHandle.legacy(id)
-        guard snapshot.topology.right.orderedTabs.contains(handle) else { return }
-        remove(handle, from: .right)
-        if snapshot.topology.focusedPlacement == .right,
-           !snapshot.topology.right.isOpen {
-            snapshot.topology.focusedPlacement = snapshot.topology.bottom.isOpen ? .bottom : nil
-        }
-        publishInstances()
-    }
-
-    func reconcileLegacy(_ ids: [String]) {
-        let available = Set(ids)
-        let previous = snapshot.topology.right.orderedTabs
-        snapshot.topology.right.orderedTabs.removeAll { handle in
-            handle.legacyID.map { !available.contains($0) } ?? false
-        }
-        let existing = Set(snapshot.topology.right.orderedTabs.compactMap(\.legacyID))
-        snapshot.topology.right.orderedTabs.append(contentsOf: ids.compactMap {
-            existing.contains($0) ? nil : .legacy($0)
-        })
-        if let active = snapshot.topology.right.activeTab,
-           !snapshot.topology.right.orderedTabs.contains(active) {
-            snapshot.topology.right.activeTab = snapshot.topology.right.orderedTabs.last
-        }
-        if snapshot.topology.right.orderedTabs.isEmpty {
-            snapshot.topology.right.activeTab = nil
-            snapshot.topology.right.isOpen = false
-        }
-        if previous != snapshot.topology.right.orderedTabs { publishInstances() }
-    }
-
-    func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
-        switch placement {
-        case .right:
-            snapshot.topology.right.isOpen = isOpen && !snapshot.topology.right.orderedTabs.isEmpty
-            if snapshot.topology.right.isOpen, snapshot.topology.right.activeTab == nil {
-                snapshot.topology.right.activeTab = snapshot.topology.right.orderedTabs.first
-            }
-        case .bottom:
-            snapshot.topology.bottom.isOpen = isOpen && !snapshot.topology.bottom.orderedTabs.isEmpty
-            if snapshot.topology.bottom.isOpen, snapshot.topology.bottom.activeTab == nil {
-                snapshot.topology.bottom.activeTab = snapshot.topology.bottom.orderedTabs.first
-            }
-        }
-        if isOpen { snapshot.topology.focusedPlacement = placement }
-        publishInstances()
-    }
-
-    func clearActive(placement: CodexWorkspaceTabPlacement = .right) {
-        switch placement {
-        case .right: snapshot.topology.right.activeTab = nil
-        case .bottom: snapshot.topology.bottom.activeTab = nil
-        }
-        publishInstances()
-    }
-
-    func removeAll() {
-        instances.removeAll()
-        closedInstances.removeAll()
-        snapshot = CodexWorkspaceTabSnapshot(instances: [], topology: .init())
+        guard let index = index(of: id), let placement = placement(of: .workspace(id)) else { return }
+        if registrations[id] != nil { snapshot.instances[index].isMaterialized = true }
+        activate(.workspace(id), in: placement)
     }
 
     public func move(_ id: CodexWorkspaceTabID, to destination: CodexWorkspaceTabPlacement) {
-        guard let source = placement(of: id), source != destination else {
-            activate(id)
-            return
-        }
-        remove(id, from: source)
-        switch destination {
-        case .right:
-            snapshot.topology.right.orderedTabs.append(.workspace(id))
-        case .bottom:
-            snapshot.topology.bottom.orderedTabs.append(.workspace(id))
-        }
-        setActive(id, in: destination)
-        snapshot.topology.focusedPlacement = destination
-        publishInstances()
+        guard let source = placement(of: .workspace(id)) else { return }
+        guard source != destination else { activate(id); return }
+        remove(.workspace(id), from: source)
+        activate(.workspace(id), in: destination, inserting: true)
     }
 
     public func updateState(_ state: CodexWorkspaceTabState, for id: CodexWorkspaceTabID) {
-        guard let index = instances.firstIndex(where: { $0.id == id }),
-              instances[index].state != state else { return }
-        instances[index].state = state
-        publishInstances()
+        guard let index = index(of: id), snapshot.instances[index].state != state else { return }
+        snapshot.instances[index].state = state
     }
 
     public func content(for id: CodexWorkspaceTabID) -> AnyView? {
-        guard let index = instances.firstIndex(where: { $0.id == id }),
-              instances[index].isMaterialized,
-              let registration = instances[index].registration else { return nil }
-        let binding = Binding(
-            get: { [weak self] in
-                self?.instances.first(where: { $0.id == id })?.state ?? CodexWorkspaceTabState()
-            },
-            set: { [weak self] state in self?.updateState(state, for: id) }
-        )
-        return registration.makeContent(binding)
+        guard let index = index(of: id), snapshot.instances[index].isMaterialized,
+              let registration = registrations[id] else { return nil }
+        return registration.makeContent(Binding(
+            get: { [weak self] in self?.snapshot.instance(id: id)?.state ?? .init() },
+            set: { [weak self] in self?.updateState($0, for: id) }
+        ))
     }
 
+    func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }
+
     public func close(_ id: CodexWorkspaceTabID) {
-        guard let placement = placement(of: id),
-              let instanceIndex = instances.firstIndex(where: { $0.id == id }),
-              let insertionIndex = panel(for: placement).orderedTabs.firstIndex(of: .workspace(id)) else { return }
-        closedInstances.append(ClosedInstance(
-            instance: instances.remove(at: instanceIndex),
+        let handle = CodexWorkspaceTabHandle.workspace(id)
+        guard let placement = placement(of: handle), let instanceIndex = index(of: id),
+              let tabIndex = snapshot.topology[placement].orderedTabs.firstIndex(of: handle) else { return }
+        closed.append(.init(
+            tab: snapshot.instances.remove(at: instanceIndex),
+            registration: registrations.removeValue(forKey: id),
             placement: placement,
-            insertionIndex: insertionIndex,
+            tabIndex: tabIndex,
             instanceIndex: instanceIndex
         ))
-        remove(id, from: placement)
-        if snapshot.topology.focusedPlacement == placement,
-           !panel(for: placement).isOpen {
-            snapshot.topology.focusedPlacement = panel(for: other(than: placement)).isOpen
-                ? other(than: placement)
-                : nil
-        }
-        publishInstances()
+        remove(handle, from: placement)
     }
 
     @discardableResult
     public func undoClose() -> CodexWorkspaceTabID? {
-        guard let closed = closedInstances.popLast(),
-              !instances.contains(where: { $0.id == closed.instance.id }) else { return nil }
-        instances.insert(
-            closed.instance,
-            at: min(closed.instanceIndex, instances.count)
-        )
-        switch closed.placement {
-        case .right:
-            snapshot.topology.right.orderedTabs.insert(
-                .workspace(closed.instance.id),
-                at: min(closed.insertionIndex, snapshot.topology.right.orderedTabs.count)
-            )
-        case .bottom:
-            snapshot.topology.bottom.orderedTabs.insert(
-                .workspace(closed.instance.id),
-                at: min(closed.insertionIndex, snapshot.topology.bottom.orderedTabs.count)
-            )
-        }
-        setActive(closed.instance.id, in: closed.placement)
-        snapshot.topology.focusedPlacement = closed.placement
-        publishInstances()
-        return closed.instance.id
+        guard let closed = closed.popLast(), index(of: closed.tab.id) == nil else { return nil }
+        snapshot.instances.insert(closed.tab, at: min(closed.instanceIndex, snapshot.instances.count))
+        registrations[closed.tab.id] = closed.registration
+        var panel = snapshot.topology[closed.placement]
+        panel.orderedTabs.insert(.workspace(closed.tab.id), at: min(closed.tabIndex, panel.orderedTabs.count))
+        snapshot.topology[closed.placement] = panel
+        activate(.workspace(closed.tab.id), in: closed.placement)
+        return closed.tab.id
     }
 
-    private func publishInstances() {
-        snapshot.instances = instances.map {
-            CodexWorkspaceTabInstanceSnapshot(
-                id: $0.id,
-                contentID: $0.contentID,
-                title: $0.title,
-                systemImage: $0.systemImage,
-                isPinned: $0.isPinned,
-                durableRoute: $0.durableRoute,
-                openMetadata: $0.openMetadata,
-                state: $0.state,
-                isMaterialized: $0.isMaterialized
-            )
-        }
+    func openLegacy(_ id: String) { activate(.legacy(id), in: .right, inserting: true) }
+    func activateLegacy(_ id: String) { activate(.legacy(id), in: .right) }
+    func closeLegacy(_ id: String) { remove(.legacy(id), from: .right) }
+
+    func reconcileLegacy(_ ids: [String]) {
+        let available = Set(ids)
+        var panel = snapshot.topology.right
+        panel.orderedTabs.removeAll { $0.legacyID.map { !available.contains($0) } ?? false }
+        var existing = Set(panel.orderedTabs.compactMap(\.legacyID))
+        for id in ids where existing.insert(id).inserted { panel.orderedTabs.append(.legacy(id)) }
+        if let active = panel.activeTab, !panel.orderedTabs.contains(active) { panel.activeTab = panel.orderedTabs.last }
+        if panel.orderedTabs.isEmpty { panel.activeTab = nil; panel.isOpen = false }
+        snapshot.topology.right = panel
     }
 
-    private static func resourceKey(for route: CodexWorkspaceTabRoute) -> String {
-        "\(route.adapterID):\(route.resourceID)"
+    func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
+        var panel = snapshot.topology[placement]
+        panel.isOpen = isOpen && !panel.orderedTabs.isEmpty
+        if panel.isOpen, panel.activeTab == nil { panel.activeTab = panel.orderedTabs.first }
+        snapshot.topology[placement] = panel
+        if panel.isOpen { snapshot.topology.focusedPlacement = placement }
     }
 
-    private func placement(of id: CodexWorkspaceTabID) -> CodexWorkspaceTabPlacement? {
-        if snapshot.topology.right.orderedTabs.contains(.workspace(id)) { return .right }
-        if snapshot.topology.bottom.orderedTabs.contains(.workspace(id)) { return .bottom }
+    func removeAll() {
+        registrations.removeAll()
+        closed.removeAll()
+        snapshot = .init(instances: [], topology: .init())
+    }
+
+    private func index(of id: CodexWorkspaceTabID) -> Int? {
+        snapshot.instances.firstIndex { $0.id == id }
+    }
+
+    private func placement(of handle: CodexWorkspaceTabHandle) -> CodexWorkspaceTabPlacement? {
+        if snapshot.topology.right.orderedTabs.contains(handle) { return .right }
+        if snapshot.topology.bottom.orderedTabs.contains(handle) { return .bottom }
         return nil
     }
 
-    private func panel(for placement: CodexWorkspaceTabPlacement) -> CodexWorkspaceTabPanelSnapshot {
-        switch placement {
-        case .right: snapshot.topology.right
-        case .bottom: snapshot.topology.bottom
-        }
-    }
-
-    private func setActive(_ id: CodexWorkspaceTabID, in placement: CodexWorkspaceTabPlacement) {
-        setActive(.workspace(id), in: placement)
-    }
-
-    private func setActive(
+    private func activate(
         _ handle: CodexWorkspaceTabHandle,
-        in placement: CodexWorkspaceTabPlacement
+        in placement: CodexWorkspaceTabPlacement,
+        inserting: Bool = false
     ) {
-        switch placement {
-        case .right:
-            snapshot.topology.right.activeTab = handle
-            snapshot.topology.right.isOpen = true
-        case .bottom:
-            snapshot.topology.bottom.activeTab = handle
-            snapshot.topology.bottom.isOpen = true
-        }
+        var panel = snapshot.topology[placement]
+        if inserting, !panel.orderedTabs.contains(handle) { panel.orderedTabs.append(handle) }
+        guard panel.orderedTabs.contains(handle) else { return }
+        panel.activeTab = handle
+        panel.isOpen = true
+        snapshot.topology[placement] = panel
+        snapshot.topology.focusedPlacement = placement
     }
 
-    private func remove(_ id: CodexWorkspaceTabID, from placement: CodexWorkspaceTabPlacement) {
-        remove(.workspace(id), from: placement)
-    }
-
-    private func remove(
-        _ handle: CodexWorkspaceTabHandle,
-        from placement: CodexWorkspaceTabPlacement
-    ) {
-        switch placement {
-        case .right:
-            remove(handle, from: &snapshot.topology.right)
-        case .bottom:
-            remove(handle, from: &snapshot.topology.bottom)
+    private func remove(_ handle: CodexWorkspaceTabHandle, from placement: CodexWorkspaceTabPlacement) {
+        var panel = snapshot.topology[placement]
+        panel.remove(handle)
+        snapshot.topology[placement] = panel
+        if snapshot.topology.focusedPlacement == placement, !panel.isOpen {
+            snapshot.topology.focusedPlacement = snapshot.topology[placement.other].isOpen
+                ? placement.other : nil
         }
-    }
-
-    private func remove(
-        _ handle: CodexWorkspaceTabHandle,
-        from panel: inout CodexWorkspaceTabPanelSnapshot
-    ) {
-        guard let index = panel.orderedTabs.firstIndex(of: handle) else { return }
-        panel.orderedTabs.remove(at: index)
-        if panel.activeTab == handle {
-            panel.activeTab = panel.orderedTabs.indices.contains(index)
-                ? panel.orderedTabs[index]
-                : panel.orderedTabs.last
-        }
-        if panel.orderedTabs.isEmpty {
-            panel.activeTab = nil
-            panel.isOpen = false
-        }
-    }
-
-    private func other(than placement: CodexWorkspaceTabPlacement) -> CodexWorkspaceTabPlacement {
-        placement == .right ? .bottom : .right
     }
 }
 
 @MainActor
 public struct CodexPlanWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
     private let plan: CodexPlanSummary
-
-    public init(plan: CodexPlanSummary) {
-        self.plan = plan
-    }
+    public init(plan: CodexPlanSummary) { self.plan = plan }
 
     public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: "codex.plan",
             title: "Plan",
             systemImage: "list.bullet.rectangle",
-            durableRoute: CodexWorkspaceTabRoute(
-                adapterID: "codex.plan",
-                version: 1,
-                resourceID: "current"
-            )
-        ) { _ in
-            AnyView(CodexPlanSummaryPage(plan: plan))
-        }
+            durableRoute: .init(adapterID: "codex.plan", version: 1, resourceID: "current")
+        ) { _ in AnyView(CodexPlanSummaryPage(plan: plan)) }
     }
 }
 
 @MainActor
 public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
-    public enum Source: String, Codable, Sendable {
-        case workspace
-        case transcript
-    }
-
-    private struct RoutePayload: Codable {
-        var source: Source
-        var canonicalSourceID: String
-    }
-
-    private struct StatePayload: Codable {
-        var selectedFilePath: String?
-    }
-
+    public enum Source: String, Codable, Sendable { case workspace, transcript }
+    private struct RoutePayload: Codable { var source: Source; var canonicalSourceID: String }
+    private struct StatePayload: Codable { var selectedFilePath: String? }
     private let workspaceURL: URL
     private let session: CodexGitReviewSession
     private let source: Source
@@ -730,12 +494,12 @@ public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
     }
 
     public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
-        let state = Self.state(selectedFilePath: selectedFilePath)
+        let state = Self.state(selectedFilePath)
         return CodexWorkspaceTabRegistration(
             resourceKey: "codex.review",
             title: "Review",
             systemImage: "doc.text.magnifyingglass",
-            durableRoute: CodexWorkspaceTabRoute(
+            durableRoute: .init(
                 adapterID: "codex.review",
                 version: 1,
                 resourceID: session.snapshot.revision.sourceID,
@@ -751,12 +515,9 @@ public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 workspaceURL: workspaceURL,
                 lastTurnSession: session,
                 selectedFilePath: Self.selectedFilePath(in: state.wrappedValue),
-                onSelectedFilePathChange: { path in
-                    state.wrappedValue = Self.state(selectedFilePath: path)
-                },
+                onSelectedFilePathChange: { state.wrappedValue = Self.state($0) },
                 onStartReview: onStartReview
-            )
-            .id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)"))
+            ).id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)"))
         }
     }
 
@@ -764,12 +525,8 @@ public struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         try? JSONDecoder().decode(StatePayload.self, from: state.data).selectedFilePath
     }
 
-    private static func state(selectedFilePath: String?) -> CodexWorkspaceTabState {
-        CodexWorkspaceTabState(
-            data: Self.encode(StatePayload(
-                selectedFilePath: selectedFilePath
-            ))
-        )
+    private static func state(_ selectedFilePath: String?) -> CodexWorkspaceTabState {
+        .init(data: encode(StatePayload(selectedFilePath: selectedFilePath)))
     }
 
     private static func encode<Value: Encodable>(_ value: Value) -> Data {
