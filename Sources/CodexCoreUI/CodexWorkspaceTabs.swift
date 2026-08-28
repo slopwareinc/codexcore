@@ -417,10 +417,12 @@ public final class CodexWorkspaceTabs: ObservableObject {
 
     func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }
 
-    /// Reports user interaction with a tab's content. Preview adapters opt in
-    /// to pinning here; callers never need to duplicate preview lifecycle rules.
+    /// Reports user interaction with a tab's content. Preview tabs pin on first
+    /// interaction; adapters can opt the same rule into another lifetime when
+    /// needed. Callers never duplicate preview lifecycle rules.
     public func interact(_ id: CodexWorkspaceTabID) {
-        guard let registration = registrations[id], registration.pinsOnInteraction else { return }
+        guard let registration = registrations[id],
+              registration.lifetime == .preview || registration.pinsOnInteraction else { return }
         pin(id)
     }
 

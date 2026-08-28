@@ -225,8 +225,8 @@ final class CodexFilePreviewModel: ObservableObject {
             let result = await worker.value
             guard !Task.isCancelled else { return }
             guard let self, self.currentURL == url else { return }
-            self.state = result
             if case .text = result { self.contentIdentity = UUID() }
+            self.state = result
         }
     }
 }
@@ -335,7 +335,7 @@ struct CodexFilePreviewView: View {
                 contentIdentity: model.contentIdentity
             )
             .contentShape(Rectangle())
-            .onTapGesture(perform: onInteraction)
+            .simultaneousGesture(TapGesture().onEnded(onInteraction))
         }
     }
 

@@ -170,9 +170,12 @@ public struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         } else {
             // Version-one routes from the first Files slice use the resource
             // id as the canonical identity and carry no payload.
-            let parts = route.resourceID.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            let identity = route.resourceID.hasPrefix("codex-file:")
+                ? String(route.resourceID.dropFirst("codex-file:".count))
+                : route.resourceID
+            let parts = identity.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
             let ref = parts.first.map(String.init)
-            let path = parts.count > 1 ? String(parts[1]) : route.resourceID
+            let path = parts.count > 1 ? String(parts[1]) : identity
             self.file = .init(fileURL: URL(fileURLWithPath: path), ref: ref?.isEmpty == true ? nil : ref)
         }
     }

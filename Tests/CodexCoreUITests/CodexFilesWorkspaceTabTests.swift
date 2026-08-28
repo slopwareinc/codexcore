@@ -108,4 +108,35 @@ struct CodexFilesWorkspaceTabTests {
         )
         #expect(restored.snapshot.topology.right.activeTabID == previewID)
     }
+
+    @Test func transcriptFileReferenceOpensPreviewAndPersistsLineLocation() throws {
+        let root = URL(fileURLWithPath: "/tmp/project")
+        let file = root.appendingPathComponent("App.swift").standardizedFileURL
+        let panel = CodexWorkspacePanelState()
+        let service = CodexWorkspaceTranscriptFileNavigationService(
+            workspaceURL: root,
+            fileExists: { $0 == file },
+            openFile: { resolved in
+                let id = panel.openFilePreview(fileURL: resolved.fileURL)
+                if let line = resolved.reference.line {
+                    panel.workspaceTabs.updateState(
+                        CodexFilePreviewTabState(goToLine: line).tabState,
+                        for: id
+                    )
+                }
+            },
+            revealFile: { _ in }
+        )
+        let resolved = try #require(
+            service.resolve(CodexTranscriptFileReference(path: "App.swift", line: 12))
+        )
+
+        service.open(resolved)
+        let id = try #require(panel.workspaceTabs.snapshot.topology.right.activeTabID)
+        #expect(
+            CodexFilePreviewTabState(
+                tabState: try #require(panel.workspaceTabs.snapshot.instance(id: id)?.state)
+            ).goToLine == 12
+        )
+    }
 }
