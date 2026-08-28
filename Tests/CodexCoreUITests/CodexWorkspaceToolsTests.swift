@@ -45,11 +45,17 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(panel.terminalSessions.first?.title, "Terminal")
         XCTAssertEqual(panel.browserSessions.first?.title, "Browser")
         // The most-recently opened tool becomes selected.
-        XCTAssertEqual(panel.selectedTabID, firstBrowser)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .legacy(firstBrowser)
+        )
 
         let secondTerminal = panel.openTerminal(workspacePath: "/tmp")
         XCTAssertEqual(panel.terminalSessions.last?.title, "Terminal 2")
-        XCTAssertEqual(panel.selectedTabID, secondTerminal)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .legacy(secondTerminal)
+        )
         XCTAssertNotEqual(firstTerminal, secondTerminal)
         XCTAssertTrue(panel.hasOpenTools)
     }
@@ -104,32 +110,45 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         XCTAssertEqual(first, second)
         XCTAssertEqual(panel.filesSession?.id, first)
-        XCTAssertEqual(panel.selectedTabID, first)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(first))
         XCTAssertEqual(panel.filesSession?.rootURL.path, "/tmp/workspace")
         XCTAssertTrue(panel.hasOpenTools)
     }
 
     @MainActor
-    func testPanelStateCloseFallsBackToRemainingTabThenProvidedTabs() {
+    func testPanelStateCloseFallsBackAcrossLegacyAndManagedTabs() {
         let panel = CodexWorkspacePanelState()
         let terminal = panel.openTerminal(workspacePath: "/tmp")
         let browser = panel.openBrowser()
         let files = panel.openFiles(workspacePath: "/tmp")
+        let planID = panel.workspaceTabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: [])),
+            from: .summary
+        )
 
-        // Closing the selected files tab falls back to the first surviving tool (terminal).
-        panel.closeFiles(id: files, fallbackTabIDs: ["review-tab"])
+        panel.workspaceTabs.activateLegacy(files)
+        panel.closeFiles(id: files)
         XCTAssertNil(panel.filesSession)
-        XCTAssertEqual(panel.selectedTabID, terminal)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .workspace(planID)
+        )
 
-        panel.selectedTabID = browser
-        panel.closeBrowser(id: browser, fallbackTabIDs: ["review-tab"])
+        panel.workspaceTabs.activateLegacy(browser)
+        panel.closeBrowser(id: browser)
         XCTAssertTrue(panel.browserSessions.isEmpty)
-        XCTAssertEqual(panel.selectedTabID, terminal)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .workspace(planID)
+        )
 
-        // Closing the last tool falls back to a provided panel tab id.
-        panel.closeTerminal(id: terminal, fallbackTabIDs: ["review-tab"])
+        panel.workspaceTabs.activateLegacy(terminal)
+        panel.closeTerminal(id: terminal)
         XCTAssertTrue(panel.terminalSessions.isEmpty)
-        XCTAssertEqual(panel.selectedTabID, "review-tab")
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .workspace(planID)
+        )
         XCTAssertFalse(panel.hasOpenTools)
     }
 
@@ -163,17 +182,26 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testClosingSelectedSubagentSkipsItsFallbackIDWithoutChangingOrder() {
+    func testClosingSelectedSubagentFallsBackThroughTheWorkspaceTabReducer() {
         let panel = CodexWorkspacePanelState()
+        let reviewID = panel.workspaceTabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp"),
+                session: CodexGitReviewSession(
+                    snapshot: CodexGitReviewSnapshot(branchName: "main")
+                )
+            ),
+            from: .summary
+        )
         panel.openSubagent(id: "agent-a")
 
-        panel.closeSubagent(
-            id: "agent-a",
-            fallbackTabIDs: ["agent-a", "review", "plan"]
-        )
+        panel.closeSubagent(id: "agent-a")
 
         XCTAssertNil(panel.openSubagentTabID)
-        XCTAssertEqual(panel.selectedTabID, "review")
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.activeTab,
+            .workspace(reviewID)
+        )
     }
 
     @MainActor
@@ -186,14 +214,74 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             snapshot: CodexGitReviewSnapshot(branchName: "main")
         )
 
-        let tabs = panel.agentTabs(
-            subagents: [],
-            gitReviewSession: review,
-            plan: plan
+        let planID = panel.workspaceTabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: plan),
+            from: .summary
+        )
+        let reviewID = panel.workspaceTabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp"),
+                session: review
+            ),
+            from: .summary
         )
 
-        XCTAssertEqual(tabs.map(\.id), ["review", "plan"])
-        XCTAssertEqual(tabs.map(\.title), ["Review", "Plan"])
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.topology.right.orderedTabIDs,
+            [planID, reviewID]
+        )
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.instances.map(\.title),
+            ["Plan", "Review"]
+        )
+        XCTAssertTrue(panel.agentTabs(subagents: []).isEmpty)
+    }
+
+    @MainActor
+    func testPanelStateInjectsAppliesAndExportsDurableWorkspaceTabRestoration() throws {
+        let source = CodexWorkspacePanelState()
+        let planID = source.workspaceTabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: [])),
+            from: .summary
+        )
+        let reviewID = source.workspaceTabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp"),
+                session: CodexGitReviewSession(
+                    snapshot: CodexGitReviewSnapshot(branchName: "main")
+                )
+            ),
+            from: .summary
+        )
+        source.workspaceTabs.updateState(
+            CodexWorkspaceTabState(data: Data("selected.swift".utf8)),
+            for: reviewID
+        )
+        source.workspaceTabs.move(reviewID, to: .bottom)
+
+        let data = try JSONEncoder().encode(source.workspaceTabRestorationState)
+        let persisted = try JSONDecoder().decode(
+            CodexWorkspaceTabRestorationState.self,
+            from: data
+        )
+        let injected = CodexWorkspacePanelState(
+            panelWidth: 540,
+            restorationState: persisted
+        )
+        let applied = CodexWorkspacePanelState()
+        applied.applyWorkspaceTabRestoration(persisted)
+
+        for panel in [injected, applied] {
+            XCTAssertEqual(panel.workspaceTabRestorationState, persisted)
+            XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.orderedTabIDs, [planID])
+            XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.orderedTabIDs, [reviewID])
+            XCTAssertTrue(panel.workspaceTabs.snapshot.instances.allSatisfy { !$0.isMaterialized })
+            XCTAssertEqual(
+                panel.workspaceTabs.snapshot.instance(id: reviewID)?.state.data,
+                Data("selected.swift".utf8)
+            )
+        }
+        XCTAssertEqual(injected.panelWidth, 540)
     }
 
     @MainActor
@@ -209,7 +297,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertTrue(panel.terminalSessions.isEmpty)
         XCTAssertTrue(panel.browserSessions.isEmpty)
         XCTAssertNil(panel.filesSession)
-        XCTAssertNil(panel.selectedTabID)
+        XCTAssertNil(panel.workspaceTabs.snapshot.topology.right.activeTab)
         XCTAssertFalse(panel.isAgentPanelOpen)
     }
 

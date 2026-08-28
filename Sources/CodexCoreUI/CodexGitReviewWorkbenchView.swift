@@ -5,19 +5,24 @@ import AppKit
 struct CodexGitReviewWorkbenchHost: View {
     @State private var workbench: CodexGitReviewWorkbench
     let onStartReview: (CodexReviewTarget) -> Void
+    let lastTurnSession: CodexGitReviewSession?
     let selectedFilePath: String?
+    let onSelectedFilePathChange: (String?) -> Void
 
     init(
         workspaceURL: URL,
         lastTurnSession: CodexGitReviewSession?,
         selectedFilePath: String? = nil,
+        onSelectedFilePathChange: @escaping (String?) -> Void = { _ in },
         onStartReview: @escaping (CodexReviewTarget) -> Void
     ) {
         _workbench = State(initialValue: CodexGitReviewWorkbench(
             workspaceURL: workspaceURL,
             lastTurnSession: lastTurnSession
         ))
+        self.lastTurnSession = lastTurnSession
         self.selectedFilePath = selectedFilePath
+        self.onSelectedFilePathChange = onSelectedFilePathChange
         self.onStartReview = onStartReview
     }
 
@@ -30,6 +35,12 @@ struct CodexGitReviewWorkbenchHost: View {
             if let selectedFilePath {
                 workbench.selectFile(path: selectedFilePath)
             }
+        }
+        .onChange(of: workbench.selectedFileID) { _, _ in
+            onSelectedFilePathChange(workbench.selectedFile?.path)
+        }
+        .onChange(of: lastTurnSession) { _, session in
+            workbench.updateLastTurnSession(session)
         }
     }
 }

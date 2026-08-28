@@ -601,7 +601,7 @@ private struct SummaryPlanAndChangesScene: View {
 }
 
 private struct AgentPanelCompletedScene: View {
-    @State private var selectedTabID: String? = "cicero"
+    @StateObject private var workspaceTabs = CodexWorkspaceTabs()
     @State private var panelWidth: CGFloat = 620
 
     private let review = CodexGitReviewSession(
@@ -611,23 +611,24 @@ private struct AgentPanelCompletedScene: View {
         )
     )
 
-    private let agent = CodexSubagentState(
-        id: "cicero",
-        name: "Cicero",
-        title: "Subagent",
-        prompt: "Do nothing",
-        status: .completed
-    )
-
     var body: some View {
         CodexAgentSidePanel(
-            tabs: [.review(review), .subagent(agent)],
-            selectedTabID: $selectedTabID,
+            tabs: [],
+            workspaceTabs: workspaceTabs,
             width: $panelWidth,
             showsCloseButton: true,
             onClose: {}
         )
         .frame(height: 720)
+        .onAppear {
+            workspaceTabs.open(
+                CodexReviewWorkspaceTabAdapter(
+                    workspaceURL: URL(fileURLWithPath: "/tmp"),
+                    session: review
+                ),
+                from: .summary
+            )
+        }
     }
 }
 

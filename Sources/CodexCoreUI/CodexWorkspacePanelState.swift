@@ -14,16 +14,35 @@ public final class CodexWorkspacePanelState: ObservableObject {
     @Published public var browserSessions: [CodexBrowserSession] = []
     @Published public var filesSession: CodexFilesSession?
     @Published public var filePreviewSessions: [CodexFilePreviewSession] = []
-    @Published public var isAgentPanelOpen: Bool = false
-    @Published public var selectedTabID: String?
     @Published public var panelWidth: CGFloat
     @Published private(set) var openSubagentTabID: String?
+    public let workspaceTabs: CodexWorkspaceTabs
 
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
 
-    public init(panelWidth: CGFloat = 400) {
+    public init(
+        panelWidth: CGFloat = 400,
+        restorationState: CodexWorkspaceTabRestorationState? = nil
+    ) {
         self.panelWidth = panelWidth
+        self.workspaceTabs = restorationState.map(CodexWorkspaceTabs.init(restoring:))
+            ?? CodexWorkspaceTabs()
+    }
+
+    public var workspaceTabRestorationState: CodexWorkspaceTabRestorationState {
+        workspaceTabs.restorationState
+    }
+
+    public func applyWorkspaceTabRestoration(
+        _ restorationState: CodexWorkspaceTabRestorationState
+    ) {
+        workspaceTabs.apply(restoration: restorationState)
+    }
+
+    public var isAgentPanelOpen: Bool {
+        get { workspaceTabs.snapshot.topology.right.isOpen }
+        set { workspaceTabs.setOpen(newValue) }
     }
 
     public var hasOpenTools: Bool {
@@ -33,13 +52,9 @@ public final class CodexWorkspacePanelState: ObservableObject {
 
     func agentTabs(
         sideChat: CodexSideChatState? = nil,
-        subagents: [CodexSubagentState],
-        gitReviewSession: CodexGitReviewSession? = nil,
-        plan: CodexPlanSummary? = nil
+        subagents: [CodexSubagentState]
     ) -> [CodexAgentPanelTab] {
         var tabs: [CodexAgentPanelTab] = []
-        if let gitReviewSession { tabs.append(.review(gitReviewSession)) }
-        if let plan { tabs.append(.plan(plan)) }
         if let sideChat { tabs.append(.sideChat(sideChat)) }
         if let openSubagentTabID,
            let subagent = subagents.first(where: { $0.id == openSubagentTabID })
@@ -51,15 +66,13 @@ public final class CodexWorkspacePanelState: ObservableObject {
 
     func openSubagent(id: String) {
         openSubagentTabID = id
-        selectedTabID = id
+        workspaceTabs.openLegacy(id)
     }
 
-    func closeSubagent(id: String, fallbackTabIDs: [String]) {
+    func closeSubagent(id: String) {
         guard openSubagentTabID == id else { return }
         openSubagentTabID = nil
-        if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs, excluding: id)
-        }
+        workspaceTabs.closeLegacy(id)
     }
 
     // MARK: - Tool lifecycle
@@ -71,15 +84,13 @@ public final class CodexWorkspacePanelState: ObservableObject {
         let title = number == 1 ? "Terminal" : "Terminal \(number)"
         let session = CodexTerminalSession(title: title, workingDirectory: workspacePath)
         terminalSessions.append(session)
-        selectedTabID = session.id
+        workspaceTabs.openLegacy(session.id)
         return session.id
     }
 
-    public func closeTerminal(id: String, fallbackTabIDs: [String]) {
+    public func closeTerminal(id: String) {
         terminalSessions.removeAll { $0.id == id }
-        if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs)
-        }
+        workspaceTabs.closeLegacy(id)
     }
 
     @discardableResult
@@ -89,37 +100,33 @@ public final class CodexWorkspacePanelState: ObservableObject {
         let title = number == 1 ? "Browser" : "Browser \(number)"
         let session = CodexBrowserSession(title: title)
         browserSessions.append(session)
-        selectedTabID = session.id
+        workspaceTabs.openLegacy(session.id)
         return session.id
     }
 
-    public func closeBrowser(id: String, fallbackTabIDs: [String]) {
+    public func closeBrowser(id: String) {
         browserSessions.first { $0.id == id }?.close()
         browserSessions.removeAll { $0.id == id }
-        if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs)
-        }
+        workspaceTabs.closeLegacy(id)
     }
 
     /// Opens the workspace files explorer, or reselects the existing one.
     @discardableResult
     public func openFiles(workspacePath: String) -> String {
         if let filesSession {
-            selectedTabID = filesSession.id
+            workspaceTabs.activateLegacy(filesSession.id)
             return filesSession.id
         }
         let session = CodexFilesSession(rootURL: URL(fileURLWithPath: workspacePath))
         filesSession = session
-        selectedTabID = session.id
+        workspaceTabs.openLegacy(session.id)
         return session.id
     }
 
-    public func closeFiles(id: String, fallbackTabIDs: [String]) {
+    public func closeFiles(id: String) {
         guard filesSession?.id == id else { return }
         filesSession = nil
-        if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs)
-        }
+        workspaceTabs.closeLegacy(id)
     }
 
     /// Opens a file (optionally at a ref) as its own preview tab, or reselects
@@ -128,21 +135,19 @@ public final class CodexWorkspacePanelState: ObservableObject {
     public func openFilePreview(fileURL: URL, ref: String? = nil) -> String {
         let id = CodexFilePreviewSession.identity(fileURL: fileURL, ref: ref)
         if let existing = filePreviewSessions.first(where: { $0.id == id }) {
-            selectedTabID = existing.id
+            workspaceTabs.activateLegacy(existing.id)
             return existing.id
         }
         let session = CodexFilePreviewSession(fileURL: fileURL, ref: ref)
         filePreviewSessions.append(session)
-        selectedTabID = session.id
+        workspaceTabs.openLegacy(session.id)
         return session.id
     }
 
-    public func closeFilePreview(id: String, fallbackTabIDs: [String]) {
+    public func closeFilePreview(id: String) {
         guard let index = filePreviewSessions.firstIndex(where: { $0.id == id }) else { return }
         filePreviewSessions.remove(at: index)
-        if selectedTabID == id {
-            selectedTabID = firstAvailableTabID(fallbackTabIDs)
-        }
+        workspaceTabs.closeLegacy(id)
     }
 
     /// Tear down every live session. Called when the store evicts this chat or
@@ -154,18 +159,6 @@ public final class CodexWorkspacePanelState: ObservableObject {
         filesSession = nil
         filePreviewSessions.removeAll()
         openSubagentTabID = nil
-        selectedTabID = nil
-        isAgentPanelOpen = false
-    }
-
-    private func firstAvailableTabID(
-        _ fallbackTabIDs: [String],
-        excluding excludedID: String? = nil
-    ) -> String? {
-        terminalSessions.first?.id
-            ?? browserSessions.first?.id
-            ?? filesSession?.id
-            ?? filePreviewSessions.first?.id
-            ?? fallbackTabIDs.first { $0 != excludedID }
+        workspaceTabs.removeAll()
     }
 }

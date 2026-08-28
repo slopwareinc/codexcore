@@ -48,7 +48,7 @@ public final class CodexGitReviewWorkbench {
     private var viewedFileRevisionByID: [String: CodexGitReviewRevision] = [:]
 
     private let repository: CodexGitRepository
-    private let lastTurnSession: CodexGitReviewSession?
+    private var lastTurnSession: CodexGitReviewSession?
     private var refreshTask: Task<Void, Never>?
     private var patchTask: Task<Void, Never>?
     private var operationTask: Task<Void, Never>?
@@ -137,6 +137,12 @@ public final class CodexGitReviewWorkbench {
                 includeUnstaged: includeUnstaged
             )
         ).actionState
+    }
+
+    package func updateLastTurnSession(_ session: CodexGitReviewSession?) {
+        guard lastTurnSession != session else { return }
+        lastTurnSession = session
+        if source == .lastTurn { applyLastTurn() }
     }
 
     public func selectSource(_ source: CodexGitReviewSource) {

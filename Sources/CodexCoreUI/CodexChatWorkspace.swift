@@ -185,11 +185,11 @@ public struct CodexChatWorkspaceView: View {
     private let supplementalTranscriptTurns: [CodexTurnV2]
     private let supplementalTranscriptPresentedAtByTurnID: [String: Date]
     @ObservedObject private var panel: CodexWorkspacePanelState
+    @ObservedObject private var workspaceTabs: CodexWorkspaceTabs
     private let mountedPanels: [CodexWorkspacePanelState]
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
-    @State private var transcriptReviewRequest: CodexTranscriptReviewRequest?
 
     /// Creates a workspace and reports the subagent transcript currently visible
     /// in its side panel through `onSelectSubagentTranscript`.
@@ -277,6 +277,7 @@ public struct CodexChatWorkspaceView: View {
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
         self._panel = ObservedObject(wrappedValue: panel)
+        self._workspaceTabs = ObservedObject(wrappedValue: panel.workspaceTabs)
         self.mountedPanels = mountedPanels
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
@@ -408,6 +409,7 @@ public struct CodexChatWorkspaceView: View {
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
+        .task(id: workspaceTabRegistrationFingerprint) { registerAvailableWorkspaceTabs() }
     }
 
     private func mainColumn(
@@ -650,9 +652,7 @@ public struct CodexChatWorkspaceView: View {
     private var panelTabs: [CodexAgentPanelTab] {
         panel.agentTabs(
             sideChat: sideChat,
-            subagents: subagents,
-            gitReviewSession: transcriptReviewRequest?.session ?? gitReviewSession,
-            plan: workspaceSummary?.plan
+            subagents: subagents
         )
     }
 
@@ -677,6 +677,8 @@ public struct CodexChatWorkspaceView: View {
             onEnvironmentHandoffCompletion: { completion in
                 onEnvironmentHandoffCompletion?(completion)
             },
+            onOpenPlan: openPlanPanel,
+            onOpenReview: openReviewPanel,
             onSelectTab: openPanelTab
         )
     }
@@ -693,7 +695,7 @@ public struct CodexChatWorkspaceView: View {
         let mountedTools = mountedWorkspaceTools
         return CodexAgentSidePanel(
             tabs: panelTabs,
-            selectedTabID: $panel.selectedTabID,
+            workspaceTabs: workspaceTabs,
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
@@ -704,14 +706,11 @@ public struct CodexChatWorkspaceView: View {
             mountedFilesSessions: mountedTools.files,
             mountedFilePreviewSessions: mountedTools.filePreview,
             modelOptions: modelOptions,
-            workspaceURL: URL(fileURLWithPath: workspacePath),
-            selectedReviewFilePath: transcriptReviewRequest?.selectedFilePath,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
             canSendSideChatMessage: canSendSideChatMessage,
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
-            onStartReview: onStartReview,
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
@@ -737,7 +736,7 @@ public struct CodexChatWorkspaceView: View {
         if subagents.contains(where: { $0.id == id }) {
             panel.openSubagent(id: id)
         } else {
-            panel.selectedTabID = id
+            workspaceTabs.openLegacy(id)
         }
         isCompactSummaryPanelPresented = false
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
@@ -746,25 +745,86 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
-        transcriptReviewRequest = request
-        openPanelTab(CodexAgentPanelTab.review(request.session).id)
+        workspaceTabs.open(
+            reviewAdapter(
+                session: request.session,
+                source: .transcript,
+                selectedFilePath: request.selectedFilePath
+            ),
+            from: .transcript
+        )
+        showAgentPanel()
+    }
+
+    private func openPlanPanel() {
+        guard let plan = workspaceSummary?.plan else { return }
+        workspaceTabs.open(CodexPlanWorkspaceTabAdapter(plan: plan), from: .summary)
+        showAgentPanel()
+    }
+
+    private func openReviewPanel() {
+        guard let session = gitReviewSession else { return }
+        workspaceTabs.open(reviewAdapter(session: session), from: .summary)
+        showAgentPanel()
     }
 
     private var reviewPanelAction: (CodexTranscriptReviewRequest) -> Void {
         openReviewPanel
     }
 
+    private var workspaceTabRegistrationFingerprint: String {
+        let plan = workspaceSummary?.plan.map {
+            [$0.explanation ?? ""] + $0.steps.map {
+                "\($0.step):\($0.status)"
+            }
+        }?.joined(separator: "|") ?? "no-plan"
+        let review = gitReviewSession.map {
+            "\($0.snapshot.revision.sourceID):\($0.snapshot.revision.value)"
+        } ?? "no-review"
+        return "\(workspacePath)|\(plan)|\(review)"
+    }
+
+    private func registerAvailableWorkspaceTabs() {
+        var adapters: [any CodexWorkspaceTabAdapter] = []
+        if let plan = workspaceSummary?.plan {
+            adapters.append(CodexPlanWorkspaceTabAdapter(plan: plan))
+        }
+        if let session = gitReviewSession {
+            adapters.append(reviewAdapter(session: session))
+            adapters.append(reviewAdapter(session: session, source: .transcript))
+        }
+        workspaceTabs.register(adapters)
+    }
+
+    private func reviewAdapter(
+        session: CodexGitReviewSession,
+        source: CodexReviewWorkspaceTabAdapter.Source = .workspace,
+        selectedFilePath: String? = nil
+    ) -> CodexReviewWorkspaceTabAdapter {
+        CodexReviewWorkspaceTabAdapter(
+            workspaceURL: URL(fileURLWithPath: workspacePath),
+            session: session,
+            source: source,
+            selectedFilePath: selectedFilePath,
+            onStartReview: onStartReview
+        )
+    }
+
+    private func showAgentPanel() {
+        isCompactSummaryPanelPresented = false
+        withAnimation(.spring(
+            response: theme.animations.springResponse,
+            dampingFraction: theme.animations.springDamping
+        )) {
+            panel.isAgentPanelOpen = true
+        }
+    }
+
     private func closeSubagentTab(_ id: String) {
-        panel.closeSubagent(id: id, fallbackTabIDs: panelTabs.map(\.id))
+        panel.closeSubagent(id: id)
     }
 
     private func toggleAgentPanel() {
-        if panel.selectedTabID == nil {
-            panel.selectedTabID = panel.terminalSessions.first?.id
-                ?? panel.browserSessions.first?.id
-                ?? panel.filesSession?.id
-                ?? panelTabs.first?.id
-        }
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen.toggle()
         }
@@ -789,7 +849,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeTerminalTab(_ id: String) {
-        panel.closeTerminal(id: id, fallbackTabIDs: panelTabs.map(\.id))
+        panel.closeTerminal(id: id)
     }
 
     private func openBrowserTab() {
@@ -800,7 +860,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeBrowserTab(_ id: String) {
-        panel.closeBrowser(id: id, fallbackTabIDs: panelTabs.map(\.id))
+        panel.closeBrowser(id: id)
     }
 
     private func openFilesTab() {
@@ -811,7 +871,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeFilesTab(_ id: String) {
-        panel.closeFiles(id: id, fallbackTabIDs: panelTabs.map(\.id))
+        panel.closeFiles(id: id)
     }
 
     private func openFilePreviewTab(_ fileURL: URL) {
@@ -822,7 +882,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func closeFilePreviewTab(_ id: String) {
-        panel.closeFilePreview(id: id, fallbackTabIDs: panelTabs.map(\.id))
+        panel.closeFilePreview(id: id)
     }
 }
 

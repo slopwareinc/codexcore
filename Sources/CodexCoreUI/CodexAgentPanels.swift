@@ -11,6 +11,8 @@ public struct CodexFloatingSummaryPanel: View {
     private let chatTitle: String
     private let onEnvironmentHandoffCompletion: @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void
     private let onSelectTab: (String) -> Void
+    private let onOpenPlan: () -> Void
+    private let onOpenReview: () -> Void
 
     public init(
         sideChat: CodexSideChatState?,
@@ -19,6 +21,8 @@ public struct CodexFloatingSummaryPanel: View {
         gitReviewSession: CodexGitReviewSession? = nil,
         chatTitle: String = "Codex",
         onEnvironmentHandoffCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in },
+        onOpenPlan: @escaping () -> Void = {},
+        onOpenReview: @escaping () -> Void = {},
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
@@ -27,6 +31,8 @@ public struct CodexFloatingSummaryPanel: View {
         self.gitReviewSession = gitReviewSession
         self.chatTitle = chatTitle
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
+        self.onOpenPlan = onOpenPlan
+        self.onOpenReview = onOpenReview
         self.onSelectTab = onSelectTab
     }
 
@@ -39,7 +45,7 @@ public struct CodexFloatingSummaryPanel: View {
                         systemImage: "list.bullet.rectangle",
                         trailing: AnyView(SummaryPlanProgress(label: plan.progressLabel))
                     ) {
-                        onSelectTab(CodexAgentPanelTab.plan(plan).id)
+                        onOpenPlan()
                     }
                 }
 
@@ -62,7 +68,7 @@ public struct CodexFloatingSummaryPanel: View {
                                 )
                             )
                         ) {
-                            onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                            onOpenReview()
                         }
                     }
 
@@ -92,12 +98,12 @@ public struct CodexFloatingSummaryPanel: View {
                     .id(workspaceSummary.workspacePath)
 
                     if branchName != nil {
-                        if let gitReviewSession {
+                        if gitReviewSession != nil {
                             SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up") {
-                                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                                onOpenReview()
                             }
                             SummaryRow(title: "Create pull request", systemImage: "arrow.triangle.pull") {
-                                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                                onOpenReview()
                             }
                         } else {
                             // Disabled controls say why, the way the official
@@ -184,9 +190,9 @@ public struct CodexFloatingSummaryPanel: View {
     private func environmentSectionActions(
         _ summary: CodexWorkspaceSummaryContext
     ) -> some View {
-        if let gitReviewSession {
+        if gitReviewSession != nil {
             Button("Open Review") {
-                onSelectTab(CodexAgentPanelTab.review(gitReviewSession).id)
+                onOpenReview()
             }
             Divider()
         }
@@ -803,7 +809,7 @@ public struct CodexAgentSidePanel: View {
     @Environment(\.codexAgentTheme) private var theme
 
     private let tabs: [CodexAgentPanelTab]
-    @Binding private var selectedTabID: String?
+    @ObservedObject private var workspaceTabs: CodexWorkspaceTabs
     @Binding private var sideChatDraft: String
     private let width: Binding<CGFloat>?
     private let terminalSessions: [CodexTerminalSession]
@@ -814,13 +820,10 @@ public struct CodexAgentSidePanel: View {
     private let mountedBrowserSessions: [CodexBrowserSession]
     private let mountedFilesSessions: [CodexFilesSession]
     private let mountedFilePreviewSessions: [CodexFilePreviewSession]
-    private let workspaceURL: URL?
-    private let selectedReviewFilePath: String?
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
-    private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenTerminal: () -> Void
     private let onOpenBrowser: () -> Void
     private let onOpenFiles: () -> Void
@@ -838,7 +841,7 @@ public struct CodexAgentSidePanel: View {
 
     public init(
         tabs: [CodexAgentPanelTab],
-        selectedTabID: Binding<String?>,
+        workspaceTabs: CodexWorkspaceTabs,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
         filesSessions: [CodexFilesSession] = [],
@@ -848,14 +851,11 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
-        workspaceURL: URL? = nil,
-        selectedReviewFilePath: String? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
-        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -870,7 +870,7 @@ public struct CodexAgentSidePanel: View {
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
-        self._selectedTabID = selectedTabID
+        self._workspaceTabs = ObservedObject(wrappedValue: workspaceTabs)
         self._sideChatDraft = sideChatDraft
         self.width = nil
         self.terminalSessions = terminalSessions
@@ -881,13 +881,10 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.workspaceURL = workspaceURL
-        self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
-        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -904,7 +901,7 @@ public struct CodexAgentSidePanel: View {
 
     public init(
         tabs: [CodexAgentPanelTab],
-        selectedTabID: Binding<String?>,
+        workspaceTabs: CodexWorkspaceTabs,
         width: Binding<CGFloat>,
         terminalSessions: [CodexTerminalSession] = [],
         browserSessions: [CodexBrowserSession] = [],
@@ -915,14 +912,11 @@ public struct CodexAgentSidePanel: View {
         mountedFilesSessions: [CodexFilesSession] = [],
         mountedFilePreviewSessions: [CodexFilePreviewSession] = [],
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
-        workspaceURL: URL? = nil,
-        selectedReviewFilePath: String? = nil,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
         canSendSideChatMessage: Bool = false,
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
-        onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
@@ -937,7 +931,7 @@ public struct CodexAgentSidePanel: View {
         onClose: @escaping () -> Void
     ) {
         self.tabs = tabs
-        self._selectedTabID = selectedTabID
+        self._workspaceTabs = ObservedObject(wrappedValue: workspaceTabs)
         self._sideChatDraft = sideChatDraft
         self.width = width
         self.terminalSessions = terminalSessions
@@ -948,13 +942,10 @@ public struct CodexAgentSidePanel: View {
         self.mountedBrowserSessions = mountedBrowserSessions
         self.mountedFilesSessions = mountedFilesSessions
         self.mountedFilePreviewSessions = mountedFilePreviewSessions
-        self.workspaceURL = workspaceURL
-        self.selectedReviewFilePath = selectedReviewFilePath
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
-        self.onStartReview = onStartReview
         self.onOpenTerminal = onOpenTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
@@ -986,11 +977,13 @@ public struct CodexAgentSidePanel: View {
             ensureSelection()
             publishSelectedSubagent()
         }
-        .onChange(of: tabs.map(\.id)) { _, _ in
+        .onChange(of: legacyTabIDs) { _, _ in
             ensureSelection()
             publishSelectedSubagent()
         }
-        .onChange(of: selectedTabID) { _, _ in publishSelectedSubagent() }
+        .onChange(of: workspaceTabs.snapshot.topology.right.activeTab) { _, _ in
+            publishSelectedSubagent()
+        }
         .onDisappear { onSelectSubagentTranscript(nil) }
     }
 
@@ -1017,31 +1010,42 @@ public struct CodexAgentSidePanel: View {
     private var panelContent: some View {
         ZStack {
             ForEach(deckTerminalSessions) { session in
-                CodexTerminalToolView(session: session, isActive: session.id == selectedTabID)
-                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                CodexTerminalToolView(session: session, isActive: isSelectedLegacy(session.id))
+                    .toolPanelVisibility(isSelected: isSelectedLegacy(session.id))
                     .id(session.id)
             }
 
             ForEach(deckBrowserSessions) { session in
                 CodexBrowserToolView(session: session)
-                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .toolPanelVisibility(isSelected: isSelectedLegacy(session.id))
                     .id(session.id)
             }
 
             ForEach(deckFilesSessions) { session in
                 CodexFilesToolView(session: session, onOpenFile: onOpenFilePreview)
-                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .toolPanelVisibility(isSelected: isSelectedLegacy(session.id))
                     .id(session.id)
             }
 
             ForEach(deckFilePreviewSessions) { session in
                 CodexFilePreviewView(url: session.fileURL)
-                    .toolPanelVisibility(isSelected: session.id == selectedTabID)
+                    .toolPanelVisibility(isSelected: isSelectedLegacy(session.id))
                     .id(session.id)
             }
 
+            ForEach(workspaceTabs.snapshot.instances.filter(\.isMaterialized)) { instance in
+                if let content = workspaceTabs.content(for: instance.id) {
+                    content
+                        .toolPanelVisibility(
+                            isSelected: activeTab == .workspace(instance.id)
+                        )
+                        .id(instance.contentID.rawValue)
+                }
+            }
+
             if selectedTerminalSession == nil, selectedBrowserSession == nil,
-               selectedFilesSession == nil, selectedFilePreviewSession == nil {
+               selectedFilesSession == nil, selectedFilePreviewSession == nil,
+               activeWorkspaceTabID == nil {
                 if let tab = selectedTab {
                     CodexAgentPanelContent(
                         tab: tab,
@@ -1049,13 +1053,22 @@ public struct CodexAgentSidePanel: View {
                         isSideChatSending: isSideChatSending,
                         canSendSideChatMessage: canSendSideChatMessage,
                         onSendSideChatMessage: onSendSideChatMessage,
-                        onInterruptSideChatMessage: onInterruptSideChatMessage,
-                        onStartReview: onStartReview,
-                        workspaceURL: workspaceURL,
-                        selectedReviewFilePath: selectedReviewFilePath
+                        onInterruptSideChatMessage: onInterruptSideChatMessage
                     )
                 } else {
                     toolLauncher
+                }
+            }
+
+
+            if let id = activeWorkspaceTabID,
+               workspaceTabs.snapshot.instance(id: id)?.isMaterialized == false {
+                if workspaceTabs.isAvailable(id) {
+                    ProgressView("Restoring tab…")
+                        .task(id: id) { workspaceTabs.activate(id) }
+                } else {
+                    Text("This tab is unavailable in the current workspace.")
+                        .foregroundStyle(theme.colors.textTertiary)
                 }
             }
         }
@@ -1117,7 +1130,20 @@ public struct CodexAgentSidePanel: View {
     private var selectedTab: CodexAgentPanelTab? {
         guard selectedTerminalSession == nil, selectedBrowserSession == nil,
               selectedFilesSession == nil, selectedFilePreviewSession == nil else { return nil }
-        return tabs.first { $0.id == selectedTabID } ?? tabs.first
+        guard let id = activeTab?.legacyID else { return nil }
+        return tabs.first { $0.id == id }
+    }
+
+    private var activeTab: CodexWorkspaceTabHandle? {
+        workspaceTabs.snapshot.topology.right.activeTab
+    }
+
+    private var activeWorkspaceTabID: CodexWorkspaceTabID? {
+        activeTab?.workspaceTabID
+    }
+
+    private func isSelectedLegacy(_ id: String) -> Bool {
+        activeTab == .legacy(id)
     }
 
     private func publishSelectedSubagent() {
@@ -1129,27 +1155,22 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var selectedTerminalSession: CodexTerminalSession? {
-        terminalSessions.first { $0.id == selectedTabID }
+        terminalSessions.first { isSelectedLegacy($0.id) }
     }
 
     private var selectedBrowserSession: CodexBrowserSession? {
-        browserSessions.first { $0.id == selectedTabID }
+        browserSessions.first { isSelectedLegacy($0.id) }
     }
 
     private var selectedFilesSession: CodexFilesSession? {
-        filesSessions.first { $0.id == selectedTabID }
+        filesSessions.first { isSelectedLegacy($0.id) }
     }
 
     private var selectedFilePreviewSession: CodexFilePreviewSession? {
-        filePreviewSessions.first { $0.id == selectedTabID }
+        filePreviewSessions.first { isSelectedLegacy($0.id) }
     }
 
-    private var hasOpenTabs: Bool {
-        !terminalSessions.isEmpty || !browserSessions.isEmpty || !filesSessions.isEmpty
-            || !filePreviewSessions.isEmpty || !tabs.isEmpty
-    }
-
-    private var orderedTabIDs: [String] {
+    private var legacyTabIDs: [String] {
         terminalSessions.map(\.id)
             + browserSessions.map(\.id)
             + filesSessions.map(\.id)
@@ -1157,78 +1178,22 @@ public struct CodexAgentSidePanel: View {
             + tabs.map(\.id)
     }
 
+    private var orderedTabs: [CodexWorkspaceTabHandle] {
+        workspaceTabs.snapshot.topology.right.orderedTabs
+    }
+
     private var tabBar: some View {
         HStack(spacing: 6) {
             GeometryReader { geometry in
                 let tabWidth = CodexAgentPanelTabStripLayout.tabWidth(
                     availableWidth: geometry.size.width,
-                    tabCount: orderedTabIDs.count
+                    tabCount: orderedTabs.count
                 )
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
-                        ForEach(terminalSessions) { session in
-                            AgentPanelTabButton(
-                                title: session.title,
-                                systemImage: "terminal",
-                                isSelected: session.id == selectedTabID,
-                                width: tabWidth,
-                                showsLeadingDivider: showsLeadingDivider(for: session.id),
-                                closeAction: { onCloseTerminal(session.id) }
-                            ) {
-                                selectedTabID = session.id
-                            }
-                        }
-
-                        ForEach(browserSessions) { session in
-                            BrowserPanelTabButton(
-                                session: session,
-                                isSelected: session.id == selectedTabID,
-                                width: tabWidth,
-                                showsLeadingDivider: showsLeadingDivider(for: session.id),
-                                closeAction: { onCloseBrowser(session.id) }
-                            ) {
-                                selectedTabID = session.id
-                            }
-                        }
-
-                        ForEach(filesSessions) { session in
-                            AgentPanelTabButton(
-                                title: session.title,
-                                systemImage: "folder",
-                                isSelected: session.id == selectedTabID,
-                                width: tabWidth,
-                                showsLeadingDivider: showsLeadingDivider(for: session.id),
-                                closeAction: { onCloseFiles(session.id) }
-                            ) {
-                                selectedTabID = session.id
-                            }
-                        }
-
-                        ForEach(filePreviewSessions) { session in
-                            AgentPanelTabButton(
-                                title: session.title,
-                                systemImage: "doc.text",
-                                isSelected: session.id == selectedTabID,
-                                width: tabWidth,
-                                showsLeadingDivider: showsLeadingDivider(for: session.id),
-                                closeAction: { onCloseFilePreview(session.id) }
-                            ) {
-                                selectedTabID = session.id
-                            }
-                        }
-
-                        ForEach(tabs) { tab in
-                            AgentPanelTabButton(
-                                title: tab.title,
-                                systemImage: tab.systemImage,
-                                isSelected: tab.id == selectedTab?.id,
-                                width: tabWidth,
-                                showsLeadingDivider: showsLeadingDivider(for: tab.id),
-                                closeAction: tab.isSubagent ? { onCloseSubagent(tab.id) } : nil
-                            ) {
-                                selectedTabID = tab.id
-                            }
+                        ForEach(orderedTabs) { handle in
+                            tabButton(for: handle, width: tabWidth)
                         }
                     }
                 }
@@ -1285,15 +1250,85 @@ public struct CodexAgentSidePanel: View {
         .frame(height: theme.spacing.toolbarHeight)
     }
 
-    private func showsLeadingDivider(for tabID: String) -> Bool {
-        guard let index = orderedTabIDs.firstIndex(of: tabID), index > 0 else {
+    @ViewBuilder
+    private func tabButton(for handle: CodexWorkspaceTabHandle, width: CGFloat) -> some View {
+        switch handle {
+        case .workspace(let id):
+            if let tab = workspaceTabs.snapshot.instance(id: id) {
+                AgentPanelTabButton(
+                    title: tab.title,
+                    systemImage: tab.systemImage,
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: { workspaceTabs.close(id) }
+                ) { workspaceTabs.activate(id) }
+            }
+        case .legacy(let id):
+            if let session = terminalSessions.first(where: { $0.id == id }) {
+                AgentPanelTabButton(
+                    title: session.title,
+                    systemImage: "terminal",
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: { onCloseTerminal(id) }
+                ) { workspaceTabs.activateLegacy(id) }
+            } else if let session = browserSessions.first(where: { $0.id == id }) {
+                BrowserPanelTabButton(
+                    session: session,
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: { onCloseBrowser(id) }
+                ) { workspaceTabs.activateLegacy(id) }
+            } else if let session = filesSessions.first(where: { $0.id == id }) {
+                AgentPanelTabButton(
+                    title: session.title,
+                    systemImage: "folder",
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: { onCloseFiles(id) }
+                ) { workspaceTabs.activateLegacy(id) }
+            } else if let session = filePreviewSessions.first(where: { $0.id == id }) {
+                AgentPanelTabButton(
+                    title: session.title,
+                    systemImage: "doc.text",
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: { onCloseFilePreview(id) }
+                ) { workspaceTabs.activateLegacy(id) }
+            } else if let tab = tabs.first(where: { $0.id == id }) {
+                AgentPanelTabButton(
+                    title: tab.title,
+                    systemImage: tab.systemImage,
+                    isSelected: activeTab == handle,
+                    width: width,
+                    showsLeadingDivider: showsLeadingDivider(for: handle),
+                    closeAction: tab.isSubagent ? { onCloseSubagent(id) } : nil
+                ) { workspaceTabs.activateLegacy(id) }
+            }
+        }
+    }
+
+    private func showsLeadingDivider(for handle: CodexWorkspaceTabHandle) -> Bool {
+        guard let index = orderedTabs.firstIndex(of: handle), index > 0 else {
             return false
         }
         return CodexAgentPanelTabStripLayout.showsLeadingDivider(
-            tabID: tabID,
-            precedingTabID: orderedTabIDs[index - 1],
-            selectedTabID: selectedTabID
+            tabID: displayID(handle),
+            precedingTabID: displayID(orderedTabs[index - 1]),
+            selectedTabID: activeTab.map(displayID)
         )
+    }
+
+    private func displayID(_ handle: CodexWorkspaceTabHandle) -> String {
+        switch handle {
+        case .workspace(let id): "workspace:\(id.rawValue.uuidString)"
+        case .legacy(let id): "legacy:\(id)"
+        }
     }
 
     private var toolLauncher: some View {
@@ -1322,23 +1357,11 @@ public struct CodexAgentSidePanel: View {
     }
 
     private func ensureSelection() {
-        guard hasOpenTabs else {
-            selectedTabID = nil
-            return
+        workspaceTabs.reconcileLegacy(legacyTabIDs)
+        if workspaceTabs.snapshot.topology.right.activeTab == nil,
+           !workspaceTabs.snapshot.topology.right.orderedTabs.isEmpty {
+            workspaceTabs.setOpen(true)
         }
-        if let selectedTabID,
-           terminalSessions.contains(where: { $0.id == selectedTabID })
-            || browserSessions.contains(where: { $0.id == selectedTabID })
-            || filesSessions.contains(where: { $0.id == selectedTabID })
-            || filePreviewSessions.contains(where: { $0.id == selectedTabID })
-            || tabs.contains(where: { $0.id == selectedTabID }) {
-            return
-        }
-        selectedTabID = terminalSessions.first?.id
-            ?? browserSessions.first?.id
-            ?? filesSessions.first?.id
-            ?? filePreviewSessions.first?.id
-            ?? tabs.first?.id
     }
 
     private func openTool(_ id: String) {
@@ -1536,15 +1559,10 @@ private struct CodexAgentPanelContent: View {
     let canSendSideChatMessage: Bool
     let onSendSideChatMessage: () -> Void
     let onInterruptSideChatMessage: () -> Void
-    let onStartReview: (CodexReviewTarget) -> Void
-    let workspaceURL: URL?
-    let selectedReviewFilePath: String?
 
     var body: some View {
         ZStack(alignment: .bottom) {
             switch tab {
-            case .plan(let plan):
-                CodexPlanSummaryPage(plan: plan)
             case .sideChat(let sideChat):
                 transcriptPanel(
                     transcript: sideChat.transcript,
@@ -1553,18 +1571,6 @@ private struct CodexAgentPanelContent: View {
                 )
             case .subagent(let subagent):
                 subagentTranscriptPanel(subagent)
-            case .review(let session):
-                if let workspaceURL {
-                    CodexGitReviewWorkbenchHost(
-                        workspaceURL: workspaceURL,
-                        lastTurnSession: session,
-                        selectedFilePath: selectedReviewFilePath,
-                        onStartReview: onStartReview
-                    )
-                    .id("\(session.snapshot.revision.sourceID):\(session.snapshot.revision.value)")
-                } else {
-                    reviewPanel(session)
-                }
             }
 
             compactComposer(for: tab)
@@ -1647,18 +1653,6 @@ private struct CodexAgentPanelContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func reviewPanel(_ session: CodexGitReviewSession) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                CodexGitReviewPanel(session: session)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 130)
-        }
-        .scrollContentBackground(.hidden)
-    }
-
     private func emptyText(_ text: String) -> some View {
         Text(text)
             .font(theme.fonts.chat)
@@ -1670,8 +1664,6 @@ private struct CodexAgentPanelContent: View {
     @ViewBuilder
     private func compactComposer(for tab: CodexAgentPanelTab) -> some View {
         switch tab {
-        case .plan:
-            EmptyView()
         case .sideChat:
             AgentPanelComposer(
                 placeholder: "Ask side chat...",
@@ -1683,8 +1675,6 @@ private struct CodexAgentPanelContent: View {
                 onInterrupt: onInterruptSideChatMessage
             )
         case .subagent:
-            EmptyView()
-        case .review:
             EmptyView()
         }
     }
