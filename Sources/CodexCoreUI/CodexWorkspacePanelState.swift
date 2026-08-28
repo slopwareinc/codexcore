@@ -50,6 +50,15 @@ public final class CodexWorkspacePanelState: ObservableObject {
         set { workspaceTabs.setOpen(newValue) }
     }
 
+    public var isBottomPanelOpen: Bool {
+        get { workspaceTabs.snapshot.topology.bottom.isOpen }
+        set { workspaceTabs.setOpen(newValue, placement: .bottom) }
+    }
+
+    public var isAnyWorkspacePanelOpen: Bool {
+        isAgentPanelOpen || isBottomPanelOpen
+    }
+
     public var hasOpenTools: Bool {
         !terminalSessions.isEmpty || !browserSessions.isEmpty || filesSession != nil
             || !filePreviewSessions.isEmpty

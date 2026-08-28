@@ -536,7 +536,7 @@ public struct CodexChatWorkspaceView: View {
                     leadingTitlebarInset: leadingTitlebarInset,
                     isSummaryPanelOpen: isOverviewControlActive,
                     hasPanelTabs: true,
-                    isPanelOpen: panel.isAgentPanelOpen,
+                    isPanelOpen: panel.isAnyWorkspacePanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
@@ -881,10 +881,6 @@ public struct CodexChatWorkspaceView: View {
 
     private func openBackgroundTerminalTab() {
         _ = panel.openBackgroundTerminal(workspacePath: workspacePath)
-    }
-
-    private func closeTerminalTab(_ id: String) {
-        panel.closeTerminal(id: id)
     }
 
     private func openBrowserTab() {

@@ -80,6 +80,10 @@ Callers never construct or switch on tab IDs. Persist
 `CodexWorkspacePanelState.init` or apply it before opening live tools. Only
 routes and per-tab presentation state are durable. Current Plan/Review facts
 remain disposable projections and are supplied again after restoration.
+Terminal sessions use the same adapter seam; `openTerminal` targets the bottom
+panel by default and `openBackgroundTerminal` retains a command-labelled PTY
+without changing focus. Keep the panel state alive outside the SwiftUI view
+tree so moving, hiding, and restoring a terminal never creates a second host.
 
 CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
 by default. For product-specific live progress, configure the presentation

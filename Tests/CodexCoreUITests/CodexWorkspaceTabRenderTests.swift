@@ -157,6 +157,7 @@ struct CodexWorkspaceTabRenderTests {
                 available = [plan, refreshedReview]
             }
             tabs.register(index.isMultiple(of: 4) ? [] : available)
+            tabs.move(reviewID, to: index.isMultiple(of: 2) ? .bottom : .right)
             tabs.activate(index.isMultiple(of: 2) ? planID : reviewID)
             hosting.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(1))

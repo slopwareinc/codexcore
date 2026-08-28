@@ -10,6 +10,7 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
     public let threadID: String?
     public let worktreePath: String
     public let ordinal: Int
+    public let processID: String?
     private let explicitRawValue: String?
 
     public init(
@@ -21,6 +22,21 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
         self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
         self.worktreePath = URL(fileURLWithPath: worktreePath).standardizedFileURL.path
         self.ordinal = max(1, ordinal)
+        self.processID = nil
+        self.explicitRawValue = nil
+    }
+
+    public init(
+        threadID: String? = nil,
+        worktreePath: String,
+        processID: String
+    ) {
+        let trimmedThreadID = threadID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedProcessID = processID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
+        self.worktreePath = URL(fileURLWithPath: worktreePath).standardizedFileURL.path
+        self.ordinal = 0
+        self.processID = trimmedProcessID.isEmpty ? nil : trimmedProcessID
         self.explicitRawValue = nil
     }
 
@@ -28,6 +44,7 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
         self.threadID = nil
         self.worktreePath = worktreePath
         self.ordinal = 1
+        self.processID = nil
         self.explicitRawValue = rawValue
     }
 
@@ -35,8 +52,10 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
     /// tab resource keys. Paths are intentionally retained instead of hashed so
     /// diagnostics can explain which checkout owns a terminal.
     public var rawValue: String {
-        explicitRawValue
-            ?? "terminal:\(threadID ?? "unassigned"):\(worktreePath):\(ordinal)"
+        if let explicitRawValue { return explicitRawValue }
+        let scope = "terminal:\(threadID ?? "unassigned"):\(worktreePath)"
+        if let processID, !processID.isEmpty { return "\(scope):process:\(processID)" }
+        return "\(scope):\(ordinal)"
     }
 
     public var id: String { rawValue }
@@ -132,6 +151,7 @@ public final class CodexTerminalSession: Identifiable {
     public let state: TerminalViewState
     public private(set) var isSurfaceVisible = true
     public private(set) var surfaceVisibilityChangeCount = 0
+    public private(set) var focusRestoreRequestCount = 0
 
     /// The ghostty AppKit view (and therefore the live surface/PTY) is owned by
     /// the session, not by the SwiftUI representable that shows it. Ghostty frees
@@ -187,6 +207,31 @@ public final class CodexTerminalSession: Identifiable {
         self.terminalView = view
     }
 
+    public convenience init(
+        threadID: String?,
+        worktreePath: String,
+        ordinal: Int = 1,
+        title: String? = nil,
+        command: String? = nil,
+        fontSize: Float = 13,
+        isBackground: Bool = false,
+        maxOutputBytes: Int = CodexBoundedTerminalOutput().maxBytes
+    ) {
+        self.init(
+            title: title,
+            workingDirectory: worktreePath,
+            fontSize: fontSize,
+            command: command,
+            identity: CodexTerminalIdentity(
+                threadID: threadID,
+                worktreePath: worktreePath,
+                ordinal: ordinal
+            ),
+            isBackground: isBackground,
+            maxOutputBytes: maxOutputBytes
+        )
+    }
+
     /// Stable native-host identity used by mounted-panel tests and diagnostics.
     public var terminalHostIdentity: ObjectIdentifier { ObjectIdentifier(terminalView) }
 
@@ -197,6 +242,10 @@ public final class CodexTerminalSession: Identifiable {
 
     public func appendOutput(_ text: String) {
         outputBuffer.append(text)
+    }
+
+    public func appendOutput(_ data: Data) {
+        outputBuffer.append(data)
     }
 
     /// Updates native display work without touching the retained PTY. Ghostty
@@ -211,6 +260,7 @@ public final class CodexTerminalSession: Identifiable {
 
     public func restoreFocus() {
         guard isSurfaceVisible else { return }
+        focusRestoreRequestCount += 1
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.terminalView.window,
                   window.firstResponder !== self.terminalView else { return }
@@ -383,6 +433,7 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             let threadID: String?
             let worktreePath: String
             let ordinal: Int
+            let processID: String?
             let command: String?
             let isBackground: Bool
         }
@@ -390,6 +441,7 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             threadID: session.identity.threadID,
             worktreePath: session.identity.worktreePath,
             ordinal: session.identity.ordinal,
+            processID: session.identity.processID,
             command: session.command,
             isBackground: session.isBackground
         ))) ?? Data()

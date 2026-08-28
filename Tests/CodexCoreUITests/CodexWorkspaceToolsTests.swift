@@ -120,6 +120,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         session.setSurfaceVisible(true)
         XCTAssertEqual(session.terminalHostIdentity, hostIdentity)
         XCTAssertEqual(session.surfaceVisibilityChangeCount, 2)
+        session.restoreFocus()
+        XCTAssertEqual(session.focusRestoreRequestCount, 1)
     }
 
     @MainActor
@@ -156,6 +158,28 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(panel.terminalSessions.count, 1)
         XCTAssertEqual(panel.terminalSessions.first?.terminalHostIdentity, hostIdentity)
         XCTAssertEqual(panel.terminalTabID(for: terminalID), tabID)
+    }
+
+    @MainActor
+    func testRestoredTerminalRouteReusesTheSameWorkspaceTabWhenTheHostIsRecreated() throws {
+        let source = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = source.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let originalTabID = try XCTUnwrap(source.terminalTabID(for: terminalID))
+        let originalContentID = try XCTUnwrap(source.workspaceTabs.snapshot.instance(id: originalTabID)?.contentID)
+
+        let restored = CodexWorkspacePanelState(
+            threadID: "thread-235",
+            restorationState: source.workspaceTabRestorationState
+        )
+        let reopenedTerminalID = restored.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let reopenedTabID = try XCTUnwrap(restored.terminalTabID(for: reopenedTerminalID))
+
+        XCTAssertEqual(reopenedTabID, originalTabID)
+        XCTAssertEqual(
+            restored.workspaceTabs.snapshot.instance(id: reopenedTabID)?.contentID,
+            originalContentID
+        )
+        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, reopenedTabID)
     }
 
     @MainActor

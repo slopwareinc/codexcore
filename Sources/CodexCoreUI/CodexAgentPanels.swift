@@ -976,6 +976,8 @@ public struct CodexAgentSidePanel: View {
             maxHeight: placement == .right ? .infinity : nil
         )
         .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(CodexWorkspaceTabAccessibility.panelLabel(placement))
         .overlay(alignment: .leading) {
             resizeHandle
         }
@@ -1224,7 +1226,9 @@ public struct CodexAgentSidePanel: View {
                             .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
                     }
                     .buttonStyle(.plain)
-                    .help(CodexWorkspaceTabAccessibility.moveLabel(title: activeInstance.title, to: placement.other))
+                    .help(
+                        "\(CodexWorkspaceTabAccessibility.moveLabel(title: activeInstance.title, to: placement.other)) (\(CodexWorkspaceTabAccessibility.moveShortcut(for: placement)))"
+                    )
                     .accessibilityLabel(CodexWorkspaceTabAccessibility.moveLabel(title: activeInstance.title, to: placement.other))
                     .keyboardShortcut(
                         placement == .right ? "]" : "[",
@@ -1295,6 +1299,14 @@ public struct CodexAgentSidePanel: View {
                     showsLeadingDivider: showsLeadingDivider(for: handle),
                     closeAction: { workspaceTabs.close(id) }
                 ) { workspaceTabs.activate(id) }
+                .contextMenu {
+                    Button(CodexWorkspaceTabAccessibility.moveLabel(title: tab.title, to: placement.other)) {
+                        workspaceTabs.move(id, to: placement.other)
+                    }
+                    Button(CodexWorkspaceTabAccessibility.closeLabel(title: tab.title), role: .destructive) {
+                        workspaceTabs.close(id)
+                    }
+                }
             }
         case .legacy(let id):
             if let session = browserSessions.first(where: { $0.id == id }) {
