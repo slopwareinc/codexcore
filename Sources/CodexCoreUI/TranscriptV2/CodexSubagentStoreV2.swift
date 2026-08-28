@@ -194,7 +194,7 @@ extension CodexSubagentStoreV2 {
 /// Parent snapshots only discover children and update collaboration lifecycle.
 /// The production coordinator overlays its sole selected transcript without
 /// retaining child presentations here. `applyChildSnapshot` remains a standalone
-/// value API for hosts that render `CodexSubagentsPanelV2` directly.
+/// value API for hosts that render their own subagent rows directly.
 public struct CodexSubagentStoreV2: Sendable {
     private enum StatusAuthority: Int, Sendable {
         case graph

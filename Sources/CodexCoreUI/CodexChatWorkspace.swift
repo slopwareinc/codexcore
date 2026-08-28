@@ -114,6 +114,7 @@ public struct CodexChatWorkspaceView: View {
     private let presentationStore: CodexPresentationStore
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
+    private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspacePath: String
     private let chatTitle: String
     private let currentThreadID: String?
@@ -169,7 +170,6 @@ public struct CodexChatWorkspaceView: View {
     private let onComposerChipClear: ((CodexComposerChipKind) -> Void)?
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)?
-    private let onSelectSubagentTranscript: (String?) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
     private let onStartReview: (CodexReviewTarget) -> Void
     private let onOpenMCPDetails: (() -> Void)?
@@ -191,12 +191,13 @@ public struct CodexChatWorkspaceView: View {
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
 
-    /// Creates a workspace and reports the subagent transcript currently visible
-    /// in its side panel through `onSelectSubagentTranscript`.
+    /// Creates a workspace and routes the Subagents surface through the
+    /// canonical presentation coordinator when one is supplied.
     public init(
         presentationStore: CodexPresentationStore,
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
+        subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspacePath: String,
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
@@ -254,7 +255,6 @@ public struct CodexChatWorkspaceView: View {
         onComposerChipClear: ((CodexComposerChipKind) -> Void)? = nil,
         onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)? = nil,
         onEnvironmentHandoffCompletion: (@MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void)? = nil,
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
         onStartReview: @escaping (CodexReviewTarget) -> Void = { _ in },
         onOpenMCPDetails: (() -> Void)? = nil,
@@ -273,6 +273,7 @@ public struct CodexChatWorkspaceView: View {
         self.presentationStore = presentationStore
         self.sideChat = sideChat
         self.subagents = subagents
+        self.subagentCoordinator = subagentCoordinator
         self.workspacePath = workspacePath
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
@@ -331,7 +332,6 @@ public struct CodexChatWorkspaceView: View {
         self.onComposerChipClear = onComposerChipClear
         self.onFilesDropped = onFilesDropped
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.onOpenThread = onOpenThread
         self.onStartReview = onStartReview
         self.onOpenMCPDetails = onOpenMCPDetails
@@ -470,7 +470,7 @@ public struct CodexChatWorkspaceView: View {
                 responseAnnotations: responseAnnotations,
                 onUpsertResponseAnnotation: upsertResponseAnnotation,
                 onRemoveResponseAnnotation: removeResponseAnnotation,
-                onOpenSubagent: openPanelTab,
+                onOpenSubagent: { openSubagentTab($0, from: .transcript) },
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: restoreComposer(from:),
@@ -650,10 +650,7 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private var panelTabs: [CodexAgentPanelTab] {
-        panel.agentTabs(
-            sideChat: sideChat,
-            subagents: subagents
-        )
+        panel.agentTabs(sideChat: sideChat)
     }
 
     private var workspaceChatActions: CodexChatActionHandlers {
@@ -661,7 +658,7 @@ public struct CodexChatWorkspaceView: View {
         if let openSideChat = chatActions.openSideChat {
             actions.openSideChat = {
                 openSideChat()
-                openPanelTab(CodexSideChatState.defaultID)
+                openPanelTab(CodexSideChatState.defaultID, from: .commandMenu)
             }
         }
         return actions
@@ -671,6 +668,7 @@ public struct CodexChatWorkspaceView: View {
         CodexFloatingSummaryPanel(
             sideChat: sideChat,
             subagents: subagents,
+            subagentCoordinator: subagentCoordinator,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
             chatTitle: chatTitle,
@@ -679,7 +677,7 @@ public struct CodexChatWorkspaceView: View {
             },
             onOpenPlan: openPlanPanel,
             onOpenReview: openReviewPanel,
-            onSelectTab: openPanelTab
+            onSelectTab: { openPanelTab($0, from: .summary) }
         )
     }
 
@@ -719,8 +717,6 @@ public struct CodexChatWorkspaceView: View {
             onCloseBrowser: closeBrowserTab,
             onCloseFiles: closeFilesTab,
             onCloseFilePreview: closeFilePreviewTab,
-            onCloseSubagent: closeSubagentTab,
-            onSelectSubagentTranscript: onSelectSubagentTranscript,
             showsCloseButton: showsCloseButton,
             onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
         )
@@ -732,16 +728,37 @@ public struct CodexChatWorkspaceView: View {
             .onTapGesture(perform: onDismiss)
     }
 
-    private func openPanelTab(_ id: String) {
-        if subagents.contains(where: { $0.id == id }) {
-            panel.openSubagent(id: id)
-        } else {
+    private func openPanelTab(
+        _ id: String,
+        from opener: CodexWorkspaceTabOpener
+    ) {
+        if sideChat?.id == id {
             workspaceTabs.openLegacy(id)
+            showAgentPanel()
+            return
         }
+        openSubagentTab(id, from: opener)
+    }
+
+    /// Opens the one Subagents workspace tab for a typed child opener. The
+    /// child may still be hydrating, so this path intentionally never checks
+    /// the currently-loaded metadata arrays and never falls back to a legacy
+    /// per-agent tab.
+    private func openSubagentTab(
+        _ id: String,
+        from opener: CodexWorkspaceTabOpener
+    ) {
+        guard let adapter = subagentsAdapter else { return }
+        workspaceTabs.open(
+            CodexSubagentsWorkspaceTabAdapter(
+                parentThreadID: adapter.parentThreadID,
+                coordinator: adapter.coordinator,
+                selectedThreadID: id
+            ),
+            from: opener
+        )
         isCompactSummaryPanelPresented = false
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
+        showAgentPanel()
     }
 
     private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
@@ -781,7 +798,10 @@ public struct CodexChatWorkspaceView: View {
         let review = gitReviewSession.map {
             "\($0.snapshot.revision.sourceID):\($0.snapshot.revision.value)"
         } ?? "no-review"
-        return "\(workspacePath)|\(plan)|\(review)"
+        let subagentIdentity = subagentCoordinator != nil
+            ? (currentThreadID ?? "no-thread")
+            : "no-subagent-coordinator"
+        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -793,7 +813,18 @@ public struct CodexChatWorkspaceView: View {
             adapters.append(reviewAdapter(session: session))
             adapters.append(reviewAdapter(session: session, source: .transcript))
         }
+        if let adapter = subagentsAdapter {
+            adapters.append(adapter)
+        }
         workspaceTabs.register(adapters)
+    }
+
+    private var subagentsAdapter: CodexSubagentsWorkspaceTabAdapter? {
+        guard let subagentCoordinator, let currentThreadID else { return nil }
+        return CodexSubagentsWorkspaceTabAdapter(
+            parentThreadID: currentThreadID,
+            coordinator: subagentCoordinator
+        )
     }
 
     private func reviewAdapter(
@@ -818,10 +849,6 @@ public struct CodexChatWorkspaceView: View {
         )) {
             panel.isAgentPanelOpen = true
         }
-    }
-
-    private func closeSubagentTab(_ id: String) {
-        panel.closeSubagent(id: id)
     }
 
     private func toggleAgentPanel() {
