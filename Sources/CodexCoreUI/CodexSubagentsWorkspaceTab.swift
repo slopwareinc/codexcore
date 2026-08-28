@@ -209,6 +209,20 @@ public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         self.onSelectionChanged = onSelectionChanged
     }
 
+    public init(
+        parentThreadID: ThreadID,
+        coordinator: CodexSubagentPresentationCoordinator,
+        selectedThreadID: String? = nil,
+        onSelectionChanged: @escaping (String?) -> Void = { _ in }
+    ) {
+        self.init(
+            parentThreadID: parentThreadID.rawValue,
+            coordinator: coordinator,
+            selectedThreadID: selectedThreadID,
+            onSelectionChanged: onSelectionChanged
+        )
+    }
+
     public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         let state = CodexSubagentsWorkspaceTabState(
             selectedThreadID: selectedThreadID
