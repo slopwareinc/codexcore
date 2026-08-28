@@ -35,29 +35,102 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
     @MainActor
     func testPanelStateOpensNumberedToolsAndSelectsLatest() {
-        let panel = CodexWorkspacePanelState()
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
 
-        let firstTerminal = panel.openTerminal(workspacePath: "/tmp")
+        let firstTerminal = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
         let firstBrowser = panel.openBrowser()
 
         XCTAssertEqual(panel.terminalSessions.count, 1)
         XCTAssertEqual(panel.browserSessions.count, 1)
-        XCTAssertEqual(panel.terminalSessions.first?.title, "Terminal")
+        XCTAssertEqual(panel.terminalSessions.first?.title, "swift test")
         XCTAssertEqual(panel.browserSessions.first?.title, "Browser")
         // The most-recently opened tool becomes selected.
-        XCTAssertEqual(
-            panel.workspaceTabs.snapshot.topology.right.activeTab,
-            .legacy(firstBrowser)
-        )
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(firstBrowser))
 
-        let secondTerminal = panel.openTerminal(workspacePath: "/tmp")
-        XCTAssertEqual(panel.terminalSessions.last?.title, "Terminal 2")
+        let secondTerminal = panel.openTerminal(workspacePath: "/tmp", command: "swift build")
+        XCTAssertEqual(panel.terminalSessions.last?.title, "swift build")
         XCTAssertEqual(
-            panel.workspaceTabs.snapshot.topology.right.activeTab,
-            .legacy(secondTerminal)
+            panel.workspaceTabs.snapshot.topology.bottom.activeTabID,
+            panel.terminalTabID(for: secondTerminal)
         )
         XCTAssertNotEqual(firstTerminal, secondTerminal)
         XCTAssertTrue(panel.hasOpenTools)
+    }
+
+    @MainActor
+    func testTerminalsUseWorkspaceTabsAndClosingTheTabReleasesTheSession() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(
+            workspacePath: "/tmp/worktree",
+            command: "/bin/zsh -lc 'swift test'"
+        )
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+
+        XCTAssertEqual(session.title, "swift test")
+        XCTAssertEqual(session.identity.threadID, "thread-235")
+        XCTAssertEqual(session.identity.worktreePath, "/tmp/worktree")
+        XCTAssertEqual(panel.workspaceTabs.placement(of: tabID), .bottom)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.activeTabID, tabID)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.instance(id: tabID)?.durableRoute?.resourceID,
+            session.id
+        )
+
+        panel.workspaceTabs.close(tabID)
+
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+        XCTAssertNil(panel.workspaceTabs.snapshot.instance(id: tabID))
+    }
+
+    @MainActor
+    func testBackgroundTerminalDoesNotStealFocusButIsRetainedInBottomPanel() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let foregroundID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let foregroundTab = try XCTUnwrap(panel.terminalTabID(for: foregroundID))
+        let backgroundID = panel.openBackgroundTerminal(
+            workspacePath: "/tmp",
+            command: "swift build"
+        )
+        let backgroundTab = try XCTUnwrap(panel.terminalTabID(for: backgroundID))
+
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.activeTabID, foregroundTab)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.orderedTabIDs, [foregroundTab, backgroundTab])
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.focusedPlacement, .bottom)
+        XCTAssertTrue(panel.terminalSessions.contains { $0.id == backgroundID })
+    }
+
+    @MainActor
+    func testMovingAndHidingTerminalKeepsTheSamePTYHostAndSuspendsDisplay() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let hostIdentity = session.terminalHostIdentity
+
+        panel.workspaceTabs.move(tabID, to: .right)
+        panel.workspaceTabs.move(tabID, to: .bottom)
+        session.setSurfaceVisible(false)
+        session.setSurfaceVisible(false)
+
+        XCTAssertEqual(session.terminalHostIdentity, hostIdentity)
+        XCTAssertFalse(session.isSurfaceVisible)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, 1)
+
+        session.setSurfaceVisible(true)
+        XCTAssertEqual(session.terminalHostIdentity, hostIdentity)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, 2)
+    }
+
+    @MainActor
+    func testBackgroundOutputRemainsStrictlyBoundedAndKeepsNewestBytes() {
+        var output = CodexBoundedTerminalOutput(maxBytes: 8)
+        output.append("1234")
+        output.append("567890")
+
+        XCTAssertEqual(output.byteCount, 8)
+        XCTAssertEqual(output.text, "34567890")
+        XCTAssertEqual(output.droppedByteCount, 2)
     }
 
     @MainActor

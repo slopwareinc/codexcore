@@ -6,6 +6,41 @@ import Testing
 
 @MainActor
 struct CodexWorkspaceTabRenderTests {
+    @Test func bottomTerminalPanelKeepsTranscriptAndPTYHostIdentities() throws {
+        let model = WorkspaceTabRenderHarnessModel()
+        let terminalID = model.panel.openTerminal(
+            workspacePath: "/tmp",
+            command: "swift test"
+        )
+        let terminal = try #require(model.panel.terminalSessions.first { $0.id == terminalID })
+        let hostIdentity = terminal.terminalHostIdentity
+        let hosting = NSHostingView(rootView: WorkspaceTabRenderHarness(model: model))
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_420, height: 820)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        let transcriptHost = try #require(transcriptDescendant(in: hosting))
+        #expect(terminal.terminalHostIdentity == hostIdentity)
+
+        let tabID = try #require(model.panel.terminalTabID(for: terminalID))
+        model.panel.workspaceTabs.move(tabID, to: .right)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        model.panel.workspaceTabs.move(tabID, to: .bottom)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        #expect(transcriptDescendant(in: hosting) === transcriptHost)
+        #expect(terminal.terminalHostIdentity == hostIdentity)
+    }
+
     @Test func tabSwitchesKeepTheSameTranscriptHost() throws {
         let model = WorkspaceTabRenderHarnessModel()
         let hosting = NSHostingView(rootView: WorkspaceTabRenderHarness(model: model))
