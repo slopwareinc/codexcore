@@ -268,7 +268,7 @@ struct CodexFilePreviewView: View {
         }
         .background(theme.colors.codeBackground)
         .onAppear { model.update(url: file.fileURL) }
-        .onChange(of: file.fileURL) { _, newValue in model.update(url: newValue) }
+        .onChange(of: file.id) { _, _ in model.update(url: file.fileURL) }
     }
 
     private var previewState: CodexFilePreviewTabState {
@@ -463,9 +463,10 @@ private struct CodexCodeTextView: NSViewRepresentable {
     private func scroll(toLine line: Int?, in textView: NSTextView) {
         guard let line, line > 0 else { return }
         let text = textView.string as NSString
+        let targetLine = min(line, 100_000)
         var location = 0
-        if line > 1 {
-            for _ in 1..<line {
+        if targetLine > 1 {
+            for _ in 1..<targetLine {
                 let range = text.range(of: "\\n", options: [], range: NSRange(location: location, length: text.length - location))
                 guard range.location != NSNotFound else { break }
                 location = NSMaxRange(range)
