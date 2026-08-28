@@ -519,8 +519,8 @@ struct CodexSubagentPresentationCoordinatorTests {
         )
         let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
         coordinator.selectParent("parent")
-        await transport.sendParentDiscovery()
-        try await eventually { coordinator.agents.count == 1 }
+        await transport.sendParentDiscovery(childIDs: ["child", "other"])
+        try await eventually { coordinator.agents.count == 2 }
 
         let adapter = CodexSubagentsWorkspaceTabAdapter(
             parentThreadID: "parent",
@@ -529,6 +529,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         )
         let tabs = CodexWorkspaceTabs()
         let id = tabs.open(adapter, from: .transcript)
+        let contentID = try #require(tabs.snapshot.instance(id: id)?.contentID)
 
         #expect(tabs.snapshot.topology.right.orderedTabIDs == [id])
         #expect(tabs.snapshot.instance(id: id)?.title == "Subagents")
@@ -536,6 +537,22 @@ struct CodexSubagentPresentationCoordinatorTests {
             CodexSubagentsWorkspaceTabState.selectedThreadID(
                 in: try #require(tabs.snapshot.instance(id: id)?.state)
             ) == "child"
+        )
+
+        let reopenedID = tabs.open(
+            CodexSubagentsWorkspaceTabAdapter(
+                parentThreadID: "parent",
+                coordinator: coordinator,
+                selectedThreadID: "other"
+            ),
+            from: .summary
+        )
+        #expect(reopenedID == id)
+        #expect(tabs.snapshot.instance(id: id)?.contentID == contentID)
+        #expect(
+            CodexSubagentsWorkspaceTabState.selectedThreadID(
+                in: try #require(tabs.snapshot.instance(id: id)?.state)
+            ) == "other"
         )
 
         let restored = CodexWorkspaceTabs(restoring: tabs.restorationState)
@@ -548,7 +565,7 @@ struct CodexSubagentPresentationCoordinatorTests {
         #expect(
             CodexSubagentsWorkspaceTabState.selectedThreadID(
                 in: try #require(restored.snapshot.instance(id: id)?.state)
-            ) == "child"
+            ) == "other"
         )
 
         await coordinator.disconnect()
@@ -601,7 +618,7 @@ struct CodexSubagentPresentationCoordinatorTests {
             coordinator: coordinator,
             selectedThreadID: "child"
         )
-        _ = tabs.open(adapter, from: .transcript)
+        let tabID = tabs.open(adapter, from: .transcript)
         let store = CodexPresentationStore()
         let hosting = NSHostingView(rootView: SubagentsMountedHarness(
             tabs: tabs,
@@ -640,6 +657,13 @@ struct CodexSubagentPresentationCoordinatorTests {
             parentHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount
         )
+
+        let releaseCount = coordinator.diagnostics.childLeaseReleaseCount
+        tabs.close(tabID)
+        hosting.layoutSubtreeIfNeeded()
+        try await eventually {
+            coordinator.diagnostics.childLeaseReleaseCount > releaseCount
+        }
 
         await coordinator.disconnect()
         await codex.close()
