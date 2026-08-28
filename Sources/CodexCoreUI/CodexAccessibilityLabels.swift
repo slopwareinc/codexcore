@@ -109,6 +109,10 @@ public enum CodexWorkspaceTabAccessibility {
     public static func closeLabel(title: String) -> String {
         "Close \(title)"
     }
+
+    public static func moveShortcut(for placement: CodexWorkspaceTabPlacement) -> String {
+        placement == .right ? "⌘⌥]" : "⌘⌥["
+    }
 }
 
 public enum CodexButtonAccessibility {
