@@ -197,17 +197,17 @@ public struct CodexSubagentsWorkspaceTabState: Codable, Equatable, Hashable, Sen
 /// selecting a row delegates to the coordinator, which acquires the one exact
 /// child lease and cancels any obsolete projection.
 @MainActor
-public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
-    public static let resourceKey = "codex.subagents"
-    public static let routeAdapterID = "codex.subagents"
-    public static let routeVersion = 1
+package struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    package static let resourceKey = "codex.subagents"
+    package static let routeAdapterID = "codex.subagents"
+    package static let routeVersion = 1
 
-    public let parentThreadID: String
-    public let coordinator: CodexSubagentPresentationCoordinator
-    public let selectedThreadID: String?
+    package let parentThreadID: String
+    package let coordinator: CodexSubagentPresentationCoordinator
+    package let selectedThreadID: String?
     private let onSelectionChanged: (String?) -> Void
 
-    public init(
+    package init(
         parentThreadID: String,
         coordinator: CodexSubagentPresentationCoordinator,
         selectedThreadID: String? = nil,
@@ -219,7 +219,7 @@ public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         self.onSelectionChanged = onSelectionChanged
     }
 
-    public init(
+    package init(
         parentThreadID: ThreadID,
         coordinator: CodexSubagentPresentationCoordinator,
         selectedThreadID: String? = nil,
@@ -233,7 +233,7 @@ public struct CodexSubagentsWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
-    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         let state = CodexSubagentsWorkspaceTabState(
             selectedThreadID: selectedThreadID
         ).workspaceTabState
