@@ -811,11 +811,14 @@ public struct CodexChatWorkspaceView: View {
             }
         }
         for instance in workspaceTabs.snapshot.instances {
-            guard let route = instance.durableRoute,
-                  let adapter = CodexFilePreviewWorkspaceTabAdapter(route: route) else {
-                continue
+            if let route = instance.durableRoute,
+               let adapter = CodexFilePreviewWorkspaceTabAdapter(route: route) {
+                adapters.append(adapter)
+            } else if let adapter = CodexFilePreviewWorkspaceTabAdapter(
+                resourceKey: instance.resourceKey
+            ) {
+                adapters.append(adapter)
             }
-            adapters.append(adapter)
         }
         workspaceTabs.register(adapters)
     }

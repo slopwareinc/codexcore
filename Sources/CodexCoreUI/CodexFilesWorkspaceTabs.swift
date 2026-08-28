@@ -179,6 +179,24 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         }
     }
 
+    package init?(resourceKey: String) {
+        let prefix = "\(Self.adapterID):"
+        guard resourceKey.hasPrefix(prefix) else { return nil }
+        let rawIdentity = String(resourceKey.dropFirst(prefix.count))
+        let identity = rawIdentity.hasPrefix("codex-file:")
+            ? String(rawIdentity.dropFirst("codex-file:".count))
+            : rawIdentity
+        let parts = identity.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let ref = parts.first.map(String.init)
+        let path = parts.count > 1 ? String(parts[1]) : identity
+        self.init(
+            file: .init(
+                fileURL: URL(fileURLWithPath: path),
+                ref: ref?.isEmpty == true ? nil : ref
+            )
+        )
+    }
+
     package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: Self.resourceKey(for: file),

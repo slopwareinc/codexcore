@@ -109,6 +109,26 @@ struct CodexFilesWorkspaceTabTests {
         #expect(restored.snapshot.topology.right.activeTabID == previewID)
     }
 
+    @Test func unpinnedPreviewCanReconcileFromItsStableResourceKey() throws {
+        let file = CodexWorkspaceFileReference(
+            fileURL: URL(fileURLWithPath: "/tmp/project/App.swift"),
+            ref: "working"
+        )
+        let source = CodexWorkspaceTabs()
+        let id = source.open(CodexFilePreviewWorkspaceTabAdapter(file: file), from: .transcript)
+        let key = try #require(source.snapshot.instance(id: id)?.resourceKey)
+        let reconstructed = try #require(CodexFilePreviewWorkspaceTabAdapter(resourceKey: key))
+
+        source.register([])
+        #expect(!source.isAvailable(id))
+        source.register([reconstructed])
+        source.activate(id)
+
+        #expect(source.isAvailable(id))
+        #expect(source.snapshot.instance(id: id)?.isMaterialized == true)
+        #expect(reconstructed.file == file)
+    }
+
     @Test func transcriptFileReferenceOpensPreviewAndPersistsLineLocation() throws {
         let root = URL(fileURLWithPath: "/tmp/project")
         let file = root.appendingPathComponent("App.swift").standardizedFileURL

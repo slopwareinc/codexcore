@@ -36,6 +36,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     public func applyWorkspaceTabRestoration(
         _ restorationState: CodexWorkspaceTabRestorationState
     ) {
+        filesSession = nil
         workspaceTabs.apply(restoration: restorationState)
     }
 
