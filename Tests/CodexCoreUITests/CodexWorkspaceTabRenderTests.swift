@@ -88,7 +88,20 @@ struct CodexWorkspaceTabRenderTests {
                 snapshot: CodexGitReviewSnapshot(branchName: "main")
             )
         )
-        let available: [any CodexWorkspaceTabAdapter] = [plan, review]
+        let files = CodexFilesWorkspaceTabAdapter(workspaceURL: URL(fileURLWithPath: "/tmp"))
+        let preview = CodexFilePreviewWorkspaceTabAdapter(
+            fileURL: URL(fileURLWithPath: "/tmp/Workspace.swift")
+        )
+        let replacementPreview = CodexFilePreviewWorkspaceTabAdapter(
+            fileURL: URL(fileURLWithPath: "/tmp/Replacement.swift")
+        )
+        let available: [any CodexWorkspaceTabAdapter] = [
+            plan,
+            review,
+            files,
+            preview,
+            replacementPreview,
+        ]
         let planID = tabs.open(plan, from: .summary)
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(30))
@@ -99,13 +112,22 @@ struct CodexWorkspaceTabRenderTests {
             transcriptHost.readDiagnosticsForTesting?().render.projectionCount
         )
 
-        // The panel is already open and width-stable. Opening the second tab,
-        // activation, and adapter availability changes must now be transcript-neutral.
+        // The panel is already open and width-stable. Files and preview tabs
+        // join the same topology; opening, activation, pinning, replacement,
+        // close, and adapter availability changes must remain transcript-neutral.
         let reviewID = tabs.open(review, from: .summary)
+        let filesID = tabs.open(files, from: .commandMenu)
+        let previewID = tabs.open(preview, from: .transcript)
+        let previewContentID = try #require(tabs.snapshot.instance(id: previewID)?.contentID)
+        tabs.interact(previewID)
+        let replacementID = tabs.open(replacementPreview, from: .transcript)
+        tabs.close(replacementID)
 
         for index in 0..<100 {
             tabs.register(index.isMultiple(of: 4) ? [] : available)
-            tabs.activate(index.isMultiple(of: 2) ? planID : reviewID)
+            let handles: [CodexWorkspaceTabID] = [planID, reviewID, filesID, previewID]
+            tabs.activate(handles[index % handles.count])
+            if index.isMultiple(of: 7) { tabs.interact(previewID) }
             hosting.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(1))
             if index.isMultiple(of: 10) { await Task.yield() }
@@ -114,6 +136,7 @@ struct CodexWorkspaceTabRenderTests {
         await reconciledHost.waitForProjectionForTesting?()
 
         #expect(reconciledHost === transcriptHost)
+        #expect(tabs.snapshot.instance(id: previewID)?.contentID == previewContentID)
         #expect(
             reconciledHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount

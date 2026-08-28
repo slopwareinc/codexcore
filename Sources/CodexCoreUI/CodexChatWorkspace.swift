@@ -821,9 +821,16 @@ public struct CodexChatWorkspaceView: View {
     }
 
     private func filesAdapter(session: CodexFilesSession) -> CodexFilesWorkspaceTabAdapter {
-        CodexFilesWorkspaceTabAdapter(session: session) { [weak panel] url in
-            _ = panel?.openFilePreview(fileURL: url)
-        }
+        CodexFilesWorkspaceTabAdapter(
+            session: session,
+            onOpenFile: { [weak panel] url in
+                _ = panel?.openFilePreview(fileURL: url)
+            },
+            onClose: { [weak panel] in
+                guard panel?.filesSession?.id == session.id else { return }
+                panel?.filesSession = nil
+            }
+        )
     }
 
     private func reviewAdapter(

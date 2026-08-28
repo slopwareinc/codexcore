@@ -180,6 +180,7 @@ public struct CodexWorkspaceTabRegistration {
     let durableRoute: CodexWorkspaceTabRoute?
     let initialState: CodexWorkspaceTabState
     let reopenState: CodexWorkspaceTabState?
+    let onClose: @MainActor () -> Void
     let makeContent: @MainActor (CodexWorkspaceTabContentContext) -> AnyView
 
     public init(
@@ -192,6 +193,7 @@ public struct CodexWorkspaceTabRegistration {
         durableRoute: CodexWorkspaceTabRoute? = nil,
         initialState: CodexWorkspaceTabState = .init(),
         reopenState: CodexWorkspaceTabState? = nil,
+        onClose: @escaping @MainActor () -> Void = {},
         makeContent: @escaping @MainActor (CodexWorkspaceTabContentContext) -> AnyView
     ) {
         self.resourceKey = resourceKey
@@ -203,6 +205,7 @@ public struct CodexWorkspaceTabRegistration {
         self.durableRoute = durableRoute
         self.initialState = initialState
         self.reopenState = reopenState
+        self.onClose = onClose
         self.makeContent = makeContent
     }
 }
@@ -430,14 +433,16 @@ public final class CodexWorkspaceTabs: ObservableObject {
         let handle = CodexWorkspaceTabHandle.workspace(id)
         guard let placement = placement(of: handle), let instanceIndex = index(of: id),
               let tabIndex = snapshot.topology[placement].orderedTabs.firstIndex(of: handle) else { return }
+        let registration = registrations.removeValue(forKey: id)
         closed = .init(
             tab: snapshot.instances.remove(at: instanceIndex),
-            registration: registrations.removeValue(forKey: id),
+            registration: registration,
             placement: placement,
             tabIndex: tabIndex,
             instanceIndex: instanceIndex
         )
         remove(handle, from: placement)
+        registration?.onClose()
     }
 
     @discardableResult

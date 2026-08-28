@@ -110,7 +110,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         )
 
         panel.workspaceTabs.activate(files)
-        panel.closeFiles(id: files)
+        panel.workspaceTabs.close(files)
         XCTAssertNil(panel.filesSession)
         XCTAssertEqual(
             panel.workspaceTabs.snapshot.topology.right.activeTab,

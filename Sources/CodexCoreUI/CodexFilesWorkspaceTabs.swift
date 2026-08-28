@@ -70,35 +70,42 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
 
     public let session: CodexFilesSession
     private let onOpenFile: @MainActor (URL) -> Void
+    private let onClose: @MainActor () -> Void
 
     public init(
         session: CodexFilesSession,
-        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in }
+        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
+        onClose: @escaping @MainActor () -> Void = {}
     ) {
         self.session = session
         self.onOpenFile = onOpenFile
+        self.onClose = onClose
     }
 
     public init(
         workspaceURL: URL,
-        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in }
+        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
+        onClose: @escaping @MainActor () -> Void = {}
     ) {
         self.init(
             session: CodexFilesSession(rootURL: workspaceURL),
-            onOpenFile: onOpenFile
+            onOpenFile: onOpenFile,
+            onClose: onClose
         )
     }
 
     public init?(
         route: CodexWorkspaceTabRoute,
-        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in }
+        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
+        onClose: @escaping @MainActor () -> Void = {}
     ) {
         guard route.adapterID == Self.adapterID, route.version == Self.routeVersion else {
             return nil
         }
         self.init(
             workspaceURL: URL(fileURLWithPath: route.resourceID),
-            onOpenFile: onOpenFile
+            onOpenFile: onOpenFile,
+            onClose: onClose
         )
     }
 
@@ -111,7 +118,8 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 adapterID: Self.adapterID,
                 version: Self.routeVersion,
                 resourceID: session.rootURL.path
-            )
+            ),
+            onClose: onClose
         ) { context in
             AnyView(
                 CodexFilesToolView(session: session) { url in

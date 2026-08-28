@@ -116,12 +116,6 @@ public final class CodexWorkspacePanelState: ObservableObject {
         return workspaceTabs.open(filesAdapter(for: session), from: .commandMenu)
     }
 
-    public func closeFiles(id: CodexWorkspaceTabID) {
-        guard workspaceTabs.snapshot.instance(id: id)?.resourceKey.hasPrefix("codex.files:") == true else { return }
-        filesSession = nil
-        workspaceTabs.close(id)
-    }
-
     /// Opens a file (optionally at a ref) as its own preview tab, or reselects
     /// the existing tab for that file/ref combination.
     @discardableResult
@@ -130,11 +124,6 @@ public final class CodexWorkspacePanelState: ObservableObject {
             CodexFilePreviewWorkspaceTabAdapter(fileURL: fileURL, ref: ref),
             from: .transcript
         )
-    }
-
-    public func closeFilePreview(id: CodexWorkspaceTabID) {
-        guard workspaceTabs.snapshot.instance(id: id)?.resourceKey.hasPrefix("codex.file.preview:") == true else { return }
-        workspaceTabs.close(id)
     }
 
     /// Tear down every live session. Called when the store evicts this chat or
@@ -149,8 +138,15 @@ public final class CodexWorkspacePanelState: ObservableObject {
     }
 
     private func filesAdapter(for session: CodexFilesSession) -> CodexFilesWorkspaceTabAdapter {
-        CodexFilesWorkspaceTabAdapter(session: session) { [weak self] url in
-            _ = self?.openFilePreview(fileURL: url)
-        }
+        CodexFilesWorkspaceTabAdapter(
+            session: session,
+            onOpenFile: { [weak self] url in
+                _ = self?.openFilePreview(fileURL: url)
+            },
+            onClose: { [weak self] in
+                guard self?.filesSession?.id == session.id else { return }
+                self?.filesSession = nil
+            }
+        )
     }
 }
