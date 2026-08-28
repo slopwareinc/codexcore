@@ -120,10 +120,9 @@ package struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 resourceID: session.rootURL.path
             ),
             onClose: onClose
-        ) { context in
+        ) { _ in
             AnyView(
                 CodexFilesToolView(session: session) { url in
-                    context.interact()
                     onOpenFile(url)
                 }
             )
@@ -190,12 +189,11 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             pinsOnInteraction: true,
             durableRoute: Self.route(for: file),
             initialState: CodexFilePreviewTabState().tabState
-        ) { context in
+        ) { state in
             AnyView(
                 CodexFilePreviewView(
                     file: file,
-                    tabState: context.state,
-                    onInteraction: context.interact
+                    tabState: state
                 )
             )
         }

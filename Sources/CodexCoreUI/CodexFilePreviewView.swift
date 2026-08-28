@@ -235,20 +235,18 @@ final class CodexFilePreviewModel: ObservableObject {
 
 struct CodexFilePreviewView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexWorkspaceTabInteraction) private var tabInteraction
     @StateObject private var model = CodexFilePreviewModel()
 
     let file: CodexWorkspaceFileReference
     @Binding var tabState: CodexWorkspaceTabState
-    let onInteraction: @MainActor () -> Void
 
     init(
         file: CodexWorkspaceFileReference,
-        tabState: Binding<CodexWorkspaceTabState>,
-        onInteraction: @escaping @MainActor () -> Void = {}
+        tabState: Binding<CodexWorkspaceTabState>
     ) {
         self.file = file
         self._tabState = tabState
-        self.onInteraction = onInteraction
     }
 
     var body: some View {
@@ -274,7 +272,7 @@ struct CodexFilePreviewView: View {
                 var next = previewState
                 next.searchQuery = value
                 tabState = next.tabState
-                onInteraction()
+                tabInteraction()
             }
         )
     }
@@ -286,7 +284,7 @@ struct CodexFilePreviewView: View {
                 var next = previewState
                 next.goToLine = Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
                 tabState = next.tabState
-                onInteraction()
+                tabInteraction()
             }
         )
     }
@@ -304,11 +302,11 @@ struct CodexFilePreviewView: View {
             TextField("Find", text: searchBinding)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 150)
-                .onSubmit { onInteraction() }
+                .onSubmit { tabInteraction() }
             TextField("Line", text: lineBinding)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 58)
-                .onSubmit { onInteraction() }
+                .onSubmit { tabInteraction() }
         }
         .padding(.horizontal, 10)
         .frame(height: 38)
@@ -335,7 +333,7 @@ struct CodexFilePreviewView: View {
                 contentIdentity: model.contentIdentity
             )
             .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded(onInteraction))
+            .simultaneousGesture(TapGesture().onEnded(tabInteraction))
         }
     }
 

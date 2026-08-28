@@ -155,19 +155,17 @@ package protocol CodexWorkspaceTabAdapter {
     var workspaceTabRegistration: CodexWorkspaceTabRegistration { get }
 }
 
-/// The narrow content seam between the tab reducer and a feature adapter. The
-/// reducer supplies both durable tab state and the interaction hook so preview
-/// pinning remains a workspace-tab rule instead of leaking into callers.
-package struct CodexWorkspaceTabContentContext {
-    package let state: Binding<CodexWorkspaceTabState>
-    package let interact: @MainActor () -> Void
+/// Interaction remains a workspace-tab rule even though adapters keep the
+/// package's original Binding-based content closure. `content(for:)` injects
+/// this hook around each materialized adapter view.
+private struct CodexWorkspaceTabInteractionKey: EnvironmentKey {
+    static let defaultValue: @MainActor () -> Void = {}
+}
 
-    package init(
-        state: Binding<CodexWorkspaceTabState>,
-        interact: @escaping @MainActor () -> Void
-    ) {
-        self.state = state
-        self.interact = interact
+extension EnvironmentValues {
+    package var codexWorkspaceTabInteraction: @MainActor () -> Void {
+        get { self[CodexWorkspaceTabInteractionKey.self] }
+        set { self[CodexWorkspaceTabInteractionKey.self] = newValue }
     }
 }
 
@@ -182,7 +180,7 @@ package struct CodexWorkspaceTabRegistration {
     package let initialState: CodexWorkspaceTabState
     package let reopenState: CodexWorkspaceTabState?
     package let onClose: @MainActor () -> Void
-    package let makeContent: @MainActor (CodexWorkspaceTabContentContext) -> AnyView
+    package let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     package let routeReplacementKey: String?
     package let contentRevision: UInt64
 
@@ -199,7 +197,7 @@ package struct CodexWorkspaceTabRegistration {
         onClose: @escaping @MainActor () -> Void = {},
         routeReplacementKey: String? = nil,
         contentRevision: UInt64 = 0,
-        makeContent: @escaping @MainActor (CodexWorkspaceTabContentContext) -> AnyView
+        makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     ) {
         self.resourceKey = resourceKey
         self.title = title
@@ -448,9 +446,9 @@ public final class CodexWorkspaceTabs: ObservableObject {
             get: { [weak self] in self?.snapshot.instance(id: id)?.state ?? .init() },
             set: { [weak self] in self?.updateState($0, for: id) }
         )
-        return registration.makeContent(.init(
-            state: state,
-            interact: { [weak self] in self?.interact(id) }
+        return AnyView(registration.makeContent(state).environment(
+            \.codexWorkspaceTabInteraction,
+            { [weak self] in self?.interact(id) }
         ))
     }
 
@@ -647,12 +645,12 @@ package struct CodexReviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             reopenState: state,
             routeReplacementKey: source == .workspace ? "codex.review.workspace" : nil,
             contentRevision: session.snapshot.revision.value
-        ) { context in
+        ) { state in
             AnyView(CodexGitReviewWorkbenchHost(
                 workspaceURL: workspaceURL,
                 lastTurnSession: session,
-                selectedFilePath: Self.selectedFilePath(in: context.state.wrappedValue),
-                onSelectedFilePathChange: { context.state.wrappedValue = Self.state($0) },
+                selectedFilePath: Self.selectedFilePath(in: state.wrappedValue),
+                onSelectedFilePathChange: { state.wrappedValue = Self.state($0) },
                 onStartReview: onStartReview
             ))
         }
