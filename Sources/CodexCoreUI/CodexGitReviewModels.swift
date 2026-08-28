@@ -567,6 +567,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
     public static func fromTurnDiff(
         branchName: String?,
         turnDiff: String?,
+        revision: CodexGitReviewRevision = .manual,
         upstreamBranchName: String? = nil,
         branchOptions: [CodexGitBranchPickerOption] = [],
         reviewFilePaths: [String]? = nil,
@@ -596,6 +597,7 @@ public struct CodexGitReviewSnapshot: Equatable, Sendable {
         }
         guard !files.isEmpty else { return nil }
         return CodexGitReviewSnapshot(
+            revision: revision,
             branchName: branchName?.nilIfBlank ?? "HEAD",
             upstreamBranchName: upstreamBranchName,
             branchOptions: branchOptions,
