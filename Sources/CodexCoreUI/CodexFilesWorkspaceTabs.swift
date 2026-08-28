@@ -64,15 +64,15 @@ public struct CodexFilePreviewTabState: Codable, Hashable, Sendable {
 /// retained resource host; tab identity and panel placement remain owned by
 /// `CodexWorkspaceTabs`.
 @MainActor
-public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
-    public static let adapterID = "codex.files"
-    public static let routeVersion = 1
+package struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    package static let adapterID = "codex.files"
+    package static let routeVersion = 1
 
-    public let session: CodexFilesSession
+    package let session: CodexFilesSession
     private let onOpenFile: @MainActor (URL) -> Void
     private let onClose: @MainActor () -> Void
 
-    public init(
+    package init(
         session: CodexFilesSession,
         onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
         onClose: @escaping @MainActor () -> Void = {}
@@ -82,7 +82,7 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         self.onClose = onClose
     }
 
-    public init(
+    package init(
         workspaceURL: URL,
         onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
         onClose: @escaping @MainActor () -> Void = {}
@@ -94,7 +94,7 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
-    public init?(
+    package init?(
         route: CodexWorkspaceTabRoute,
         onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
         onClose: @escaping @MainActor () -> Void = {}
@@ -109,7 +109,7 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
-    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: Self.resourceKey(for: session.rootURL),
             title: session.title,
@@ -130,11 +130,11 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         }
     }
 
-    public static func resourceKey(for workspaceURL: URL) -> String {
+    package static func resourceKey(for workspaceURL: URL) -> String {
         "\(adapterID):\(workspaceURL.standardizedFileURL.path)"
     }
 
-    public static func route(for workspaceURL: URL) -> CodexWorkspaceTabRoute {
+    package static func route(for workspaceURL: URL) -> CodexWorkspaceTabRoute {
         .init(
             adapterID: adapterID,
             version: routeVersion,
@@ -147,21 +147,21 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
 /// stable resource key; the preview remains non-durable until interaction pins
 /// it through the workspace-tab reducer.
 @MainActor
-public struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
-    public static let adapterID = "codex.file.preview"
-    public static let routeVersion = 1
+package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    package static let adapterID = "codex.file.preview"
+    package static let routeVersion = 1
 
-    public let file: CodexWorkspaceFileReference
+    package let file: CodexWorkspaceFileReference
 
-    public init(file: CodexWorkspaceFileReference) {
+    package init(file: CodexWorkspaceFileReference) {
         self.file = file
     }
 
-    public init(fileURL: URL, ref: String? = nil) {
+    package init(fileURL: URL, ref: String? = nil) {
         self.init(file: .init(fileURL: fileURL, ref: ref))
     }
 
-    public init?(route: CodexWorkspaceTabRoute) {
+    package init?(route: CodexWorkspaceTabRoute) {
         guard route.adapterID == Self.adapterID, route.version == Self.routeVersion else {
             return nil
         }
@@ -180,7 +180,7 @@ public struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         }
     }
 
-    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: Self.resourceKey(for: file),
             title: file.displayName,
@@ -201,11 +201,11 @@ public struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         }
     }
 
-    public static func resourceKey(for file: CodexWorkspaceFileReference) -> String {
+    package static func resourceKey(for file: CodexWorkspaceFileReference) -> String {
         "\(adapterID):\(file.id)"
     }
 
-    public static func route(for file: CodexWorkspaceFileReference) -> CodexWorkspaceTabRoute {
+    package static func route(for file: CodexWorkspaceFileReference) -> CodexWorkspaceTabRoute {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return .init(
