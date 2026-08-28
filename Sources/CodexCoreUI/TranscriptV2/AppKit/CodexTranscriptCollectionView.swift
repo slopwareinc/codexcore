@@ -135,6 +135,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     func makeNSView(context: Context) -> CodexTranscriptCollectionContainerView {
         let container = CodexTranscriptCollectionContainerView()
         context.coordinator.attach(to: container)
+        container.readDiagnosticsForTesting = { [weak coordinator = context.coordinator] in
+            coordinator?.diagnostics ?? CodexTranscriptCollectionDiagnostics()
+        }
+        container.waitForProjectionForTesting = { [weak coordinator = context.coordinator] in
+            guard let coordinator else { return }
+            await coordinator.waitForProjectionForTesting()
+        }
         return container
     }
 
@@ -184,6 +191,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         _ nsView: CodexTranscriptCollectionContainerView,
         coordinator: Coordinator
     ) {
+        nsView.readDiagnosticsForTesting = nil
+        nsView.waitForProjectionForTesting = nil
         coordinator.detach()
     }
 
@@ -461,18 +470,24 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         func waitForProjectionForTesting() async {
             // Layout can enqueue the debounced width reflow while the current
-            // projection is finishing. Wait until neither generation changes
-            // across a complete reflow + projection pass.
-            for _ in 0..<8 {
+            // projection is finishing. Require two complete stable passes: a
+            // loaded runner can deliver the width callback one MainActor turn
+            // after the first apparently-idle pass.
+            var stablePasses = 0
+            for _ in 0..<16 {
                 container?.layoutSubtreeIfNeeded()
                 let observedReflowGeneration = reflowDebounceGeneration
                 await reflowDebounceTask?.value
                 let observedProjectionGeneration = projectionGeneration
                 await projectionTask?.value
                 await Task.yield()
-                guard observedReflowGeneration == reflowDebounceGeneration,
-                      observedProjectionGeneration == projectionGeneration else { continue }
-                return
+                if observedReflowGeneration == reflowDebounceGeneration,
+                   observedProjectionGeneration == projectionGeneration {
+                    stablePasses += 1
+                    if stablePasses == 2 { return }
+                } else {
+                    stablePasses = 0
+                }
             }
         }
 
@@ -1463,6 +1478,8 @@ final class CodexTranscriptCollectionContainerView: NSView {
     var onWidthChange: ((CGFloat) -> Void)?
     var onFindQueryChange: ((String) -> Void)?
     var onFindNext: ((Bool) -> Void)?
+    var readDiagnosticsForTesting: (() -> CodexTranscriptCollectionDiagnostics)?
+    var waitForProjectionForTesting: (() async -> Void)?
     private var turnMinimapTheme: CodexTranscriptAppKitTheme?
     private var turnPreviewHideTask: Task<Void, Never>?
     var bottomContentInset: CGFloat = 0 {

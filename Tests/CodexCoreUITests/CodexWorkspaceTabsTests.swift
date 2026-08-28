@@ -147,6 +147,68 @@ struct CodexWorkspaceTabsTests {
         #expect(restored.content(for: id) == nil)
     }
 
+    @Test func registrationReplacementDematerializesDisappearedPlanWithoutClosingItsTab() throws {
+        let tabs = CodexWorkspaceTabs()
+        let id = tabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(
+                steps: [TurnPlanStep(step: "Old plan", status: .inProgress)]
+            )),
+            from: .summary
+        )
+        let contentID = try #require(tabs.snapshot.instance(id: id)?.contentID)
+
+        tabs.register([])
+
+        #expect(tabs.snapshot.instance(id: id)?.contentID == contentID)
+        #expect(tabs.snapshot.topology.right.activeTab == .workspace(id))
+        #expect(tabs.snapshot.instance(id: id)?.isMaterialized == false)
+        #expect(!tabs.isAvailable(id))
+        #expect(tabs.content(for: id) == nil)
+
+        tabs.register([
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(
+                steps: [TurnPlanStep(step: "Current plan", status: .completed)]
+            ))
+        ])
+        #expect(tabs.snapshot.instance(id: id)?.isMaterialized == false)
+        #expect(tabs.isAvailable(id))
+
+        tabs.activate(id)
+        #expect(tabs.snapshot.instance(id: id)?.isMaterialized == true)
+        #expect(tabs.content(for: id) != nil)
+    }
+
+    @Test func registrationReplacementRejectsSupersededReviewCanonicalSource() throws {
+        let oldSession = reviewSession(sourceID: "turn-old")
+        let tabs = CodexWorkspaceTabs()
+        let id = tabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: oldSession
+            ),
+            from: .summary
+        )
+        let contentID = try #require(tabs.snapshot.instance(id: id)?.contentID)
+        let newSession = reviewSession(sourceID: "turn-new")
+
+        tabs.register([
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: newSession
+            ),
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: newSession,
+                source: .transcript
+            ),
+        ])
+
+        #expect(tabs.snapshot.instance(id: id)?.contentID == contentID)
+        #expect(tabs.snapshot.instance(id: id)?.isMaterialized == false)
+        #expect(!tabs.isAvailable(id))
+        #expect(tabs.content(for: id) == nil)
+    }
+
     @Test func movingBetweenPanelsPreservesContentAndPanelLocalFallback() throws {
         let tabs = CodexWorkspaceTabs()
         let planID = tabs.open(
@@ -379,6 +441,13 @@ struct CodexWorkspaceTabsTests {
             snapshot.instance(id: tab.id)?.isPinned == true
                 && tab.durableRoute == snapshot.instance(id: tab.id)?.durableRoute
         })
+    }
+
+    private func reviewSession(sourceID: String) -> CodexGitReviewSession {
+        CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
+            revision: CodexGitReviewRevision(sourceID: sourceID, value: 1),
+            branchName: "main"
+        ))
     }
 }
 

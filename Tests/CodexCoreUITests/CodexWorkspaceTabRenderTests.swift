@@ -62,56 +62,62 @@ struct CodexWorkspaceTabRenderTests {
             pendingRequests: [],
             isFullRebuild: true
         )
-        let store = CodexPresentationStore()
-        let container = CodexTranscriptCollectionContainerView(
-            frame: NSRect(x: 0, y: 0, width: 860, height: 600)
-        )
-        let coordinator = CodexTranscriptListHost.Coordinator()
-        coordinator.attach(to: container)
-        defer { coordinator.detach() }
-
-        func reconcile() {
-            coordinator.update(
-                presentation: presentation,
-                renderUpdate: renderUpdate,
-                presentationStore: store,
-                bottomContentInset: 170,
-                contentHorizontalOffset: 0,
-                swiftUITheme: .officialDark,
-                colorScheme: .dark,
-                clipboardService: CodexNoopClipboardService(),
-                productToolRenderer: nil,
-                onOpenSubagent: { _ in },
-                onEditUserMessage: { _ in },
-                onForkChat: nil
-            )
-        }
-
-        reconcile()
-        await coordinator.waitForProjectionForTesting()
-        let projectionCount = coordinator.diagnostics.render.projectionCount
         let tabs = CodexWorkspaceTabs()
-        let planID = tabs.open(
-            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: [])),
-            from: .summary
+        let hosting = NSHostingView(rootView: WorkspaceTabObservationHarness(
+            tabs: tabs,
+            store: CodexPresentationStore(),
+            presentation: presentation,
+            renderUpdate: renderUpdate
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_260, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
         )
-        let reviewID = tabs.open(
-            CodexReviewWorkspaceTabAdapter(
-                workspaceURL: URL(fileURLWithPath: "/tmp"),
-                session: CodexGitReviewSession(
-                    snapshot: CodexGitReviewSnapshot(branchName: "main")
-                )
-            ),
-            from: .summary
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+
+        let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: []))
+        let review = CodexReviewWorkspaceTabAdapter(
+            workspaceURL: URL(fileURLWithPath: "/tmp"),
+            session: CodexGitReviewSession(
+                snapshot: CodexGitReviewSnapshot(branchName: "main")
+            )
         )
+        let available: [any CodexWorkspaceTabAdapter] = [plan, review]
+        let planID = tabs.open(plan, from: .summary)
+        hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        await Task.yield()
+        let transcriptHost = try #require(transcriptDescendant(in: hosting))
+        await transcriptHost.waitForProjectionForTesting?()
+        let projectionCount = try #require(
+            transcriptHost.readDiagnosticsForTesting?().render.projectionCount
+        )
+
+        // The panel is already open and width-stable. Opening the second tab,
+        // activation, and adapter availability changes must now be transcript-neutral.
+        let reviewID = tabs.open(review, from: .summary)
 
         for index in 0..<100 {
+            tabs.register(index.isMultiple(of: 4) ? [] : available)
             tabs.activate(index.isMultiple(of: 2) ? planID : reviewID)
-            reconcile()
+            hosting.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(1))
+            if index.isMultiple(of: 10) { await Task.yield() }
         }
-        await coordinator.waitForProjectionForTesting()
+        let reconciledHost = try #require(transcriptDescendant(in: hosting))
+        await reconciledHost.waitForProjectionForTesting?()
 
-        #expect(coordinator.diagnostics.render.projectionCount == projectionCount)
+        #expect(reconciledHost === transcriptHost)
+        #expect(
+            reconciledHost.readDiagnosticsForTesting?().render.projectionCount
+                == projectionCount
+        )
     }
 }
 
@@ -148,6 +154,46 @@ private struct WorkspaceTabRenderHarness: View {
             onInterrupt: {},
             onDisconnect: {}
         )
+    }
+}
+
+private struct WorkspaceTabObservationHarness: View {
+    @ObservedObject var tabs: CodexWorkspaceTabs
+    let store: CodexPresentationStore
+    let presentation: CodexThreadUIPresentation
+    let renderUpdate: CodexCanonicalTranscriptRenderUpdate
+
+    var body: some View {
+        HStack(spacing: 0) {
+            CodexTranscriptListHost(
+                presentation: presentation,
+                renderUpdate: renderUpdate,
+                presentationStore: store,
+                bottomContentInset: 170,
+                contentHorizontalOffset: 0,
+                responseAnnotations: [],
+                onUpsertResponseAnnotation: { _ in },
+                onRemoveResponseAnnotation: { _ in },
+                productToolRenderer: nil,
+                onOpenSubagent: { _ in },
+                onEditUserMessage: { _ in },
+                onRetryTurn: nil,
+                onForkChat: nil,
+                onResolveApproval: { _, _ in },
+                retryRevision: 0,
+                onProjectionError: { _ in }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if tabs.snapshot.topology.right.isOpen {
+                CodexAgentSidePanel(
+                    tabs: [],
+                    workspaceTabs: tabs,
+                    showsCloseButton: false,
+                    onClose: {}
+                )
+            }
+        }
     }
 }
 

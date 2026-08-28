@@ -227,12 +227,21 @@ public final class CodexWorkspaceTabs: ObservableObject {
     public func register(_ adapters: [any CodexWorkspaceTabAdapter]) {
         let available = adapters.map(\.workspaceTabRegistration)
         for index in snapshot.instances.indices {
-            guard let route = snapshot.instances[index].durableRoute,
-                  let registration = available.first(where: { $0.durableRoute == route }) else { continue }
             let id = snapshot.instances[index].id
-            registrations[id] = registration
-            snapshot.instances[index].title = registration.title
-            snapshot.instances[index].systemImage = registration.systemImage
+            let route = snapshot.instances[index].restorableRoute
+            let registration = route.flatMap { route in
+                available.first { $0.durableRoute == route }
+            } ?? available.first {
+                route == nil && $0.resourceKey == snapshot.instances[index].resourceKey
+            }
+            if let registration {
+                registrations[id] = registration
+                snapshot.instances[index].title = registration.title
+                snapshot.instances[index].systemImage = registration.systemImage
+            } else {
+                registrations.removeValue(forKey: id)
+                snapshot.instances[index].isMaterialized = false
+            }
         }
     }
 
