@@ -336,22 +336,25 @@ public enum CodexTerminalPathFormatter {
 }
 
 @MainActor
-public struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
-    public let session: CodexTerminalSession
-    public let placement: CodexWorkspaceTabPlacement
+package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    package let session: CodexTerminalSession
+    package let placement: CodexWorkspaceTabPlacement
     private let onClose: @MainActor () -> Void
+    private let onReopen: @MainActor (CodexWorkspaceTabID) -> Void
 
-    public init(
+    package init(
         session: CodexTerminalSession,
         placement: CodexWorkspaceTabPlacement = .bottom,
-        onClose: @escaping @MainActor () -> Void = {}
+        onClose: @escaping @MainActor () -> Void = {},
+        onReopen: @escaping @MainActor (CodexWorkspaceTabID) -> Void = { _ in }
     ) {
         self.session = session
         self.placement = placement
         self.onClose = onClose
+        self.onReopen = onReopen
     }
 
-    public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: "codex.terminal:\(session.identity.rawValue)",
             title: session.title,
@@ -364,7 +367,8 @@ public struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 payload: Self.routePayload(for: session)
             ),
             preferredPlacement: placement,
-            onClose: onClose
+            onClose: onClose,
+            onReopen: onReopen
         ) { _ in
             AnyView(CodexTerminalToolView(session: session, isActive: true))
         }
