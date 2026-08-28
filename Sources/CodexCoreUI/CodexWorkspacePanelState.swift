@@ -22,10 +22,21 @@ public final class CodexWorkspacePanelState: ObservableObject {
 
     public init(
         panelWidth: CGFloat = 400,
-        restoring restoration: CodexWorkspaceTabRestorationState? = nil
+        restorationState: CodexWorkspaceTabRestorationState? = nil
     ) {
         self.panelWidth = panelWidth
-        self.workspaceTabs = restoration.map(CodexWorkspaceTabs.init(restoring:)) ?? CodexWorkspaceTabs()
+        self.workspaceTabs = restorationState.map(CodexWorkspaceTabs.init(restoring:))
+            ?? CodexWorkspaceTabs()
+    }
+
+    public var workspaceTabRestorationState: CodexWorkspaceTabRestorationState {
+        workspaceTabs.restorationState
+    }
+
+    public func applyWorkspaceTabRestoration(
+        _ restorationState: CodexWorkspaceTabRestorationState
+    ) {
+        workspaceTabs.apply(restoration: restorationState)
     }
 
     public var isAgentPanelOpen: Bool {
@@ -36,13 +47,6 @@ public final class CodexWorkspacePanelState: ObservableObject {
     public var hasOpenTools: Bool {
         !terminalSessions.isEmpty || !browserSessions.isEmpty || filesSession != nil
             || workspaceTabs.hasOpenWorkspaceTabs
-    }
-
-    /// Durable workspace-tab presentation state for hosts that persist panel
-    /// state between launches. Preview tabs are intentionally omitted by the
-    /// tab reducer until pinned.
-    public var restorationState: CodexWorkspaceTabRestorationState {
-        workspaceTabs.restorationState
     }
 
     func agentTabs(

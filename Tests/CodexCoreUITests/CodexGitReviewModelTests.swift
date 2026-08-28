@@ -246,11 +246,14 @@ final class CodexGitReviewModelTests: XCTestCase {
         +new test
         """
 
+        let revision = CodexGitReviewRevision(sourceID: "canonical/thread/turn", value: 17)
         let snapshot = try XCTUnwrap(CodexGitReviewSnapshot.fromTurnDiff(
             branchName: "codex/review-panel",
-            turnDiff: diff
+            turnDiff: diff,
+            revision: revision
         ))
 
+        XCTAssertEqual(snapshot.revision, revision)
         XCTAssertEqual(snapshot.branchSummary.title, "codex/review-panel (2)")
         XCTAssertEqual(snapshot.files.map(\.path), ["Sources/One.swift", "Tests/OneTests.swift"])
         XCTAssertEqual(snapshot.commitStats(includeUnstaged: true), CodexGitReviewDiffStats(changedFiles: 2, addedLines: 3, removedLines: 2))
@@ -282,6 +285,42 @@ final class CodexGitReviewModelTests: XCTestCase {
             "Sources/Renamed.swift",
         ])
         XCTAssertEqual(snapshot.files.first?.addedLines, 1)
+    }
+
+    @MainActor
+    func testWorkbenchRefreshesLastTurnFactsWithoutChangingWorkbenchIdentity() {
+        let path = "Sources/Review.swift"
+        let oldSession = CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
+            revision: .init(sourceID: "canonical/thread/turn", value: 7),
+            branchName: "main",
+            files: [.init(
+                path: path,
+                status: .modified,
+                isStaged: false,
+                addedLines: 1
+            )]
+        ))
+        let workbench = CodexGitReviewWorkbench(
+            workspaceURL: URL(fileURLWithPath: "/tmp"),
+            lastTurnSession: oldSession
+        )
+        let identity = ObjectIdentifier(workbench)
+
+        workbench.updateLastTurnSession(CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
+            revision: .init(sourceID: "canonical/thread/turn", value: 8),
+            branchName: "main",
+            files: [.init(
+                path: path,
+                status: .modified,
+                isStaged: false,
+                addedLines: 3
+            )]
+        )))
+
+        XCTAssertEqual(ObjectIdentifier(workbench), identity)
+        XCTAssertEqual(workbench.snapshot?.revision.value, 8)
+        XCTAssertEqual(workbench.files.first?.addedLines, 3)
+        XCTAssertEqual(workbench.selectedFile?.path, path)
     }
 
     func testTurnDiffFailsClosedWhenFileRecordCapIsExceeded() {

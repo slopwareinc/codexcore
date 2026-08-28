@@ -82,10 +82,14 @@ struct CodexWorkspaceTabRenderTests {
         try await Task.sleep(for: .milliseconds(30))
 
         let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: []))
+        let reviewSourceID = "canonical/thread/turn"
         let review = CodexReviewWorkspaceTabAdapter(
             workspaceURL: URL(fileURLWithPath: "/tmp"),
             session: CodexGitReviewSession(
-                snapshot: CodexGitReviewSnapshot(branchName: "main")
+                snapshot: CodexGitReviewSnapshot(
+                    revision: .init(sourceID: reviewSourceID, value: 7),
+                    branchName: "main"
+                )
             )
         )
         let files = CodexFilesWorkspaceTabAdapter(workspaceURL: URL(fileURLWithPath: "/tmp"))
@@ -95,7 +99,7 @@ struct CodexWorkspaceTabRenderTests {
         let replacementPreview = CodexFilePreviewWorkspaceTabAdapter(
             fileURL: URL(fileURLWithPath: "/tmp/Replacement.swift")
         )
-        let available: [any CodexWorkspaceTabAdapter] = [
+        var available: [any CodexWorkspaceTabAdapter] = [
             plan,
             review,
             files,
@@ -116,6 +120,7 @@ struct CodexWorkspaceTabRenderTests {
         // join the same topology; opening, activation, pinning, replacement,
         // close, and adapter availability changes must remain transcript-neutral.
         let reviewID = tabs.open(review, from: .summary)
+        let originalReview = try #require(tabs.snapshot.instance(id: reviewID))
         let filesID = tabs.open(files, from: .commandMenu)
         let previewID = tabs.open(preview, from: .transcript)
         let previewContentID = try #require(tabs.snapshot.instance(id: previewID)?.contentID)
@@ -124,6 +129,18 @@ struct CodexWorkspaceTabRenderTests {
         tabs.close(replacementID)
 
         for index in 0..<100 {
+            if index == 50 {
+                let refreshedReview = CodexReviewWorkspaceTabAdapter(
+                    workspaceURL: URL(fileURLWithPath: "/tmp"),
+                    session: CodexGitReviewSession(
+                        snapshot: CodexGitReviewSnapshot(
+                            revision: .init(sourceID: reviewSourceID, value: 8),
+                            branchName: "main"
+                        )
+                    )
+                )
+                available = [plan, refreshedReview, files, preview, replacementPreview]
+            }
             tabs.register(index.isMultiple(of: 4) ? [] : available)
             let handles: [CodexWorkspaceTabID] = [planID, reviewID, filesID, previewID]
             tabs.activate(handles[index % handles.count])
@@ -137,6 +154,9 @@ struct CodexWorkspaceTabRenderTests {
 
         #expect(reconciledHost === transcriptHost)
         #expect(tabs.snapshot.instance(id: previewID)?.contentID == previewContentID)
+        #expect(tabs.snapshot.instance(id: reviewID)?.contentID == originalReview.contentID)
+        #expect(tabs.snapshot.instance(id: reviewID)?.durableRoute == originalReview.durableRoute)
+        #expect(tabs.registeredContentRevision(for: reviewID) == 8)
         #expect(
             reconciledHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount

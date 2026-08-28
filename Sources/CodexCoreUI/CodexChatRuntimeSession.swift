@@ -56,6 +56,8 @@ public final class CodexChatRuntimeSession {
     public var currentPlan: [TurnPlanStep] { state.currentPlan }
     public var currentPlanExplanation: String? { state.currentPlanExplanation }
     public var currentDiff: String? { state.currentDiff }
+    public var currentDiffSourceID: String? { state.currentDiffSourceID }
+    public var currentDiffRevision: StateRevision? { state.currentDiffRevision }
     public var activeGoal: ThreadGoal? { state.activeGoal }
     public var isGoalPursuitEnabled: Bool { state.isGoalPursuitEnabled }
     public var activeGoalTurnID: String? { state.activeGoalTurnID }
