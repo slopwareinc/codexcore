@@ -1,0 +1,291 @@
+{
+  "capturedAtUTC" : "2026-08-28T21:05:23Z",
+  "host" : {
+    "operatingSystem" : "Version 27.0 (Build 26A5421a)",
+    "physicalMemoryBytes" : 17179869184,
+    "processorCount" : 8
+  },
+  "instrumentation" : {
+    "signpostCategory" : "WorkspacePanelOracle",
+    "signpostNames" : [
+      "tab_activation",
+      "panel_open_close",
+      "transcript_streaming_with_heavy_panels",
+      "hidden_surface_layout",
+      "twenty_chat_lru"
+    ],
+    "signpostSubsystem" : "com.slopware.CodexCore"
+  },
+  "scenarios" : [
+    {
+      "id" : "tab_activation",
+      "iterations" : 30,
+      "notes" : [
+        "State-level activation; SwiftUI\/AppKit display composition is measured separately.",
+        "Tab identities are terminal, browser, files, and file preview."
+      ],
+      "operation" : "select each existing workspace tab through CodexWorkspacePanelState",
+      "samples" : [
+        0.016125,
+        0.001292,
+        0.001041,
+        0.006084,
+        0.003709,
+        0.001,
+        0.001042,
+        0.001042,
+        0.001042,
+        0.001,
+        0.001041,
+        0.001042,
+        0.001,
+        0.001,
+        0.001,
+        0.000958,
+        0.001,
+        0.001042,
+        0.001042,
+        0.000958,
+        0.001,
+        0.001,
+        0.001,
+        0.001042,
+        0.001,
+        0.001,
+        0.001,
+        0.000958,
+        0.001,
+        0.001042
+      ],
+      "statistics" : {
+        "maximumMilliseconds" : 0.016125,
+        "meanMilliseconds" : 0.0017834000000000007,
+        "medianMilliseconds" : 0.001,
+        "minimumMilliseconds" : 0.000958,
+        "p95Milliseconds" : 0.006084,
+        "totalMilliseconds" : 0.05350200000000002
+      },
+      "workload" : {
+        "tabCount" : 4
+      }
+    },
+    {
+      "id" : "panel_open_close",
+      "iterations" : 30,
+      "notes" : [
+        "This isolates panel-state mutation from native surface construction.",
+        "Surface construction and teardown are included in the heavy-panel streaming and hidden-surface scenarios."
+      ],
+      "operation" : "toggle the agent panel open and closed through its state interface",
+      "samples" : [
+        0.007042,
+        0.002666,
+        0.002458,
+        0.002416,
+        0.002417,
+        0.002459,
+        0.002417,
+        0.002375,
+        0.002459,
+        0.002417,
+        0.002375,
+        0.002375,
+        0.002417,
+        0.002417,
+        0.002417,
+        0.0025,
+        0.009084,
+        0.0025,
+        0.002542,
+        0.002417,
+        0.002459,
+        0.002459,
+        0.002459,
+        0.002417,
+        0.002417,
+        0.002459,
+        0.002459,
+        0.0025,
+        0.002417,
+        0.002459
+      ],
+      "statistics" : {
+        "maximumMilliseconds" : 0.009084,
+        "meanMilliseconds" : 0.0028225000000000012,
+        "medianMilliseconds" : 0.002458,
+        "minimumMilliseconds" : 0.002375,
+        "p95Milliseconds" : 0.007042,
+        "totalMilliseconds" : 0.08467500000000004
+      },
+      "workload" : {
+        "togglesPerIteration" : 4
+      }
+    },
+    {
+      "id" : "transcript_streaming_with_heavy_panels",
+      "iterations" : 30,
+      "notes" : [
+        "The projector is exercised through its public async interface.",
+        "The retained surface union is terminal + browser + files; no product behavior is changed."
+      ],
+      "operation" : "append one final-answer delta and project the transcript while terminal\/browser\/files sessions stay retained",
+      "samples" : [
+        38.592625,
+        36.935666,
+        40.014792,
+        39.854459,
+        37.62875,
+        40.588375,
+        43.141083,
+        39.77875,
+        39.302208,
+        33.717416,
+        34.42675,
+        36.670792,
+        35.424583,
+        32.849542,
+        33.135917,
+        33.810875,
+        35.873459,
+        35.223125,
+        38.076666,
+        34.461084,
+        75.586,
+        37.220417,
+        36.657708,
+        34.290791,
+        33.326,
+        33.583458,
+        31.696208,
+        32.949375,
+        32.578583,
+        46.058541
+      ],
+      "statistics" : {
+        "maximumMilliseconds" : 75.586,
+        "meanMilliseconds" : 37.78179993333333,
+        "medianMilliseconds" : 35.873459,
+        "minimumMilliseconds" : 31.696208,
+        "p95Milliseconds" : 46.058541,
+        "totalMilliseconds" : 1133.453998
+      },
+      "workload" : {
+        "retainedHeavySurfaceCount" : 3,
+        "transcriptItemCount" : 1085,
+        "turnCount" : 217
+      }
+    },
+    {
+      "id" : "hidden_surface_layout",
+      "iterations" : 30,
+      "notes" : [
+        "Current visibility uses opacity, hit-testing, and accessibility hiding; hidden surfaces remain in the deck.",
+        "RSS delta is process-level evidence and excludes WebKit helper processes."
+      ],
+      "operation" : "switch the selected tab and relayout a deck containing retained terminal\/browser\/files surfaces",
+      "retainedMemory" : {
+        "residentMemoryAfterMountBytes" : 109576192,
+        "residentMemoryBeforeMountBytes" : 108707840,
+        "retainedSurfaceCountWhileHidden" : 2
+      },
+      "samples" : [
+        4.941083,
+        5.533,
+        5.115875,
+        4.747458,
+        4.442042,
+        3.301042,
+        3.7755,
+        4.393125,
+        3.686208,
+        4.990042,
+        5.901333,
+        3.894209,
+        4.171292,
+        3.485792,
+        3.552625,
+        3.957458,
+        4.6575,
+        3.92325,
+        3.041125,
+        3.84725,
+        3.529583,
+        3.997208,
+        3.212917,
+        3.9895,
+        3.456333,
+        3.622708,
+        3.618334,
+        2.668208,
+        2.857,
+        3.094292
+      ],
+      "statistics" : {
+        "maximumMilliseconds" : 5.901333,
+        "meanMilliseconds" : 3.980109733333334,
+        "medianMilliseconds" : 3.84725,
+        "minimumMilliseconds" : 2.668208,
+        "p95Milliseconds" : 5.533,
+        "totalMilliseconds" : 119.40329200000002
+      },
+      "workload" : {
+        "activeSurfaceCount" : 1,
+        "hiddenSurfaceCount" : 2,
+        "mountedSurfaceCount" : 3
+      }
+    },
+    {
+      "id" : "twenty_chat_lru",
+      "iterations" : 20,
+      "lru" : {
+        "capacity" : 20,
+        "evictedChatWasPurged" : true,
+        "evictionCount" : 1,
+        "retainedChatCount" : 20,
+        "touchedChatWasRetained" : true
+      },
+      "notes" : [
+        "The store touches on every state(for:) access and defers victim purge to the next MainActor tick.",
+        "This is the current behavior baseline, not a proposed policy."
+      ],
+      "operation" : "retain and evict per-chat workspace panel states using the current bounded LRU",
+      "samples" : [
+        0.011208,
+        0.01325,
+        0.006541,
+        0.005958,
+        0.005791,
+        0.005708,
+        0.007,
+        0.00575,
+        0.005541,
+        0.005542,
+        0.005667,
+        0.005459,
+        0.00575,
+        0.005292,
+        0.005333,
+        0.005375,
+        0.005166,
+        0.005667,
+        0.0055,
+        0.005333
+      ],
+      "statistics" : {
+        "maximumMilliseconds" : 0.01325,
+        "meanMilliseconds" : 0.006341550000000001,
+        "medianMilliseconds" : 0.005667,
+        "minimumMilliseconds" : 0.005166,
+        "p95Milliseconds" : 0.011208,
+        "totalMilliseconds" : 0.12683100000000003
+      },
+      "workload" : {
+        "capacity" : 20,
+        "chatCount" : 21,
+        "previewPerChat" : 1
+      }
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceCommit" : "8d3999d659d558e4b444d43a0d42109cab4c6538"
+}
