@@ -34,7 +34,9 @@ public struct CodexTurnViewV2: View {
                 onOpenThread: onOpenThread
             )
 
-            if turn.finalAnswer?.text.isEmpty == false || !turn.generatedImages.isEmpty {
+            if turn.finalAnswer?.text.isEmpty == false
+                || !turn.generatedImages.isEmpty
+                || !turn.imageGenerationFailures.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     if let answer = turn.finalAnswer, !answer.text.isEmpty {
                         CodexAssistantContentView(
@@ -45,6 +47,17 @@ public struct CodexTurnViewV2: View {
                     }
                     ForEach(turn.generatedImages) { image in
                         CodexGeneratedImageViewV2(image: image)
+                    }
+                    ForEach(turn.imageGenerationFailures) { failure in
+                        Label(failure.message, systemImage: "photo.badge.exclamationmark")
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.danger)
+                            .padding(10)
+                            .background(
+                                theme.colors.danger.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: theme.radii.medium)
+                            )
+                            .accessibilityLabel(failure.message)
                     }
                     if turn.finalAnswer?.text.isEmpty == false {
                         timestamp(alignment: .leading)

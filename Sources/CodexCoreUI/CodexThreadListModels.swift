@@ -16,6 +16,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var recencyAt: TimeInterval?
     public var sectionID: String?
     public var sectionName: String?
+    public var sectionIcon: String?
+    public var sectionColor: String?
     public var sectionEnteredAt: TimeInterval?
 
     public init(
@@ -33,6 +35,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         recencyAt: TimeInterval? = nil,
         sectionID: String? = nil,
         sectionName: String? = nil,
+        sectionIcon: String? = nil,
+        sectionColor: String? = nil,
         sectionEnteredAt: TimeInterval? = nil
     ) {
         self.id = id
@@ -49,6 +53,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.recencyAt = recencyAt
         self.sectionID = sectionID
         self.sectionName = sectionName
+        self.sectionIcon = sectionIcon
+        self.sectionColor = sectionColor
         self.sectionEnteredAt = sectionEnteredAt
     }
 
@@ -61,6 +67,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         let name = Self.string(in: object, keys: ["name"])?.nilIfBlank
         let preview = Self.string(in: object, keys: ["preview"])?.nilIfBlank ?? ""
         let section = Self.dictionary(from: object["section"])
+        let sectionAppearance = Self.dictionary(from: section["appearance"])
         self.init(
             id: id,
             title: name ?? preview.nilIfBlank ?? "Untitled chat",
@@ -76,6 +83,8 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             recencyAt: Self.timeInterval(in: object, key: "recencyAt"),
             sectionID: Self.string(in: section, keys: ["id"]),
             sectionName: Self.string(in: section, keys: ["name"]),
+            sectionIcon: Self.string(in: sectionAppearance, keys: ["icon"]),
+            sectionColor: Self.string(in: sectionAppearance, keys: ["color"]),
             sectionEnteredAt: Self.timeInterval(in: object, key: "sectionEnteredAt")
         )
     }

@@ -992,9 +992,6 @@ public struct CodexChatHeader: View {
                 )
             }
 
-            HeaderBubble {
-                ToolbarIconButton(systemImage: "xmark", help: "Disconnect", action: onDisconnect)
-            }
         }
         .padding(.horizontal, 14)
         .frame(height: theme.spacing.toolbarHeight)

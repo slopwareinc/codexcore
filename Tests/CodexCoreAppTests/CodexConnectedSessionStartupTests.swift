@@ -35,11 +35,12 @@ struct CodexConnectedSessionStartupTests {
         }
 
         let methods = await transport.requestMethods
+        let startedInventoryMethod = await transport.startedInventoryMethod
         #expect(model.threadListSession.allChats.map(\.id) == ["thread-1"])
         #expect(model.threadListSession.recentProjects.contains { $0.workspacePath == "/tmp/project" })
         #expect(Array(methods.prefix(2)) == ["thread/list", "thread/list"])
         #expect(inventoryStarted)
-        #expect(methods.contains("mcpServerStatus/list"))
+        #expect(startedInventoryMethod.map(methods.contains) == true)
 
         await model.disconnect()
     }
@@ -101,6 +102,8 @@ private actor StartupOrderingTransport: CodexFrameTransport {
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var requestMethods: [String] = []
     private var inventoryStarted = false
+    private(set) var startedInventoryMethod: String?
+    private var inventoryStartWaiters: [CheckedContinuation<Bool, Never>] = []
 
     init(homePath: String) {
         self.homePath = homePath
@@ -124,11 +127,17 @@ private actor StartupOrderingTransport: CodexFrameTransport {
             requestMethods.append(method)
         }
 
-        // Leave one integration inventory unresolved. `app/list`, plugin,
-        // skill, and MCP inventories all run behind the same detached startup
-        // boundary, so none of them may delay the sidebar's thread index.
-        if method == "mcpServerStatus/list" {
+        // Leave whichever independent integration inventory starts first
+        // unresolved. The contract is that none of these background requests
+        // can delay the already hydrated sidebar; their scheduling order is
+        // intentionally unspecified.
+        if startedInventoryMethod == nil,
+           ["mcpServerStatus/list", "app/list", "plugin/list", "skills/list"].contains(method) {
             inventoryStarted = true
+            startedInventoryMethod = method
+            let waiters = inventoryStartWaiters
+            inventoryStartWaiters.removeAll(keepingCapacity: true)
+            waiters.forEach { $0.resume(returning: true) }
             return
         }
 
@@ -177,8 +186,20 @@ private actor StartupOrderingTransport: CodexFrameTransport {
     }
 
     func waitUntilInventoryStarts() async -> Bool {
-        while !inventoryStarted, !Task.isCancelled { await Task.yield() }
-        return inventoryStarted
+        if inventoryStarted { return true }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                inventoryStartWaiters.append(continuation)
+            }
+        } onCancel: {
+            Task { await self.cancelInventoryStartWaiters() }
+        }
+    }
+
+    private func cancelInventoryStartWaiters() {
+        let waiters = inventoryStartWaiters
+        inventoryStartWaiters.removeAll(keepingCapacity: true)
+        waiters.forEach { $0.resume(returning: false) }
     }
 }
 

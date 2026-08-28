@@ -1583,6 +1583,52 @@ struct CodexTranscriptAppKitIntegrationTests {
         coordinator.detach()
     }
 
+    @Test func dirtyTurnProjectionReusesUnchangedSectionsAndInvalidatesLayoutChanges() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        let firstTurn = CodexTurnV2(
+            id: "first",
+            finalAnswer: .init(id: "first-answer", text: "Stable answer", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        var secondTurn = CodexTurnV2(
+            id: "second",
+            finalAnswer: .init(id: "second-answer", text: "Initial answer", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        func presentation() -> CodexThreadUIPresentation {
+            .init(threadID: "thread", transcript: .init(turns: [firstTurn, secondTurn]))
+        }
+
+        let initial = try await projector.project(
+            presentation: presentation(),
+            availableWidth: 860,
+            theme: theme
+        )
+        let firstSectionID = try #require(initial.sectionIDs.first)
+        let firstItemIDs = try #require(initial.itemIDsBySection[firstSectionID])
+
+        secondTurn.finalAnswer?.text = "Updated answer"
+        let incremental = try await projector.project(
+            presentation: presentation(),
+            availableWidth: 860,
+            theme: theme,
+            dirtyTurnIDs: ["second"]
+        )
+        #expect(firstItemIDs.allSatisfy { incremental.itemsByID[$0]?.viewportWidth == 860 })
+        #expect(!incremental.changedItemIDs.isEmpty)
+        #expect(incremental.changedItemIDs.allSatisfy { $0.rawValue.contains(":turn:second:") })
+
+        let resized = try await projector.project(
+            presentation: presentation(),
+            availableWidth: 700,
+            theme: theme,
+            dirtyTurnIDs: ["second"]
+        )
+        #expect(firstItemIDs.compactMap { resized.itemsByID[$0] }.allSatisfy { $0.viewportWidth == 700 })
+    }
+
+
     @Test func completedNativeTextSelectionSurvivesReconfigureAndCopyActionsWork() async throws {
         guard !NSScreen.screens.isEmpty else {
             try Test.cancel("AppKit pasteboard integration requires a live desktop display")

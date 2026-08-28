@@ -45,6 +45,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
     public var name: String
     public var displayName: String
     public var version: String?
+    public var pluginID: String?
     public var detail: String?
     public var authStatus: String
     public var enabled: Bool?
@@ -64,6 +65,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         name: String,
         displayName: String? = nil,
         version: String? = nil,
+        pluginID: String? = nil,
         detail: String? = nil,
         authStatus: String = "unknown",
         enabled: Bool? = true,
@@ -80,6 +82,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         self.name = name
         self.displayName = displayName?.nilIfBlank ?? name
         self.version = version
+        self.pluginID = pluginID
         self.detail = detail
         self.authStatus = authStatus
         self.enabled = enabled
@@ -115,6 +118,7 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             name: name,
             displayName: displayName,
             version: version,
+            pluginID: Self.string(in: object, keys: ["pluginId"]),
             detail: detail,
             authStatus: Self.string(in: object, keys: ["authStatus", "auth", "authentication"]) ?? "unknown",
             enabled: CodexJSONCoercion.bool(in: object, key: "enabled"),
@@ -171,6 +175,10 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         let resourceCount = resources.count + resourceTemplates.count
         let resourceLabel = resourceCount == 1 ? "1 resource" : "\(resourceCount) resources"
         return "\(toolLabel) · \(resourceLabel)"
+    }
+
+    public var ownershipLabel: String {
+        pluginID.map { "Provided by plugin \($0)" } ?? "Configured directly"
     }
 
     public func applyingStartupStatus(
@@ -385,6 +393,7 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
     ]
 
     public var id: String
+    public var protocolKey: String
     public var cwd: String
     public var event: CodexSchemaHookEventName
     public var matcher: String?
@@ -395,10 +404,18 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
     public var managed: Bool
     public var handlerType: CodexSchemaHookHandlerType
     public var command: String?
+    public var isAsync: Bool
+    public var mcpServer: String?
+    public var mcpTool: String?
+    public var pluginID: String?
+    public var timeoutSeconds: Int
+    public var additionalContextLimit: Int?
+    public var currentHash: String
     public var statusMessage: String?
 
     public init(
         id: String,
+        protocolKey: String? = nil,
         cwd: String,
         event: CodexSchemaHookEventName,
         matcher: String? = nil,
@@ -409,9 +426,17 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
         managed: Bool,
         handlerType: CodexSchemaHookHandlerType,
         command: String? = nil,
+        isAsync: Bool = false,
+        mcpServer: String? = nil,
+        mcpTool: String? = nil,
+        pluginID: String? = nil,
+        timeoutSeconds: Int = 0,
+        additionalContextLimit: Int? = nil,
+        currentHash: String = "",
         statusMessage: String? = nil
     ) {
         self.id = id
+        self.protocolKey = protocolKey ?? id
         self.cwd = cwd
         self.event = event
         self.matcher = matcher
@@ -422,6 +447,13 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
         self.managed = managed
         self.handlerType = handlerType
         self.command = command
+        self.isAsync = isAsync
+        self.mcpServer = mcpServer
+        self.mcpTool = mcpTool
+        self.pluginID = pluginID
+        self.timeoutSeconds = timeoutSeconds
+        self.additionalContextLimit = additionalContextLimit
+        self.currentHash = currentHash
         self.statusMessage = statusMessage
     }
 
@@ -437,6 +469,19 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
     }
 
     public var trustLabel: String { trustStatus.rawValue.capitalized }
+
+    public var handlerDescription: String {
+        switch handlerType {
+        case .command:
+            return [command?.nilIfBlank ?? "Command", isAsync ? "Async" : "Sync"]
+                .joined(separator: " · ")
+        case .mcpTool:
+            return "MCP · \(mcpServer ?? "unknown")/\(mcpTool ?? "unknown")"
+        case .prompt: return "Prompt handler"
+        case .agent: return "Agent handler"
+        case .unrecognized(let value): return value
+        }
+    }
 
     public var eventLabel: String {
         switch event {
@@ -504,6 +549,7 @@ public struct CodexHooksCatalog: Equatable, Sendable {
                       let handler = CodexSchemaHookHandlerType(rawValue: handlerRaw) else { return nil }
                 return CodexHookSummary(
                     id: "\(cwd):\(key)",
+                    protocolKey: key,
                     cwd: cwd,
                     event: event,
                     matcher: CodexJSONCoercion.flatString(from: hook["matcher"]),
@@ -514,6 +560,13 @@ public struct CodexHooksCatalog: Equatable, Sendable {
                     managed: CodexJSONCoercion.bool(in: hook, key: "isManaged") ?? false,
                     handlerType: handler,
                     command: CodexJSONCoercion.flatString(from: hook["command"]),
+                    isAsync: CodexJSONCoercion.bool(in: hook, key: "async") ?? false,
+                    mcpServer: CodexJSONCoercion.flatString(from: hook["server"]),
+                    mcpTool: CodexJSONCoercion.flatString(from: hook["tool"]),
+                    pluginID: CodexJSONCoercion.flatString(from: hook["pluginId"]),
+                    timeoutSeconds: CodexJSONCoercion.int(in: hook, key: "timeoutSec") ?? 0,
+                    additionalContextLimit: CodexJSONCoercion.int(in: hook, key: "additionalContextLimit"),
+                    currentHash: CodexJSONCoercion.flatString(from: hook["currentHash"]) ?? "",
                     statusMessage: CodexJSONCoercion.flatString(from: hook["statusMessage"])
                 )
             }

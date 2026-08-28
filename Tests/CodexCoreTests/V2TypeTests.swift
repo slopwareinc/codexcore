@@ -165,6 +165,27 @@ final class V2TypeTests: XCTestCase {
         )
     }
 
+    func testInputJSONProjectionRoundTripsKnownAndFutureArms() {
+        let known: [CodexInput] = [
+            .text("hello"),
+            .image(url: "https://example.com/a.png", detail: .high),
+            .localImage(path: "/tmp/a.png", detail: .original),
+            .audio(url: "data:audio/wav;base64,AA=="),
+            .localAudio(path: "/tmp/input.wav"),
+            .skill(name: "docs", path: "/skills/docs"),
+            .mention(name: "README", path: "README.md"),
+        ]
+        for input in known {
+            XCTAssertEqual(CodexInput(jsonValue: input.jsonValue), input)
+        }
+
+        let future = CodexJSONValue.dictionary([
+            "type": .string("futureInput"),
+            "opaque": .bool(true),
+        ])
+        XCTAssertEqual(CodexInput(jsonValue: future), .raw(future))
+    }
+
     func testGranularApprovalPolicyEncodesCurrentUnionShape() throws {
         let policy = AskForApproval.granular(.init(
             mcpElicitations: true,

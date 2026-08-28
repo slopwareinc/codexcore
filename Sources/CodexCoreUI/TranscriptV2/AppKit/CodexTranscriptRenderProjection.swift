@@ -495,6 +495,18 @@ actor CodexTranscriptRenderProjector {
         var theme: String
     }
 
+    private struct ProjectionCacheSignature: Equatable {
+        var threadID: String
+        var widthPixels: Int
+        var theme: String
+    }
+
+    private struct CachedTurnSection {
+        var sectionID: String
+        var itemIDs: [CodexTranscriptRenderItemID]
+        var itemsByID: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem]
+    }
+
     private var previousBlocksBySourceID: [String: [CodexBlock]] = [:]
     private var sourceTextBySourceID: [String: String] = [:]
     private var revisionByID: [CodexTranscriptRenderItemID: RevisionState] = [:]
@@ -507,12 +519,15 @@ actor CodexTranscriptRenderProjector {
     )?
     private var imageAspectRatioBySource: [String: CGFloat] = [:]
     private var projectionCount = 0
+    private var cachedProjectionSignature: ProjectionCacheSignature?
+    private var cachedSectionsByTurnID: [String: CachedTurnSection] = [:]
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
 
     func project(
         presentation: CodexThreadUIPresentation,
         availableWidth: CGFloat,
-        theme: CodexTranscriptAppKitTheme
+        theme: CodexTranscriptAppKitTheme,
+        dirtyTurnIDs: Set<String>? = nil
     ) throws -> CodexTranscriptRenderSnapshot {
         try Task.checkCancellation()
         let startedAt = ContinuousClock.now
@@ -527,10 +542,35 @@ actor CodexTranscriptRenderProjector {
         var preparedTextCacheHits = 0
         var preparedTextCacheMisses = 0
         var markdownProjections = 0
+        let projectionSignature = ProjectionCacheSignature(
+            threadID: presentation.threadID,
+            widthPixels: Int((availableWidth * 2).rounded()),
+            theme: theme.fingerprint
+        )
+        let reusesUnchangedTurns = dirtyTurnIDs != nil
+            && cachedProjectionSignature == projectionSignature
+        if !reusesUnchangedTurns {
+            cachedProjectionSignature = projectionSignature
+            cachedSectionsByTurnID.removeAll(keepingCapacity: true)
+        }
+        var liveTurnIDs: Set<String> = []
+        liveTurnIDs.reserveCapacity(presentation.transcript.turns.count)
 
         for turn in presentation.transcript.turns {
             try Task.checkCancellation()
             let sectionID = "\(presentation.threadID):turn:\(turn.id)"
+            liveTurnIDs.insert(turn.id)
+            if reusesUnchangedTurns,
+               dirtyTurnIDs?.contains(turn.id) == false,
+               let cached = cachedSectionsByTurnID[turn.id] {
+                sections.append(cached.sectionID)
+                itemIDsBySection[cached.sectionID] = cached.itemIDs
+                for (id, item) in cached.itemsByID {
+                    itemsByID[id] = item
+                    liveIDs.insert(id)
+                }
+                continue
+            }
             sections.append(sectionID)
             var sectionItems: [CodexTranscriptRenderItemID] = []
             let copyTurnText = Self.copyText(for: turn)
@@ -1037,6 +1077,23 @@ actor CodexTranscriptRenderProjector {
                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                 ))
             }
+            for failure in turn.imageGenerationFailures {
+                append(ItemDraft(
+                    id: "\(sectionID):generated-image-failure:\(failure.id)",
+                    fingerprint: "generated-image-failure:\(failure.type):\(failure.message)",
+                    textRole: .notice,
+                    preparedText: Self.preparePlain(
+                        failure.message,
+                        font: theme.captionFont,
+                        color: theme.danger,
+                        theme: theme
+                    ),
+                    copyText: failure.message,
+                    accessibilityLabel: failure.message,
+                    maxWidthKind: .card,
+                    bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                ))
+            }
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 if turn.presentationStyle != .realtimeVoice {
                     append(timestampDraft(
@@ -1069,7 +1126,18 @@ actor CodexTranscriptRenderProjector {
                 ))
             }
             itemIDsBySection[sectionID] = sectionItems
+            var cachedItems: [CodexTranscriptRenderItemID: CodexTranscriptRenderItem] = [:]
+            cachedItems.reserveCapacity(sectionItems.count)
+            for id in sectionItems {
+                cachedItems[id] = itemsByID[id]
+            }
+            cachedSectionsByTurnID[turn.id] = CachedTurnSection(
+                sectionID: sectionID,
+                itemIDs: sectionItems,
+                itemsByID: cachedItems
+            )
         }
+        cachedSectionsByTurnID = cachedSectionsByTurnID.filter { liveTurnIDs.contains($0.key) }
 
         revisionByID = revisionByID.filter { liveIDs.contains($0.key) }
         heightByKey = heightByKey.filter { key, _ in

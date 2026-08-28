@@ -95,6 +95,31 @@ final class AppServerGeneratedUnionTests: XCTestCase {
         )
     }
 
+    func testImageGenerationFailureIsTypedAndFutureCompatible() throws {
+        let known = try decoder.decode(
+            CodexSchemaImageGenerationFailure.self,
+            from: Data(#"{"type":"usageLimitExceeded","limitId":"image_gen","resetsAt":1786150800}"#.utf8)
+        )
+        guard case .usageLimitExceeded(let limit) = known else {
+            return XCTFail("Expected usage limit failure")
+        }
+        XCTAssertEqual(limit.limitID, "image_gen")
+        XCTAssertEqual(limit.resetsAt, 1_786_150_800)
+
+        let future = try decoder.decode(
+            CodexSchemaImageGenerationFailure.self,
+            from: Data(#"{"type":"backendUnavailable","retryable":true}"#.utf8)
+        )
+        guard case .unrecognized(let type, let rawValue) = future else {
+            return XCTFail("Expected future failure")
+        }
+        XCTAssertEqual(type, "backendUnavailable")
+        XCTAssertEqual(rawValue, .dictionary([
+            "type": .string("backendUnavailable"),
+            "retryable": .bool(true),
+        ]))
+    }
+
     func testUnknownStateResponseEnumValueRoundTrips() throws {
         let response = try decoder.decode(
             CodexSchemaEnvironmentStatusResponse.self,

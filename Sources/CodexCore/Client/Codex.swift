@@ -160,8 +160,8 @@ private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
 }
 
 /// `CodexPinnedRuntime` records the exact runtime used to generate the protocol
-/// types. CodexCore 0.11.0 depends on the 0.148 diagnostics, thread-queue,
-/// paginated-revert, and scoped-usage surfaces, so older runtimes are rejected.
+/// types. CodexCore 0.12.0 accepts the 0.148 runtime floor and the generated
+/// 0.149 line; callers of 0.149-only project and Bedrock methods must use 0.149.
 public enum CodexSupportedRuntime {
     fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 148, patch: 0)
 
@@ -591,12 +591,13 @@ public final class Codex: Sendable {
                     reason: "`--version` returned an unsupported semantic version: \(components[1])"
                 )
             }
-            // Patch releases within the pinned major/minor are accepted. Older
-            // minors are rejected because handwritten state and UI code depend
-            // on the generated 0.148 surface.
+            // Accept every runtime from the supported floor through the
+            // generated minor line. Newer minors require regeneration because
+            // their protocol may add dispositions the handwritten adapters do
+            // not classify yet.
             guard actualVersion.major == expectedVersion.major,
-                  actualVersion.minor == expectedVersion.minor,
-                  actualVersion >= CodexSupportedRuntime.minimumVersion else {
+                  actualVersion >= CodexSupportedRuntime.minimumVersion,
+                  actualVersion.minor <= expectedVersion.minor else {
                 throw CodexSDKError.runtimeVersionMismatch(
                     path: executablePath,
                     expected: CodexSupportedRuntime.descriptor,

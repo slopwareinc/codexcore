@@ -37,6 +37,13 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadRollback = "thread/rollback"
     case threadRevert = "thread/revert"
     case threadList = "thread/list"
+    case projectList = "project/list"
+    case projectRead = "project/read"
+    case projectCreate = "project/create"
+    case projectImport = "project/import"
+    case projectUpdate = "project/update"
+    case projectMove = "project/move"
+    case projectDelete = "project/delete"
     case threadSectionList = "threadSection/list"
     case threadSectionCreate = "threadSection/create"
     case threadSectionUpdate = "threadSection/update"
@@ -114,6 +121,8 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case windowsSandboxSetupStart = "windowsSandbox/setupStart"
     case windowsSandboxReadiness = "windowsSandbox/readiness"
     case accountLoginStart = "account/login/start"
+    case accountBedrockDiscover = "account/bedrock/discover"
+    case accountBedrockSetup = "account/bedrock/setup"
     case accountLoginCancel = "account/login/cancel"
     case accountLogout = "account/logout"
     case accountRateLimitsRead = "account/rateLimits/read"
@@ -158,6 +167,8 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadGoalUpdated = "thread/goal/updated"
     case threadGoalCleared = "thread/goal/cleared"
     case threadQueueChanged = "thread/queue/changed"
+    case projectChanged = "project/changed"
+    case threadProjectUpdated = "thread/project/updated"
     case threadEnvironmentConnected = "thread/environment/connected"
     case threadEnvironmentDisconnected = "thread/environment/disconnected"
     case threadSettingsUpdated = "thread/settings/updated"
@@ -171,6 +182,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case itemStarted = "item/started"
     case itemAutoApprovalReviewStarted = "item/autoApprovalReview/started"
     case itemAutoApprovalReviewCompleted = "item/autoApprovalReview/completed"
+    case autoApprovalReviewStrictReviewRequired = "autoApprovalReview/strictReviewRequired"
     case itemCompleted = "item/completed"
     case itemAgentMessageDelta = "item/agentMessage/delta"
     case itemPlanDelta = "item/plan/delta"
@@ -232,7 +244,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 141
-    public static let notificationMethodCount = 72
+    public static let clientMethodCount = 150
+    public static let notificationMethodCount = 75
     public static let serverRequestMethodCount = 11
 }

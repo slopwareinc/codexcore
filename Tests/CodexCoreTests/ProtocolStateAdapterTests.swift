@@ -4,12 +4,12 @@ import XCTest
 final class ProtocolStateAdapterTests: XCTestCase {
     private let adapter = ProtocolStateAdapter()
 
-    func testGA145NotificationDispositionInventoryIsExhaustive() throws {
+    func testGA149NotificationDispositionInventoryIsExhaustive() throws {
         XCTAssertEqual(
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
         )
-        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 72)
+        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 75)
         XCTAssertEqual(
             Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count,
             CodexAppServerNotificationMethod.allCases.count
@@ -32,13 +32,13 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
-    func testEveryGA145StateNotificationHasAValidFixtureAndProducesAMutation() throws {
+    func testEveryGA149StateNotificationHasAValidFixtureAndProducesAMutation() throws {
         let fixtures = try stateNotificationFixtures()
         let stateMethods = Set(CodexAppServerNotificationMethod.allCases.filter {
             expectedDisposition(for: $0) == .state
         })
 
-        XCTAssertEqual(fixtures.count, 43)
+        XCTAssertEqual(fixtures.count, 45)
         XCTAssertEqual(
             Set(fixtures.keys),
             stateMethods,
@@ -46,7 +46,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
 
         for method in CodexAppServerNotificationMethod.allCases where stateMethods.contains(method) {
-            let params = try XCTUnwrap(fixtures[method], "Missing 0.145.0 GA fixture for \(method.rawValue)")
+            let params = try XCTUnwrap(fixtures[method], "Missing 0.149.0 GA fixture for \(method.rawValue)")
             let adaptation = try adapter.adaptNotification(method: method, params: params)
 
             XCTAssertEqual(adaptation.disposition, .state, method.rawValue)
@@ -241,6 +241,31 @@ final class ProtocolStateAdapterTests: XCTestCase {
                 params: objectFixture(#"{"threadId":"thread-1","threadName":null}"#)
             ).mutations,
             [.threadNameReplaced(id: "thread-1", name: nil)]
+        )
+        XCTAssertEqual(
+            try adapter.adaptNotification(
+                method: .threadProjectUpdated,
+                params: objectFixture(#"{"threadId":"thread-1","projectId":"project-1"}"#)
+            ).mutations,
+            [.threadUpsert(CanonicalThread(
+                id: "thread-1",
+                metadata: .init(extensions: ["projectId": .string("project-1")])
+            ))]
+        )
+        XCTAssertEqual(
+            try adapter.adaptNotification(
+                method: .autoApprovalReviewStrictReviewRequired,
+                params: objectFixture(#"{"startedAtMs":1,"threadId":"thread-1","turnId":"turn-1"}"#)
+            ).mutations,
+            [.turnExtensionReplaced(
+                turn: TurnKey(threadID: "thread-1", turnID: "turn-1"),
+                key: "autoApprovalReview:strictReviewRequired",
+                value: .dictionary([
+                    "startedAtMs": .int(1),
+                    "threadId": .string("thread-1"),
+                    "turnId": .string("turn-1"),
+                ])
+            )]
         )
         XCTAssertEqual(
             try adapter.adaptNotification(
@@ -795,12 +820,14 @@ final class ProtocolStateAdapterTests: XCTestCase {
         switch method {
         case .error,
              .threadStarted, .threadStatusChanged, .threadArchived, .threadDeleted,
-             .threadUnarchived, .threadClosed, .threadReverted, .threadNameUpdated, .threadGoalUpdated,
-             .threadGoalCleared, .threadEnvironmentConnected, .threadEnvironmentDisconnected,
+             .threadUnarchived, .threadClosed, .threadReverted, .threadNameUpdated,
+             .threadProjectUpdated, .threadGoalUpdated, .threadGoalCleared,
+             .threadEnvironmentConnected, .threadEnvironmentDisconnected,
              .threadSettingsUpdated, .threadTokenUsageUpdated,
              .turnStarted, .hookStarted, .turnCompleted, .hookCompleted,
              .turnDiffUpdated, .turnPlanUpdated,
              .itemStarted, .itemAutoApprovalReviewStarted, .itemAutoApprovalReviewCompleted,
+             .autoApprovalReviewStrictReviewRequired,
              .itemCompleted, .itemAgentMessageDelta, .itemPlanDelta,
              .itemCommandExecutionOutputDelta, .itemCommandExecutionTerminalInteraction,
              .itemFileChangeOutputDelta, .itemFileChangePatchUpdated, .itemMCPToolCallProgress,
@@ -815,7 +842,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         case .serverRequestResolved:
             .requestResolution
 
-        case .skillsChanged, .threadQueueChanged,
+        case .skillsChanged, .threadQueueChanged, .projectChanged,
              .commandExecOutputDelta, .processOutputDelta, .processExited,
              .mcpServerOAuthLoginCompleted,
              .appListUpdated, .remoteControlStatusChanged,
@@ -874,6 +901,9 @@ final class ProtocolStateAdapterTests: XCTestCase {
             .threadNameUpdated: try objectFixture(
                 #"{"threadId":"thread-1","threadName":"Fixture"}"#
             ),
+            .threadProjectUpdated: try objectFixture(
+                #"{"projectId":"project-1","threadId":"thread-1"}"#
+            ),
             .threadGoalUpdated: try objectFixture(
                 #"{"threadId":"thread-1","goal":{"createdAt":1,"objective":"ship","status":"active","threadId":"thread-1","timeUsedSeconds":0,"tokensUsed":0,"updatedAt":1}}"#
             ),
@@ -905,6 +935,9 @@ final class ProtocolStateAdapterTests: XCTestCase {
             ),
             .itemAutoApprovalReviewStarted: try objectFixture(reviewStarted),
             .itemAutoApprovalReviewCompleted: try objectFixture(reviewCompleted),
+            .autoApprovalReviewStrictReviewRequired: try objectFixture(
+                #"{"startedAtMs":1,"threadId":"thread-1","turnId":"turn-1"}"#
+            ),
             .itemCompleted: try objectFixture(
                 #"{"completedAtMs":2,"item":{"type":"agentMessage","id":"item-1","text":"done"},"threadId":"thread-1","turnId":"turn-1"}"#
             ),

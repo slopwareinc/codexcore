@@ -32,6 +32,9 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
     public var contextLeftLabel: String
     public var contextFraction: Double
     public var rateLimitRows: [CodexStatusPanelRateLimitRow]
+    public var threadUsage: CodexThreadUsagePresentation?
+    public var isLoadingThreadUsage: Bool
+    public var threadUsageError: String?
 
     public init(
         sessionID: String,
@@ -39,7 +42,10 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         contextUsedLabel: String,
         contextLeftLabel: String,
         contextFraction: Double,
-        rateLimitRows: [CodexStatusPanelRateLimitRow]
+        rateLimitRows: [CodexStatusPanelRateLimitRow],
+        threadUsage: CodexThreadUsagePresentation? = nil,
+        isLoadingThreadUsage: Bool = false,
+        threadUsageError: String? = nil
     ) {
         self.sessionID = sessionID
         self.connectionLabel = connectionLabel
@@ -47,9 +53,18 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         self.contextLeftLabel = contextLeftLabel
         self.contextFraction = min(max(contextFraction, 0), 1)
         self.rateLimitRows = rateLimitRows
+        self.threadUsage = threadUsage
+        self.isLoadingThreadUsage = isLoadingThreadUsage
+        self.threadUsageError = threadUsageError
     }
 
-    public init(context: CodexChatStatusSummaryContext, rateLimits: CodexSchemaRateLimitSnapshot?) {
+    public init(
+        context: CodexChatStatusSummaryContext,
+        rateLimits: CodexSchemaRateLimitSnapshot?,
+        threadUsage: CodexSchemaThreadUsage? = nil,
+        isLoadingThreadUsage: Bool = false,
+        threadUsageError: String? = nil
+    ) {
         let contextUsage = Self.contextUsage(from: context.tokenUsageSummary)
         let rows = Self.rateLimitRows(from: rateLimits)
         self.init(
@@ -58,7 +73,10 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
             contextUsedLabel: contextUsage.usedLabel,
             contextLeftLabel: contextUsage.leftLabel,
             contextFraction: contextUsage.fraction,
-            rateLimitRows: rows.isEmpty ? Self.fallbackRateLimitRows(summary: context.rateLimitSummary) : rows
+            rateLimitRows: rows.isEmpty ? Self.fallbackRateLimitRows(summary: context.rateLimitSummary) : rows,
+            threadUsage: threadUsage.map(CodexThreadUsagePresentation.init),
+            isLoadingThreadUsage: isLoadingThreadUsage,
+            threadUsageError: threadUsageError
         )
     }
 
@@ -117,6 +135,60 @@ public struct CodexStatusPanelModel: Equatable, Sendable {
         return description.prefix(1).uppercased() + description.dropFirst()
     }
 
+}
+
+public struct CodexThreadUsageBreakdownRow: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var detail: String
+    public var credits: String
+
+    init(group: CodexSchemaThreadUsageBreakdownGroup, index: Int) {
+        id = "\(index):\(group.model ?? "unknown"):\(group.reasoningEffort ?? "unknown"):\(group.speed ?? "unknown")"
+        title = group.model ?? "Unknown model"
+        detail = [
+            group.reasoningEffort.map { "\($0) reasoning" },
+            group.speed,
+            group.totalTokens.map { "\($0) tokens" },
+        ].compactMap { $0 }.joined(separator: " · ")
+        credits = CodexThreadUsagePresentation.creditsLabel(
+            micros: group.estimatedUsageCreditsMicros
+        )
+    }
+}
+
+public struct CodexThreadUsagePresentation: Equatable, Sendable {
+    public var threadID: String
+    public var creditsLabel: String
+    public var usdLabel: String?
+    public var groups: [CodexThreadUsageBreakdownRow]
+
+    public init(_ usage: CodexSchemaThreadUsage) {
+        threadID = usage.threadID
+        creditsLabel = Self.creditsLabel(micros: usage.estimatedUsageCreditsMicros)
+        usdLabel = usage.estimatedUsageUsdMicros.map {
+            "$\(Self.decimalMicros($0)) estimated"
+        }
+        groups = usage.groups.enumerated().map {
+            CodexThreadUsageBreakdownRow(group: $0.element, index: $0.offset)
+        }
+    }
+
+    static func creditsLabel(micros: Int) -> String {
+        "\(decimalMicros(micros)) credits"
+    }
+
+    static func decimalMicros(_ micros: Int) -> String {
+        let negative = micros < 0
+        let magnitude = micros.magnitude
+        let whole = magnitude / 1_000_000
+        let remainder = magnitude % 1_000_000
+        let sign = negative ? "-" : ""
+        guard remainder != 0 else { return "\(sign)\(whole)" }
+        let fraction = String(format: "%06llu", remainder)
+            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+        return "\(sign)\(whole).\(fraction)"
+    }
 }
 
 public struct CodexMCPStatusPanelServerRow: Identifiable, Equatable, Sendable {

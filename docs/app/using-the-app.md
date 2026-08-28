@@ -12,6 +12,47 @@ The reference app is a native Codex host and living integration example. The [su
 - **Automations:** create, schedule, pause, edit, run, and delete recurring Codex chats.
 - **Settings:** appearance, history, sidebar, integrations, and application information.
 
+Settings → About reads the 0.148 app-server process snapshot on demand. It
+shows PID, resident memory, macOS physical footprint, and registered diagnostic
+gauges. Opening other routes performs no diagnostics work, and About never
+polls in the background; use **Refresh** for another point-in-time sample.
+
+The composer `/status` sheet requests the selected thread's estimated credits,
+optional USD estimate, and per-model token breakdown when opened. Unsupported
+workspaces show an unavailable state. The backend request may take longer than
+ordinary local RPCs, so it runs asynchronously and is never part of chat resume,
+turn completion, sidebar loading, or transcript rendering.
+
+Settings → Chat sections manages the server-synchronized section name, icon,
+and color. Create, edit, clear appearance, and delete use the native 0.148
+section APIs; deleting a custom section returns its chats to the unsectioned
+list without deleting history. Section icons/colors render directly from each
+thread summary in the sidebar, so rows perform no additional reads.
+
+The model picker retains 0.148 catalog lifecycle metadata. Its open popover
+labels the model's declared single-agent, multi-agent v1, or multi-agent v2
+runtime and shows scheduled retirement plus the replacement model when the
+catalog provides them. These strings are projected once when `model/list`
+loads; opening or rendering the picker performs no additional RPC or date parse.
+
+MCP status keeps the server's authoritative `pluginId` ownership. Plugin-owned
+servers show their provider and disable direct config edit, removal, and enable
+toggles so the app cannot shadow package-managed configuration. OAuth remains
+available and offers automatic discovery (recommended), Client ID Metadata
+Document, or Dynamic Client Registration for the current login attempt.
+
+Settings → Hooks reads the resolved hook catalog on demand. It distinguishes
+sync and async command handlers from MCP tool handlers, including server/tool,
+timeout, context spill limit, plugin ownership, source, trust, and status text.
+Enable/disable and Trust update only `hooks.state` through an upserted
+`config/batchWrite` with reload; hook definitions remain in their owning user,
+project, managed, or plugin file.
+
+Image-generation usage-limit failures remain visible beside final turn content
+even when the work transcript is collapsed. The failure card includes the
+reported limit ID and reset time, survives thread read/resume, is accessible and
+copyable in the AppKit transcript, and does not disturb successful image previews.
+
 Open the unified **Command menu** from Sidebar Search or with `⌘G`. It includes
 the route, panel, model, skills, MCP, app, and chat actions available in the
 current build. Type to search commands or past chats; use Up/Down and Return to
@@ -148,7 +189,7 @@ preserve any text already in the composer. Compact and Fork are offered only
 for an existing idle task with no other composer text. Skill commands attach
 the skill without replacing an existing prompt.
 
-While a turn is running, each send adds another follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave the FIFO queue alone. A steered message becomes a new user bubble inside the active turn; it never edits or replaces the turn's original prompt. CodexCore starts exactly one queued message when the current turn completes; any remaining messages wait for each new turn to complete in order.
+While a turn is running, each send adds another follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave the FIFO queue alone. A steered message becomes a new user bubble inside the active turn; it never edits or replaces the turn's original prompt. App-server persists the queue and starts messages in order whenever the thread becomes idle, so queued work survives app restarts and is shared across connected clients.
 
 Steer actions are serialized. If the active turn ends at the same moment you choose **Steer**, the app starts the message as the next turn immediately; it does not leave the message stuck waiting for another completion event.
 

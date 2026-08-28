@@ -633,7 +633,35 @@ private struct CodexSettingsWindowView: View {
             isBottomPanelVisible: .constant(false),
             newThreadHistoryMode: $model.newThreadHistoryMode,
             mcpServers: model.mcpServers,
-            isLoadingMCPServers: model.isLoadingMCPServers
+            isLoadingMCPServers: model.isLoadingMCPServers,
+            serverDiagnostics: model.serverDiagnostics,
+            isLoadingServerDiagnostics: model.isLoadingServerDiagnostics,
+            serverDiagnosticsError: model.serverDiagnosticsError,
+            onRefreshServerDiagnostics: {
+                Task { await model.refreshServerDiagnostics() }
+            },
+            threadSections: model.threadSections,
+            isLoadingThreadSections: model.isLoadingThreadSections,
+            threadSectionsError: model.threadSectionsError,
+            onRefreshThreadSections: {
+                Task { await model.refreshThreadSections() }
+            },
+            onCreateThreadSection: { name, appearance in
+                Task { await model.createThreadSection(name: name, appearance: appearance) }
+            },
+            onUpdateThreadSection: { id, name, appearance in
+                Task { await model.updateThreadSection(id: id, name: name, appearance: appearance) }
+            },
+            onDeleteThreadSection: { id in
+                Task { await model.deleteThreadSection(id: id) }
+            },
+            hooksCatalog: model.hooksCatalog,
+            isLoadingHooks: model.isLoadingHooks,
+            hooksError: model.hooksError,
+            hooksProvider: model.integrationControlPlaneProvider,
+            onRefreshHooks: {
+                Task { await model.refreshHooks() }
+            }
         )
         .frame(minWidth: 700, minHeight: 500, alignment: .topLeading)
         .codexAgentTheme(model.theme)

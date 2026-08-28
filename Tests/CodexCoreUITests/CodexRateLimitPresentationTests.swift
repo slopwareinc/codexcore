@@ -68,4 +68,42 @@ struct CodexRateLimitPresentationTests {
 
         #expect(model.rateLimitRows.first?.resetLabel == "7-day window")
     }
+
+    @Test func statusPanelProjectsThreadCreditsUSDAndBreakdown() {
+        let context = CodexChatStatusSummaryContext(
+            connectionLabel: "Connected",
+            workspacePath: "/tmp/project",
+            currentThreadID: "thread",
+            modelDisplayName: "Codex",
+            reasoningDisplayName: "High",
+            approvalDisplayName: "Ask",
+            messageCount: 1,
+            isSideChatOpen: false,
+            activeSubagentCount: 0,
+            subagentCount: 0
+        )
+        let usage = CodexSchemaThreadUsage(
+            estimatedUsageCreditsMicros: 46_000_000,
+            estimatedUsageUsdMicros: 840_000,
+            groups: [.init(
+                estimatedUsageCreditsMicros: 46_000_000,
+                model: "gpt-5.4",
+                reasoningEffort: "high",
+                speed: "fast",
+                totalTokens: 140
+            )],
+            threadID: "thread"
+        )
+
+        let model = CodexStatusPanelModel(
+            context: context,
+            rateLimits: nil,
+            threadUsage: usage
+        )
+
+        #expect(model.threadUsage?.creditsLabel == "46 credits")
+        #expect(model.threadUsage?.usdLabel == "$0.84 estimated")
+        #expect(model.threadUsage?.groups.first?.title == "gpt-5.4")
+        #expect(model.threadUsage?.groups.first?.detail == "high reasoning · fast · 140 tokens")
+    }
 }

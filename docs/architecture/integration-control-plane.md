@@ -79,6 +79,12 @@ OAuth UI registers `observeMCPServerOAuthLogin` before issuing
 `mcpServer/oauth/login`, opens the returned authorization URL, and waits for the
 bounded completion observer rather than polling.
 
+`McpServerStatus.pluginId` is authoritative ownership. A plugin-owned server may
+authenticate and expose runtime inventory, but generic MCP configuration UI must
+not write, toggle, or remove its `mcp_servers.<name>` entry. OAuth login exposes
+the 0.148 per-attempt registration strategy: automatic discovery by default,
+or explicit CIMD/DCR when troubleshooting a server's discovery behavior.
+
 The generated `CodexSchemaConfig` currently omits `mcp_servers`, even though the
 runtime accepts these keys. Therefore the host must retain the
 `CodexMCPServerConfiguration` values it supplies to the sheet (including values
@@ -97,12 +103,13 @@ metadata, not decoration: they are shown alongside the body, and skill icons use
 the schema-provided small/large URLs. Personal-skill removal stays behind an
 explicit destructive confirmation.
 
-`CodexIntegrationCatalogSession.applyHooksResponse(_:)` projects the resolved
-`hooks/list` response into `CodexHooksCatalog`. `CodexHooksListView` displays the
-event, matcher, source attribution, trust, handler, and blocking status message.
-The host refresh call should assign the existing response instead of discarding
-it:
+`CodexHooksCatalog` projects the resolved `hooks/list` response.
+`CodexHooksListView` displays event, matcher, source attribution, trust,
+handler, and blocking status. In 0.148, `HookMetadata` flattens a heterogeneous
+`handlerType` union: command handlers carry `command` plus `async`, while MCP
+handlers carry `server` and `tool`. Do not infer one from the other.
 
-```swift
-runtimeSession.integrationCatalogSession.applyHooksResponse(response)
-```
+Resolved state writes only `hooks.state` using one upserted object keyed by the
+exact protocol hook key, with `reloadUserConfig: true`. Source hook definitions
+remain owned by their reported config or plugin path and are never reconstructed
+from list output.

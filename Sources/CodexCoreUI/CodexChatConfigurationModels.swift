@@ -653,6 +653,10 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public var displayName: String
     public var modelIdentifier: String?
     public var specialty: String?
+    public var multiAgentVersion: CodexSchemaMultiAgentVersion?
+    public var retirementAt: TimeInterval?
+    public var upgradeModelIdentifier: String?
+    public var lifecycleDetail: String?
     public var detail: String?
     public var isDefault: Bool
     public var defaultReasoning: CodexReasoningSelection?
@@ -667,6 +671,9 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         displayName: String,
         modelIdentifier: String? = nil,
         specialty: String? = nil,
+        multiAgentVersion: CodexSchemaMultiAgentVersion? = nil,
+        retirementAt: TimeInterval? = nil,
+        upgradeModelIdentifier: String? = nil,
         detail: String? = nil,
         isDefault: Bool = false,
         defaultReasoning: CodexReasoningSelection? = nil,
@@ -695,6 +702,14 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.modelIdentifier = modelIdentifier
         self.specialty = specialty
+        self.multiAgentVersion = multiAgentVersion
+        self.retirementAt = retirementAt
+        self.upgradeModelIdentifier = upgradeModelIdentifier
+        self.lifecycleDetail = Self.lifecycleDetail(
+            multiAgentVersion: multiAgentVersion,
+            retirementAt: retirementAt,
+            upgradeModelIdentifier: upgradeModelIdentifier
+        )
         self.detail = detail
         self.isDefault = isDefault
         self.defaultReasoning = defaultReasoning
@@ -710,6 +725,9 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
             && lhs.displayName == rhs.displayName
             && lhs.modelIdentifier == rhs.modelIdentifier
             && lhs.specialty == rhs.specialty
+            && lhs.multiAgentVersion == rhs.multiAgentVersion
+            && lhs.retirementAt == rhs.retirementAt
+            && lhs.upgradeModelIdentifier == rhs.upgradeModelIdentifier
             && lhs.detail == rhs.detail
             && lhs.isDefault == rhs.isDefault
             && lhs.defaultReasoning == rhs.defaultReasoning
@@ -772,6 +790,9 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                 displayName: model.displayName,
                 modelIdentifier: model.model,
                 specialty: model.modelSpecialty,
+                multiAgentVersion: model.multiAgentVersion,
+                retirementAt: model.upgradeInfo?.retirementAt.map(TimeInterval.init),
+                upgradeModelIdentifier: model.upgradeInfo?.model,
                 detail: model.description,
                 isDefault: model.isDefault,
                 defaultReasoning: reasoningSelection(
@@ -789,6 +810,34 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
 
     private static func reasoningSelection(from rawValue: String?) -> CodexReasoningSelection? {
         rawValue.flatMap(CodexReasoningSelection.init(appServerValue:))
+    }
+
+    private static func lifecycleDetail(
+        multiAgentVersion: CodexSchemaMultiAgentVersion?,
+        retirementAt: TimeInterval?,
+        upgradeModelIdentifier: String?
+    ) -> String? {
+        var parts: [String] = []
+        if let multiAgentVersion {
+            switch multiAgentVersion {
+            case .disabled: parts.append("Single-agent runtime")
+            case .v1: parts.append("Multi-agent v1")
+            case .v2: parts.append("Multi-agent v2")
+            case .unrecognized(let value): parts.append("Multi-agent \(value)")
+            }
+        }
+        if let retirementAt {
+            let date = Date(timeIntervalSince1970: retirementAt)
+                .formatted(date: .abbreviated, time: .omitted)
+            if let upgradeModelIdentifier {
+                parts.append("Retires \(date) → \(upgradeModelIdentifier)")
+            } else {
+                parts.append("Retires \(date)")
+            }
+        } else if let upgradeModelIdentifier {
+            parts.append("Upgrade available: \(upgradeModelIdentifier)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private static func isFastTier(_ tier: CodexModelServiceTier) -> Bool {

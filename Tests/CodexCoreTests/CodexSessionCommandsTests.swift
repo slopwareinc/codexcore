@@ -51,6 +51,20 @@ final class CodexSessionCommandsTests: XCTestCase {
             try CodexRequest.accountUsageRead(.value(.init(threadID: "thread-1"))).encodeParameters(),
             .dictionary(["threadId": .string("thread-1")])
         )
+
+        let oauth = CodexRequest.mcpServerOAuthLogin(.init(
+            clientRegistration: .cimd,
+            name: "github",
+            threadID: "thread-1"
+        ))
+        XCTAssertEqual(
+            try oauth.encodeParameters(),
+            .dictionary([
+                "clientRegistration": .string("cimd"),
+                "name": .string("github"),
+                "threadId": .string("thread-1"),
+            ])
+        )
     }
 
     func testGA147RequestFactoriesEncodePluginSearchAndThreadSections() throws {
@@ -85,6 +99,37 @@ final class CodexSessionCommandsTests: XCTestCase {
                 "beforeThreadId": .string("thread-2"),
                 "sectionId": .string("section-1"),
                 "threadId": .string("thread-1"),
+            ])
+        )
+
+        let base = { (appearance: CodexAppServerOptionalField<CodexSchemaThreadSectionAppearance>) in
+            CodexRequest.threadSectionUpdate(.init(
+                appearance: appearance,
+                name: "Projects",
+                sectionID: "section-1"
+            ))
+        }
+        XCTAssertEqual(
+            try base(.omitted).encodeParameters(),
+            .dictionary(["name": .string("Projects"), "sectionId": .string("section-1")])
+        )
+        XCTAssertEqual(
+            try base(.null).encodeParameters(),
+            .dictionary([
+                "appearance": .null,
+                "name": .string("Projects"),
+                "sectionId": .string("section-1"),
+            ])
+        )
+        XCTAssertEqual(
+            try base(.value(.init(color: "purple", icon: "star"))).encodeParameters(),
+            .dictionary([
+                "appearance": .dictionary([
+                    "color": .string("purple"),
+                    "icon": .string("star"),
+                ]),
+                "name": .string("Projects"),
+                "sectionId": .string("section-1"),
             ])
         )
     }
