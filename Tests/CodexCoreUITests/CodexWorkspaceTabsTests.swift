@@ -264,13 +264,14 @@ struct CodexWorkspaceTabsTests {
         #expect(tabs.content(for: id) != nil)
     }
 
-    @Test func registrationReplacementRejectsSupersededReviewCanonicalSource() throws {
+    @Test func registrationReplacementRejectsSupersededTranscriptReviewSource() throws {
         let oldSession = reviewSession(sourceID: "turn-old")
         let tabs = CodexWorkspaceTabs()
         let id = tabs.open(
             CodexReviewWorkspaceTabAdapter(
                 workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
-                session: oldSession
+                session: oldSession,
+                source: .transcript
             ),
             from: .summary
         )
@@ -293,6 +294,65 @@ struct CodexWorkspaceTabsTests {
         #expect(tabs.snapshot.instance(id: id)?.isMaterialized == false)
         #expect(!tabs.isAvailable(id))
         #expect(tabs.content(for: id) == nil)
+    }
+
+    @Test func genericReviewRouteAdvancesToCanonicalSourceWithoutChangingIdentity() throws {
+        let tabs = CodexWorkspaceTabs()
+        let id = tabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: CodexGitReviewSession(
+                    snapshot: CodexGitReviewSnapshot(branchName: "main")
+                )
+            ),
+            from: .summary
+        )
+        let original = try #require(tabs.snapshot.instance(id: id))
+
+        tabs.register([
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: reviewSession(
+                    sourceID: "canonical/thread/turn",
+                    revision: 7
+                )
+            )
+        ])
+
+        let advanced = try #require(tabs.snapshot.instance(id: id))
+        #expect(advanced.id == original.id)
+        #expect(advanced.contentID == original.contentID)
+        #expect(advanced.durableRoute != original.durableRoute)
+        #expect(advanced.isMaterialized)
+        #expect(tabs.isAvailable(id))
+        #expect(tabs.registeredContentRevision(for: id) == 7)
+    }
+
+    @Test func changedReviewFactsRefreshRegistrationWithoutChangingTabOrRouteIdentity() throws {
+        let tabs = CodexWorkspaceTabs()
+        let sourceID = "canonical/thread/turn"
+        let id = tabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: reviewSession(sourceID: sourceID, revision: 7)
+            ),
+            from: .summary
+        )
+        let original = try #require(tabs.snapshot.instance(id: id))
+
+        tabs.register([
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp/workspace"),
+                session: reviewSession(sourceID: sourceID, revision: 8)
+            )
+        ])
+
+        let refreshed = try #require(tabs.snapshot.instance(id: id))
+        #expect(refreshed.id == original.id)
+        #expect(refreshed.contentID == original.contentID)
+        #expect(refreshed.durableRoute == original.durableRoute)
+        #expect(refreshed.isMaterialized)
+        #expect(tabs.registeredContentRevision(for: id) == 8)
     }
 
     @Test func movingBetweenPanelsPreservesContentAndPanelLocalFallback() throws {
@@ -349,6 +409,23 @@ struct CodexWorkspaceTabsTests {
         #expect(tabs.snapshot.instance(id: id)?.state == state)
         #expect(tabs.snapshot.topology.right.orderedTabIDs == [id])
         #expect(tabs.snapshot.topology.right.activeTabID == id)
+    }
+
+    @Test func reopeningClosedResourceConsumesUndoWithoutCreatingDuplicateInstance() throws {
+        let tabs = CodexWorkspaceTabs()
+        let adapter = TestWorkspaceTabAdapter(resourceKey: "undo-resource", lifetime: .pinned)
+        let originalID = tabs.open(adapter, from: .summary)
+        let contentID = try #require(tabs.snapshot.instance(id: originalID)?.contentID)
+        tabs.close(originalID)
+
+        let reopenedID = tabs.open(adapter, from: .summary)
+
+        #expect(reopenedID == originalID)
+        #expect(tabs.snapshot.instances.count == 1)
+        #expect(tabs.snapshot.instance(id: reopenedID)?.contentID == contentID)
+        #expect(tabs.undoClose() == nil)
+        #expect(tabs.snapshot.instances.count == 1)
+        #expect(tabs.snapshot.topology.right.orderedTabIDs == [originalID])
     }
 
     @Test func reviewOpenersReplaceRouteStateWithoutChangingContentIdentity() throws {
@@ -455,7 +532,7 @@ struct CodexWorkspaceTabsTests {
         #expect(tabs.snapshot.topology.right.activeTab == .workspace(planID))
     }
 
-    @Test func reducerStressPreservesIdentityTopologyAndDurabilityInvariants() async {
+    @Test func reducerStressPreservesIdentityTopologyAndDurabilityInvariants() async throws {
         let tabs = CodexWorkspaceTabs()
 
         for index in 0..<20_000 {
@@ -499,7 +576,9 @@ struct CodexWorkspaceTabsTests {
             }
 
             assertInvariants(tabs.snapshot, restoration: tabs.restorationState)
-            if index.isMultiple(of: 16) { await Task.yield() }
+            if index.isMultiple(of: 8) {
+                try await Task.sleep(for: .milliseconds(1))
+            }
         }
     }
 
@@ -529,9 +608,9 @@ struct CodexWorkspaceTabsTests {
         })
     }
 
-    private func reviewSession(sourceID: String) -> CodexGitReviewSession {
+    private func reviewSession(sourceID: String, revision: UInt64 = 1) -> CodexGitReviewSession {
         CodexGitReviewSession(snapshot: CodexGitReviewSnapshot(
-            revision: CodexGitReviewRevision(sourceID: sourceID, value: 1),
+            revision: CodexGitReviewRevision(sourceID: sourceID, value: revision),
             branchName: "main"
         ))
     }

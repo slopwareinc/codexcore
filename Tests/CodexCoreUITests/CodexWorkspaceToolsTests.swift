@@ -211,6 +211,53 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelStateInjectsAppliesAndExportsDurableWorkspaceTabRestoration() throws {
+        let source = CodexWorkspacePanelState()
+        let planID = source.workspaceTabs.open(
+            CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(steps: [])),
+            from: .summary
+        )
+        let reviewID = source.workspaceTabs.open(
+            CodexReviewWorkspaceTabAdapter(
+                workspaceURL: URL(fileURLWithPath: "/tmp"),
+                session: CodexGitReviewSession(
+                    snapshot: CodexGitReviewSnapshot(branchName: "main")
+                )
+            ),
+            from: .summary
+        )
+        source.workspaceTabs.updateState(
+            CodexWorkspaceTabState(data: Data("selected.swift".utf8)),
+            for: reviewID
+        )
+        source.workspaceTabs.move(reviewID, to: .bottom)
+
+        let data = try JSONEncoder().encode(source.workspaceTabRestorationState)
+        let persisted = try JSONDecoder().decode(
+            CodexWorkspaceTabRestorationState.self,
+            from: data
+        )
+        let injected = CodexWorkspacePanelState(
+            panelWidth: 540,
+            restorationState: persisted
+        )
+        let applied = CodexWorkspacePanelState()
+        applied.applyWorkspaceTabRestoration(persisted)
+
+        for panel in [injected, applied] {
+            XCTAssertEqual(panel.workspaceTabRestorationState, persisted)
+            XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.orderedTabIDs, [planID])
+            XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.orderedTabIDs, [reviewID])
+            XCTAssertTrue(panel.workspaceTabs.snapshot.instances.allSatisfy { !$0.isMaterialized })
+            XCTAssertEqual(
+                panel.workspaceTabs.snapshot.instance(id: reviewID)?.state.data,
+                Data("selected.swift".utf8)
+            )
+        }
+        XCTAssertEqual(injected.panelWidth, 540)
+    }
+
+    @MainActor
     func testPanelStatePurgeClearsSessionsAndClosesPanel() {
         let panel = CodexWorkspacePanelState()
         panel.openTerminal(workspacePath: "/tmp")
