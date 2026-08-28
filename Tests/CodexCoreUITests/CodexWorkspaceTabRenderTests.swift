@@ -211,6 +211,7 @@ struct CodexWorkspaceTabRenderTests {
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(80))
+        _ = window
 
         #expect(tabs.snapshot.topology.right.activeTabID == second)
         #expect(tabs.snapshot.instance(id: first)?.contentID != tabs.snapshot.instance(id: second)?.contentID)
@@ -219,6 +220,7 @@ struct CodexWorkspaceTabRenderTests {
         tabs.activate(first)
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(80))
+        _ = window
         #expect(countTextViews(in: hosting) == 1)
     }
 }
