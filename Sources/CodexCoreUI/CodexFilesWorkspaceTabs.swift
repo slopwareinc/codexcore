@@ -89,6 +89,19 @@ public struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
+    public init?(
+        route: CodexWorkspaceTabRoute,
+        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in }
+    ) {
+        guard route.adapterID == Self.adapterID, route.version == Self.routeVersion else {
+            return nil
+        }
+        self.init(
+            workspaceURL: URL(fileURLWithPath: route.resourceID),
+            onOpenFile: onOpenFile
+        )
+    }
+
     public var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: Self.resourceKey(for: session.rootURL),

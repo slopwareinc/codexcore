@@ -78,6 +78,15 @@ Only routes and per-tab presentation state are durable. Current Plan/Review
 facts remain disposable projections and are supplied again when adapters
 register after restoration.
 
+Files uses the same seam. Register `CodexFilesWorkspaceTabAdapter` for a
+workspace root and open text resources with
+`CodexFilePreviewWorkspaceTabAdapter(file:)`. A
+`CodexWorkspaceFileReference` standardizes the URL and optional ref into one
+stable identity. Preview tabs replace one another until interaction pins the
+active tab; `CodexFilePreviewTabState` keeps find and go-to-line intent in the
+durable tab state. Preview content is active-only, so hidden editors do not
+perform layout or parsing.
+
 CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
 by default. For product-specific live progress, configure the presentation
 store with `CodexTranscriptItemPresentationPolicyV2`. The policy can preserve,

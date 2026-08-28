@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import CodexCore
 
@@ -488,6 +489,28 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
+            .codexTranscriptFileNavigationService(
+                CodexWorkspaceTranscriptFileNavigationService(
+                    workspaceURL: URL(fileURLWithPath: workspacePath),
+                    openFile: { [weak panel] resolved in
+                        guard let panel else { return }
+                        let tabID = panel.openFilePreview(fileURL: resolved.fileURL)
+                        if let line = resolved.reference.line {
+                            panel.workspaceTabs.updateState(
+                                CodexFilePreviewTabState(goToLine: line).tabState,
+                                for: tabID
+                            )
+                        }
+                        panel.isAgentPanelOpen = true
+                    },
+                    revealFile: { resolved in
+                        NSWorkspace.shared.selectFile(
+                            resolved.fileURL.path,
+                            inFileViewerRootedAtPath: workspacePath
+                        )
+                    }
+                )
+            )
             .overlay(alignment: .topTrailing) {
                 if isDockedOverviewVisible {
                     floatingSummaryPanel

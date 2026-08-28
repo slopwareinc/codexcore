@@ -71,4 +71,41 @@ struct CodexFilesWorkspaceTabTests {
         #expect(registration.durableRoute == CodexFilesWorkspaceTabAdapter.route(for: root))
         #expect(registration.lifetime == .pinned)
     }
+
+    @Test func fileTabsRestoreRoutesLazilyAndKeepPreviewState() throws {
+        let root = URL(fileURLWithPath: "/tmp/project")
+        let file = CodexWorkspaceFileReference(
+            fileURL: root.appendingPathComponent("App.swift"),
+            ref: "main"
+        )
+        let source = CodexWorkspaceTabs()
+        let filesID = source.open(
+            CodexFilesWorkspaceTabAdapter(workspaceURL: root),
+            from: .commandMenu
+        )
+        let previewID = source.open(CodexFilePreviewWorkspaceTabAdapter(file: file), from: .transcript)
+        source.interact(previewID)
+        source.updateState(
+            CodexFilePreviewTabState(searchQuery: "needle", goToLine: 8).tabState,
+            for: previewID
+        )
+
+        let restored = CodexWorkspaceTabs(restoring: source.restorationState)
+        restored.register([
+            CodexFilesWorkspaceTabAdapter(workspaceURL: root),
+            CodexFilePreviewWorkspaceTabAdapter(file: file),
+        ])
+
+        #expect(restored.snapshot.instance(id: filesID)?.isMaterialized == false)
+        #expect(restored.snapshot.instance(id: previewID)?.isMaterialized == false)
+        restored.activate(previewID)
+
+        #expect(restored.snapshot.instance(id: previewID)?.isMaterialized == true)
+        #expect(
+            CodexFilePreviewTabState(
+                tabState: try #require(restored.snapshot.instance(id: previewID)?.state)
+            ).searchQuery == "needle"
+        )
+        #expect(restored.snapshot.topology.right.activeTabID == previewID)
+    }
 }

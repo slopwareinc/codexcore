@@ -119,6 +119,65 @@ struct CodexWorkspaceTabRenderTests {
                 == projectionCount
         )
     }
+
+    @Test func hiddenFilePreviewEditorsAreNotMountedOrParsed() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-file-tab-render-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "let first = 1\n".write(
+            to: root.appendingPathComponent("First.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "let second = 2\n".write(
+            to: root.appendingPathComponent("Second.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tabs = CodexWorkspaceTabs()
+        let first = tabs.open(
+            CodexFilePreviewWorkspaceTabAdapter(
+                fileURL: root.appendingPathComponent("First.swift")
+            ),
+            from: .transcript
+        )
+        tabs.interact(first)
+        let second = tabs.open(
+            CodexFilePreviewWorkspaceTabAdapter(
+                fileURL: root.appendingPathComponent("Second.swift")
+            ),
+            from: .transcript
+        )
+
+        let hosting = NSHostingView(rootView: CodexAgentSidePanel(
+            tabs: [],
+            workspaceTabs: tabs,
+            showsCloseButton: false,
+            onClose: {}
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 640)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(80))
+
+        #expect(tabs.snapshot.topology.right.activeTabID == second)
+        #expect(tabs.snapshot.instance(id: first)?.contentID != tabs.snapshot.instance(id: second)?.contentID)
+        #expect(countTextViews(in: hosting) == 1)
+
+        tabs.activate(first)
+        hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(countTextViews(in: hosting) == 1)
+    }
 }
 
 @MainActor
@@ -206,4 +265,12 @@ private func transcriptDescendant(
         if let match = transcriptDescendant(in: child) { return match }
     }
     return nil
+}
+
+@MainActor
+private func countTextViews(in root: NSView) -> Int {
+    let own = root is NSTextView ? 1 : 0
+    return own + root.subviews.reduce(into: 0) { count, child in
+        count += countTextViews(in: child)
+    }
 }
