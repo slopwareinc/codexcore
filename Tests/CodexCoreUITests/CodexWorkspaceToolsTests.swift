@@ -123,6 +123,42 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceTabVisibilityCallbackSuspendsHiddenTerminalDisplayWork() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+
+        panel.workspaceTabs.setVisibility(false, for: tabID)
+        XCTAssertFalse(session.isSurfaceVisible)
+        let changes = session.surfaceVisibilityChangeCount
+        panel.workspaceTabs.setVisibility(false, for: tabID)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, changes)
+
+        panel.workspaceTabs.setVisibility(true, for: tabID)
+        XCTAssertTrue(session.isSurfaceVisible)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, changes + 1)
+    }
+
+    @MainActor
+    func testUndoingTerminalCloseRestoresTheRetainedSessionAndTabIdentity() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let hostIdentity = session.terminalHostIdentity
+
+        panel.workspaceTabs.close(tabID)
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+
+        let restoredTabID = try XCTUnwrap(panel.workspaceTabs.undoClose())
+        XCTAssertEqual(restoredTabID, tabID)
+        XCTAssertEqual(panel.terminalSessions.count, 1)
+        XCTAssertEqual(panel.terminalSessions.first?.terminalHostIdentity, hostIdentity)
+        XCTAssertEqual(panel.terminalTabID(for: terminalID), tabID)
+    }
+
+    @MainActor
     func testBackgroundOutputRemainsStrictlyBoundedAndKeepsNewestBytes() {
         var output = CodexBoundedTerminalOutput(maxBytes: 8)
         output.append("1234")

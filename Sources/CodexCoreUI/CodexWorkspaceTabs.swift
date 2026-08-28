@@ -158,6 +158,7 @@ package struct CodexWorkspaceTabRegistration {
     package let preferredPlacement: CodexWorkspaceTabPlacement
     package let onClose: (@MainActor () -> Void)?
     package let onReopen: (@MainActor (CodexWorkspaceTabID) -> Void)?
+    package let onVisibilityChanged: (@MainActor (Bool) -> Void)?
     package let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
 
     init(
@@ -173,6 +174,7 @@ package struct CodexWorkspaceTabRegistration {
         preferredPlacement: CodexWorkspaceTabPlacement = .right,
         onClose: (@MainActor () -> Void)? = nil,
         onReopen: (@MainActor (CodexWorkspaceTabID) -> Void)? = nil,
+        onVisibilityChanged: (@MainActor (Bool) -> Void)? = nil,
         makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     ) {
         self.resourceKey = resourceKey
@@ -187,6 +189,7 @@ package struct CodexWorkspaceTabRegistration {
         self.preferredPlacement = preferredPlacement
         self.onClose = onClose
         self.onReopen = onReopen
+        self.onVisibilityChanged = onVisibilityChanged
         self.makeContent = makeContent
     }
 }
@@ -521,6 +524,10 @@ public final class CodexWorkspaceTabs: ObservableObject {
             get: { [weak self] in self?.snapshot.instance(id: id)?.state ?? .init() },
             set: { [weak self] in self?.updateState($0, for: id) }
         ))
+    }
+
+    package func setVisibility(_ visible: Bool, for id: CodexWorkspaceTabID) {
+        registrations[id]?.onVisibilityChanged?(visible)
     }
 
     package func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }

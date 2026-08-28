@@ -729,6 +729,7 @@ public struct CodexChatWorkspaceView: View {
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
             onOpenTerminal: openTerminalTab,
+            onOpenBackgroundTerminal: openBackgroundTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
             onOpenFilePreview: openFilePreviewTab,
@@ -876,6 +877,10 @@ public struct CodexChatWorkspaceView: View {
         withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
             panel.isAgentPanelOpen = true
         }
+    }
+
+    private func openBackgroundTerminalTab() {
+        _ = panel.openBackgroundTerminal(workspacePath: workspacePath)
     }
 
     private func closeTerminalTab(_ id: String) {

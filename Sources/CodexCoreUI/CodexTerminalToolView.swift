@@ -368,9 +368,13 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             ),
             preferredPlacement: placement,
             onClose: onClose,
-            onReopen: onReopen
+            onReopen: onReopen,
+            onVisibilityChanged: { visible in
+                session.setSurfaceVisible(visible)
+                if visible { session.restoreFocus() }
+            }
         ) { _ in
-            AnyView(CodexTerminalToolView(session: session, isActive: true))
+            AnyView(CodexTerminalToolView(session: session, isActive: false))
         }
     }
 

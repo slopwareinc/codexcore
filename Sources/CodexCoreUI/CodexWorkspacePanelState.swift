@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Durable per-chat state for the workspace tool panel (the right-hand "sidebar").
+/// Durable per-chat state for the workspace tool panels (right and bottom).
 ///
 /// This owns the tool *sessions* — terminals (ghostty), browsers (WebKit), and
 /// the files explorer — along with the panel's open/selection/width state. It is

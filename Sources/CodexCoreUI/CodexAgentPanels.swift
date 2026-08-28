@@ -825,6 +825,7 @@ public struct CodexAgentSidePanel: View {
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onOpenTerminal: () -> Void
+    private let onOpenBackgroundTerminal: () -> Void
     private let onOpenBrowser: () -> Void
     private let onOpenFiles: () -> Void
     private let onOpenFilePreview: (URL) -> Void
@@ -854,6 +855,7 @@ public struct CodexAgentSidePanel: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
+        onOpenBackgroundTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
         onOpenFilePreview: @escaping (URL) -> Void = { _ in },
@@ -884,6 +886,7 @@ public struct CodexAgentSidePanel: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
+        self.onOpenBackgroundTerminal = onOpenBackgroundTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
         self.onOpenFilePreview = onOpenFilePreview
@@ -913,6 +916,7 @@ public struct CodexAgentSidePanel: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
+        onOpenBackgroundTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
         onOpenFilePreview: @escaping (URL) -> Void = { _ in },
@@ -943,6 +947,7 @@ public struct CodexAgentSidePanel: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
+        self.onOpenBackgroundTerminal = onOpenBackgroundTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
         self.onOpenFilePreview = onOpenFilePreview
@@ -1032,11 +1037,18 @@ public struct CodexAgentSidePanel: View {
             ForEach(workspaceTabs.snapshot.instances.filter {
                 $0.isMaterialized && panelTabIDs.contains($0.id)
             }) { instance in
+                let isSelected = activeTab == .workspace(instance.id)
                 if let content = workspaceTabs.content(for: instance.id) {
                     content
                         .toolPanelVisibility(
-                            isSelected: activeTab == .workspace(instance.id)
+                            isSelected: isSelected
                         )
+                        .onAppear {
+                            workspaceTabs.setVisibility(isSelected, for: instance.id)
+                        }
+                        .onChange(of: isSelected) { _, visible in
+                            workspaceTabs.setVisibility(visible, for: instance.id)
+                        }
                         .id(instance.contentID.rawValue)
                 }
             }
@@ -1228,6 +1240,12 @@ public struct CodexAgentSidePanel: View {
                             Label(option.title, systemImage: option.systemImage)
                         }
                         .disabled(!option.isEnabled)
+                    }
+                    Divider()
+                    Button {
+                        onOpenBackgroundTerminal()
+                    } label: {
+                        Label("Open Terminal in Background", systemImage: "terminal.fill")
                     }
                 } label: {
                     Image(systemName: "plus")
