@@ -698,6 +698,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func threadTimelineList(
+        _ params: CodexSchemaThreadTimelineListParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadTimelineListResponse> {
+        .required(method: .threadTimelineList, params: params)
+    }
+}
+extension CodexRequest {
     public static func threadRealtimeListVoices(
         _ params: CodexSchemaThreadRealtimeListVoicesParams
     ) -> CodexAppServerRequest<CodexSchemaThreadRealtimeListVoicesResponse> {
@@ -856,6 +863,20 @@ extension CodexRequest {
         _ params: CodexSchemaMCPResourceReadParams
     ) -> CodexAppServerRequest<CodexSchemaMCPResourceReadResponse> {
         .required(method: .mcpServerResourceRead, params: params)
+    }
+}
+extension CodexRequest {
+    public static func mcpServerEventStreamStart(
+        _ params: CodexSchemaMCPServerEventStreamStartParams
+    ) -> CodexAppServerRequest<CodexSchemaMCPServerEventStreamStartResponse> {
+        .required(method: .mcpServerEventStreamStart, params: params)
+    }
+}
+extension CodexRequest {
+    public static func mcpServerEventStreamStop(
+        _ params: CodexSchemaMCPServerEventStreamStopParams
+    ) -> CodexAppServerRequest<CodexSchemaMCPServerEventStreamStopResponse> {
+        .required(method: .mcpServerEventStreamStop, params: params)
     }
 }
 extension CodexRequest {
@@ -1094,7 +1115,7 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 149
+    static let generatedMethodCount = 152
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .serverDiagnostics,
         .threadStart,
@@ -1187,6 +1208,7 @@ public extension CodexRequest {
         .threadRealtimeAppendText,
         .threadRealtimeAppendSpeech,
         .threadRealtimeStop,
+        .threadTimelineList,
         .threadRealtimeListVoices,
         .reviewStart,
         .modelList,
@@ -1210,6 +1232,8 @@ public extension CodexRequest {
         .configMCPServerReload,
         .mcpServerStatusList,
         .mcpServerResourceRead,
+        .mcpServerEventStreamStart,
+        .mcpServerEventStreamStop,
         .mcpServerToolCall,
         .windowsSandboxSetupStart,
         .windowsSandboxReadiness,

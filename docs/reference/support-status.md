@@ -1,6 +1,6 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.11.0` with `codex-cli 0.148.0` or newer. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the authoritative user-facing capability matrix for CodexCore `0.13.0` with `codex-cli 0.148.0` or newer and types generated from `0.150.1`. “Visible in the app” does not necessarily mean “wired to production behavior.”
 
 | Status | Meaning |
 | --- | --- |
@@ -19,6 +19,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | Thread credit and cost estimates | Conditional | `/status` fetches the selected thread estimate on demand; availability depends on the authenticated workspace billing route. |
 | Model multi-agent and retirement metadata | Supported | Model catalog projection preserves runtime generation and preformats retirement/replacement detail for the picker. |
 | MCP plugin ownership and OAuth registration selection | Supported | Plugin-owned servers are configuration read-only; login supports automatic, CIMD, and DCR registration strategies. |
+| MCP event streams | Supported | Public start/stop wrappers and a connection-scoped observer expose lossless subscription notifications; callers filter concurrent streams by subscription ID. |
 | Async command and MCP-tool hooks | Supported | Settings shows the heterogeneous handler metadata and configures resolved enable/trust state without rewriting hook definitions. |
 | Structured image-generation failures | Supported | Usage-limit metadata is typed and rendered persistently in both transcript implementations, including after resume. |
 | Start/resume threads; turns, steering, interruption | Supported | Both server-declared history modes can resume. |
@@ -29,7 +30,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.11.0` w
 | Canonical state, snapshots, scoped observations | Supported | Observation signals are coalesced invalidations; consumers reread state. |
 | Approvals, user input, MCP elicitation, dynamic-tool requests | Supported | The host must provide policy/UI or resolve pending inbox requests. |
 | Dynamic-tool declaration | Conditional | Public thread-start seam currently accepts a raw generated schema wrapper, not the handwritten typed helper. |
-| Realtime Voice requests and event stream | Supported | `CodexRealtimeEvent` routes ephemeral thread-scoped transcript, PCM audio, lifecycle, and SDP notifications. |
+| Realtime Voice requests and event stream | Supported | `CodexRealtimeEvent` routes ephemeral thread-scoped transcript, item lifecycle, PCM audio, session lifecycle, and SDP notifications. |
 | Product-specific transcript cards | Conditional | Custom renderer supports dynamic-tool calls in `CodexTranscriptViewV2`; MCP uses generic rendering. |
 | `CodexChatWorkspaceView` defaults | Conditional | Several bindings/actions are constants or no-ops until the host wires them. |
 

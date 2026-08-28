@@ -94,6 +94,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadRealtimeAppendText = "thread/realtime/appendText"
     case threadRealtimeAppendSpeech = "thread/realtime/appendSpeech"
     case threadRealtimeStop = "thread/realtime/stop"
+    case threadTimelineList = "thread/timeline/list"
     case threadRealtimeListVoices = "thread/realtime/listVoices"
     case reviewStart = "review/start"
     case modelList = "model/list"
@@ -117,6 +118,8 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case configMCPServerReload = "config/mcpServer/reload"
     case mcpServerStatusList = "mcpServerStatus/list"
     case mcpServerResourceRead = "mcpServer/resource/read"
+    case mcpServerEventStreamStart = "mcpServer/event/stream/start"
+    case mcpServerEventStreamStop = "mcpServer/event/stream/stop"
     case mcpServerToolCall = "mcpServer/tool/call"
     case windowsSandboxSetupStart = "windowsSandbox/setupStart"
     case windowsSandboxReadiness = "windowsSandbox/readiness"
@@ -197,6 +200,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case itemMCPToolCallProgress = "item/mcpToolCall/progress"
     case mcpServerOAuthLoginCompleted = "mcpServer/oauthLogin/completed"
     case mcpServerStartupStatusUpdated = "mcpServer/startupStatus/updated"
+    case mcpServerEventStreamNotification = "mcpServer/event/stream/notification"
     case accountUpdated = "account/updated"
     case accountRateLimitsUpdated = "account/rateLimits/updated"
     case appListUpdated = "app/list/updated"
@@ -220,6 +224,9 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case fuzzyFileSearchSessionCompleted = "fuzzyFileSearch/sessionCompleted"
     case threadRealtimeStarted = "thread/realtime/started"
     case threadRealtimeItemAdded = "thread/realtime/itemAdded"
+    case threadRealtimeItemStarted = "thread/realtime/item/started"
+    case threadRealtimeItemTranscriptDelta = "thread/realtime/item/transcript/delta"
+    case threadRealtimeItemCompleted = "thread/realtime/item/completed"
     case threadRealtimeTranscriptDelta = "thread/realtime/transcript/delta"
     case threadRealtimeTranscriptDone = "thread/realtime/transcript/done"
     case threadRealtimeOutputAudioDelta = "thread/realtime/outputAudio/delta"
@@ -244,7 +251,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 150
-    public static let notificationMethodCount = 75
+    public static let clientMethodCount = 153
+    public static let notificationMethodCount = 79
     public static let serverRequestMethodCount = 11
 }

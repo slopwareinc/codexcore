@@ -3,6 +3,9 @@ import Foundation
 public enum CodexRealtimeEvent: Sendable, Equatable {
     case started(CodexSchemaThreadRealtimeStartedNotification)
     case itemAdded(CodexSchemaThreadRealtimeItemAddedNotification)
+    case itemStarted(CodexSchemaThreadRealtimeItemStartedNotification)
+    case itemTranscriptDelta(CodexSchemaThreadRealtimeItemTranscriptDeltaNotification)
+    case itemCompleted(CodexSchemaThreadRealtimeItemCompletedNotification)
     case transcriptDelta(CodexSchemaThreadRealtimeTranscriptDeltaNotification)
     case transcriptDone(CodexSchemaThreadRealtimeTranscriptDoneNotification)
     case outputAudio(CodexSchemaThreadRealtimeOutputAudioDeltaNotification)
@@ -14,6 +17,9 @@ public enum CodexRealtimeEvent: Sendable, Equatable {
         switch self {
         case .started(let value): value.threadID
         case .itemAdded(let value): value.threadID
+        case .itemStarted(let value): value.threadID
+        case .itemTranscriptDelta(let value): value.threadID
+        case .itemCompleted(let value): value.threadID
         case .transcriptDelta(let value): value.threadID
         case .transcriptDone(let value): value.threadID
         case .outputAudio(let value): value.threadID

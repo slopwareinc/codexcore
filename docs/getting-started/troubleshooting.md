@@ -2,7 +2,7 @@
 
 ## Runtime not found or version mismatch
 
-CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` when the error names another path. The current SDK accepts `codex-cli` 0.148.x through 0.149.x; exact 0.149.0 matches the generated types, while other accepted versions produce a warning. Generated project and Bedrock request factories require 0.149.0 or newer. Do not suppress the check.
+CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` when the error names another path. The current SDK accepts `codex-cli` 0.148.x through 0.150.x; exact 0.150.1 matches the generated types, while other accepted versions produce a warning. Generated project and Bedrock request factories require 0.149.0 or newer; timeline, MCP event-stream, and realtime-item APIs require 0.150.1 or newer. Do not suppress the check.
 
 ## The app asks me to sign in again
 

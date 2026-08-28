@@ -234,6 +234,14 @@ final class CodexSessionCommandsTests: XCTestCase {
                 "region": .string("us-east-1"),
                 "futureField": .int(7),
             ])),
+            ("amazonBedrockAccessKeys", .dictionary([
+                "type": .string("amazonBedrockAccessKeys"),
+                "accessKeyId": .string("access-key"),
+                "secretAccessKey": .string("secret-key"),
+                "sessionToken": .string("session-token"),
+                "region": .string("us-west-2"),
+                "futureField": .int(8),
+            ])),
         ]
 
         let decoded = try fixtures.map { expectedType, fixture in
@@ -252,6 +260,9 @@ final class CodexSessionCommandsTests: XCTestCase {
             case .amazonBedrock(let payload):
                 XCTAssertEqual(payload.region, "us-east-1")
                 XCTAssertEqual(payload.unknownFields["futureField"], .int(7))
+            case .amazonBedrockAccessKeys(let payload):
+                XCTAssertEqual(payload.region, "us-west-2")
+                XCTAssertEqual(payload.unknownFields["futureField"], .int(8))
             case .unrecognized:
                 XCTFail("Every pinned alpha.20 login arm must remain generated")
             }

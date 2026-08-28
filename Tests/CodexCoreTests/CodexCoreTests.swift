@@ -184,7 +184,7 @@ final class CodexCoreTests: XCTestCase {
 
     func testPinnedRuntimeVersionParserAcceptsPatchDifferenceWithWarning() throws {
         let warning = try Codex.validatePinnedRuntimeVersionOutput(
-            "codex-cli 0.149.1",
+            "codex-cli 0.150.2",
             executablePath: "/test/codex"
         )
 
@@ -193,7 +193,7 @@ final class CodexCoreTests: XCTestCase {
             CodexRuntimeVersionWarning(
                 path: "/test/codex",
                 expected: CodexPinnedRuntime.descriptor,
-                actual: "codex-cli 0.149.1"
+                actual: "codex-cli 0.150.2"
             )
         )
     }
@@ -219,7 +219,7 @@ final class CodexCoreTests: XCTestCase {
         }
     }
 
-    /// The documented 0.148 floor remains usable after generating from 0.149.
+    /// The documented 0.148 floor remains usable after generating from 0.150.
     func testPinnedRuntimeVersionParserAcceptsSupportedOlderMinorWithWarning() throws {
         let warning = try Codex.validatePinnedRuntimeVersionOutput(
             "codex-cli 0.148.0",
@@ -250,7 +250,7 @@ final class CodexCoreTests: XCTestCase {
 
     func testPinnedRuntimeVersionParserRejectsNewerMinorUntilRegenerated() {
         XCTAssertThrowsError(try Codex.validatePinnedRuntimeVersionOutput(
-            "codex-cli 0.150.0",
+            "codex-cli 0.151.0",
             executablePath: "/test/codex"
         )) { error in
             guard case CodexSDKError.runtimeVersionMismatch = error else {

@@ -4,12 +4,12 @@ import XCTest
 final class ProtocolStateAdapterTests: XCTestCase {
     private let adapter = ProtocolStateAdapter()
 
-    func testGA149NotificationDispositionInventoryIsExhaustive() throws {
+    func testGA150NotificationDispositionInventoryIsExhaustive() throws {
         XCTAssertEqual(
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
         )
-        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 75)
+        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 79)
         XCTAssertEqual(
             Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count,
             CodexAppServerNotificationMethod.allCases.count
@@ -32,7 +32,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
-    func testEveryGA149StateNotificationHasAValidFixtureAndProducesAMutation() throws {
+    func testEveryGA150StateNotificationHasAValidFixtureAndProducesAMutation() throws {
         let fixtures = try stateNotificationFixtures()
         let stateMethods = Set(CodexAppServerNotificationMethod.allCases.filter {
             expectedDisposition(for: $0) == .state
@@ -46,7 +46,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
 
         for method in CodexAppServerNotificationMethod.allCases where stateMethods.contains(method) {
-            let params = try XCTUnwrap(fixtures[method], "Missing 0.149.0 GA fixture for \(method.rawValue)")
+            let params = try XCTUnwrap(fixtures[method], "Missing 0.150.1 GA fixture for \(method.rawValue)")
             let adaptation = try adapter.adaptNotification(method: method, params: params)
 
             XCTAssertEqual(adaptation.disposition, .state, method.rawValue)
@@ -844,11 +844,13 @@ final class ProtocolStateAdapterTests: XCTestCase {
 
         case .skillsChanged, .threadQueueChanged, .projectChanged,
              .commandExecOutputDelta, .processOutputDelta, .processExited,
-             .mcpServerOAuthLoginCompleted,
+             .mcpServerOAuthLoginCompleted, .mcpServerEventStreamNotification,
              .appListUpdated, .remoteControlStatusChanged,
              .externalAgentConfigImportProgress, .externalAgentConfigImportCompleted,
              .fsChanged, .fuzzyFileSearchSessionUpdated, .fuzzyFileSearchSessionCompleted,
              .threadRealtimeStarted, .threadRealtimeItemAdded,
+             .threadRealtimeItemStarted, .threadRealtimeItemTranscriptDelta,
+             .threadRealtimeItemCompleted,
              .threadRealtimeTranscriptDelta, .threadRealtimeTranscriptDone,
              .threadRealtimeOutputAudioDelta, .threadRealtimeSdp,
              .threadRealtimeError, .threadRealtimeClosed,

@@ -495,6 +495,7 @@ public struct CodexHookSummary: Identifiable, Equatable, Sendable {
         case .userPromptSubmit: "UserPromptSubmit"
         case .subagentStart: "SubagentStart"
         case .subagentStop: "SubagentStop"
+        case .interrupt: "Interrupt"
         case .stop: "Stop"
         case .unrecognized(let value): value
         }

@@ -19,10 +19,30 @@ extension Codex {
         try await perform(CodexRequest.mcpServerResourceRead(params))
     }
 
+    @discardableResult
+    public func mcpServerEventStreamStart(
+        _ params: CodexSchemaMCPServerEventStreamStartParams
+    ) async throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: await perform(CodexRequest.mcpServerEventStreamStart(params)))
+    }
+
+    @discardableResult
+    public func mcpServerEventStreamStop(
+        _ params: CodexSchemaMCPServerEventStreamStopParams
+    ) async throws -> CodexJSONValue {
+        try CodexJSONValue(encoding: await perform(CodexRequest.mcpServerEventStreamStop(params)))
+    }
+
     public func mcpServerToolCall(
         _ params: CodexSchemaMCPServerToolCallParams
     ) async throws -> CodexSchemaMCPServerToolCallResponse {
         try await perform(CodexRequest.mcpServerToolCall(params))
+    }
+
+    public func threadTimelineList(
+        _ params: CodexSchemaThreadTimelineListParams
+    ) async throws -> CodexSchemaThreadTimelineListResponse {
+        try await perform(CodexRequest.threadTimelineList(params))
     }
 
     @discardableResult

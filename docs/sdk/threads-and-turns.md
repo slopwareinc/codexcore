@@ -73,6 +73,10 @@ for try await event in events {
 }
 ```
 
+Codex 0.150 also emits item-scoped `.itemStarted`, `.itemTranscriptDelta`, and
+`.itemCompleted` events. Use them when reconstructing the realtime session's
+typed item timeline; the older session-level transcript events remain available.
+
 Desktop clients authenticated with ChatGPT use WebRTC: create the browser or
 webview offer first, send it with `codexVoiceWebRTC`, and apply the later
 `thread/realtime/sdp` event as the remote answer. Websocket clients may omit
