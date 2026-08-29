@@ -1,6 +1,8 @@
+import AppKit
 import Foundation
 import GhosttyTerminal
 import CodexCore
+import SwiftUI
 import XCTest
 @testable import CodexCoreUI
 
@@ -35,71 +37,284 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
     @MainActor
     func testPanelStateOpensNumberedToolsAndSelectsLatest() {
-        let panel = CodexWorkspacePanelState()
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
 
-        let firstTerminal = panel.openTerminal(workspacePath: "/tmp")
+        let firstTerminal = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
         let firstBrowser = panel.openBrowser()
 
         XCTAssertEqual(panel.terminalSessions.count, 1)
         XCTAssertEqual(panel.browserSessions.count, 1)
-        XCTAssertEqual(panel.terminalSessions.first?.title, "Terminal")
+        XCTAssertEqual(panel.terminalSessions.first?.title, "swift test")
         XCTAssertEqual(panel.browserSessions.first?.title, "Browser")
         // The most-recently opened tool becomes selected.
-        XCTAssertEqual(
-            panel.workspaceTabs.snapshot.topology.right.activeTab,
-            .legacy(firstBrowser)
-        )
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(firstBrowser))
 
-        let secondTerminal = panel.openTerminal(workspacePath: "/tmp")
-        XCTAssertEqual(panel.terminalSessions.last?.title, "Terminal 2")
+        let secondTerminal = panel.openTerminal(workspacePath: "/tmp", command: "swift build")
+        XCTAssertEqual(panel.terminalSessions.last?.title, "swift build")
         XCTAssertEqual(
-            panel.workspaceTabs.snapshot.topology.right.activeTab,
-            .legacy(secondTerminal)
+            panel.workspaceTabs.snapshot.topology.bottom.activeTabID,
+            panel.terminalTabID(for: secondTerminal)
         )
         XCTAssertNotEqual(firstTerminal, secondTerminal)
         XCTAssertTrue(panel.hasOpenTools)
     }
 
     @MainActor
-    func testMountedToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
+    func testTerminalsUseWorkspaceTabsAndClosingTheTabReleasesTheSession() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(
+            workspacePath: "/tmp/worktree",
+            command: "/bin/zsh -lc 'swift test'"
+        )
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+
+        XCTAssertEqual(session.title, "swift test")
+        XCTAssertEqual(session.identity.threadID, "thread-235")
+        XCTAssertEqual(session.identity.worktreePath, "/tmp/worktree")
+        XCTAssertEqual(panel.workspaceTabs.placement(of: tabID), .bottom)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.activeTabID, tabID)
+        XCTAssertEqual(
+            panel.workspaceTabs.snapshot.instance(id: tabID)?.durableRoute?.resourceID,
+            session.id
+        )
+
+        panel.workspaceTabs.close(tabID)
+
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+        XCTAssertNil(panel.workspaceTabs.snapshot.instance(id: tabID))
+    }
+
+    @MainActor
+    func testUnfocusedTerminalDoesNotStealFocusButIsRetainedInBottomPanel() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let foregroundID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let foregroundTab = try XCTUnwrap(panel.terminalTabID(for: foregroundID))
+        let backgroundID = panel.openTerminal(
+            workspacePath: "/tmp",
+            command: "swift build",
+            focus: false
+        )
+        let backgroundTab = try XCTUnwrap(panel.terminalTabID(for: backgroundID))
+
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.activeTabID, foregroundTab)
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.bottom.orderedTabIDs, [foregroundTab, backgroundTab])
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.focusedPlacement, .bottom)
+        XCTAssertTrue(panel.terminalSessions.contains { $0.id == backgroundID })
+    }
+
+    @MainActor
+    func testMovingAndHidingTerminalKeepsTheSamePTYHostAndSuspendsDisplay() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let hostIdentity = session.terminalHostIdentity
+
+        panel.workspaceTabs.move(tabID, to: .right)
+        panel.workspaceTabs.move(tabID, to: .bottom)
+        session.setSurfaceVisible(false)
+        session.setSurfaceVisible(false)
+
+        XCTAssertEqual(session.terminalHostIdentity, hostIdentity)
+        XCTAssertFalse(session.isSurfaceVisible)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, 1)
+
+        session.setSurfaceVisible(true)
+        XCTAssertEqual(session.terminalHostIdentity, hostIdentity)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, 2)
+        session.restoreFocus()
+        XCTAssertEqual(session.focusRestoreRequestCount, 1)
+    }
+
+    @MainActor
+    func testWorkspaceTabVisibilityCallbackSuspendsHiddenTerminalDisplayWork() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+
+        panel.workspaceTabs.setVisibility(false, for: tabID)
+        XCTAssertFalse(session.isSurfaceVisible)
+        let changes = session.surfaceVisibilityChangeCount
+        panel.workspaceTabs.setVisibility(false, for: tabID)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, changes)
+
+        panel.workspaceTabs.setVisibility(true, for: tabID)
+        XCTAssertTrue(session.isSurfaceVisible)
+        XCTAssertEqual(session.surfaceVisibilityChangeCount, changes + 1)
+    }
+
+    @MainActor
+    func testUndoingTerminalCloseRestoresTheRetainedSessionAndTabIdentity() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let tabID = try XCTUnwrap(panel.terminalTabID(for: terminalID))
+        let session = try XCTUnwrap(panel.terminalSessions.first)
+        let hostIdentity = session.terminalHostIdentity
+
+        panel.workspaceTabs.close(tabID)
+        XCTAssertTrue(panel.terminalSessions.isEmpty)
+
+        let restoredTabID = try XCTUnwrap(panel.workspaceTabs.undoClose())
+        XCTAssertEqual(restoredTabID, tabID)
+        XCTAssertEqual(panel.terminalSessions.count, 1)
+        XCTAssertEqual(panel.terminalSessions.first?.terminalHostIdentity, hostIdentity)
+        XCTAssertEqual(panel.terminalTabID(for: terminalID), tabID)
+    }
+
+    @MainActor
+    func testRestoredTerminalRouteRegistersAndRecreatesItsHostAutomatically() throws {
+        let source = CodexWorkspacePanelState(threadID: "thread-235")
+        let terminalID = source.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let secondTerminalID = source.openTerminal(workspacePath: "/tmp", command: "swift build")
+        let originalTabID = try XCTUnwrap(source.terminalTabID(for: terminalID))
+        let secondTabID = try XCTUnwrap(source.terminalTabID(for: secondTerminalID))
+        let originalContentID = try XCTUnwrap(source.workspaceTabs.snapshot.instance(id: originalTabID)?.contentID)
+
+        let restored = CodexWorkspacePanelState(
+            threadID: "thread-235",
+            restorationState: source.workspaceTabRestorationState
+        )
+        XCTAssertTrue(restored.terminalSessions.isEmpty)
+        restored.workspaceTabs.register(restored.terminalWorkspaceTabAdapters)
+        restored.workspaceTabs.activate(originalTabID)
+        XCTAssertTrue(restored.terminalSessions.isEmpty)
+        XCTAssertNotNil(restored.workspaceTabs.content(for: originalTabID))
+        let reopenedTerminalID = try XCTUnwrap(restored.terminalSessions.first?.id)
+        let reopenedTabID = try XCTUnwrap(restored.terminalTabID(for: reopenedTerminalID))
+        XCTAssertEqual(restored.terminalSessions.count, 1)
+        XCTAssertNil(restored.terminalSessions.first { $0.id == secondTerminalID })
+        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, reopenedTabID)
+        restored.workspaceTabs.activate(secondTabID)
+        XCTAssertNotNil(restored.workspaceTabs.content(for: secondTabID))
+        XCTAssertEqual(restored.terminalSessions.count, 2)
+
+        XCTAssertEqual(reopenedTabID, originalTabID)
+        XCTAssertEqual(
+            restored.workspaceTabs.snapshot.instance(id: reopenedTabID)?.contentID,
+            originalContentID
+        )
+        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, secondTabID)
+    }
+
+    @MainActor
+    func testTerminalSessionAppliesGhosttyScrollbackLimitAtTheHostSeam() {
+        let session = CodexTerminalSession(
+            workingDirectory: "/tmp",
+            command: "swift test",
+            scrollbackLimitBytes: 8 * 1024
+        )
+
+        XCTAssertEqual(session.scrollbackLimitBytes, 8 * 1024)
+        XCTAssertTrue(
+            session.state.terminalConfiguration.rendered
+                .contains("scrollback-limit = 8192")
+        )
+        XCTAssertTrue(session.state.renderedConfig.contains("scrollback-limit = 8192"))
+    }
+
+    @MainActor
+    func testBackgroundTerminalDetailsUseCanonicalProcessIdentityAndSupportedAction() throws {
+        let terminal = CanonicalBackgroundTerminal(
+            processID: "server-process-1",
+            command: "npm run dev",
+            cwd: .string("/tmp"),
+            itemID: "item-1"
+        )
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: terminal,
+            onTerminate: {}
+        )
+        let registration = adapter.workspaceTabRegistration
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(
+            adapter,
+            from: .summary
+        )
+
+        XCTAssertEqual(registration.resourceKey, "codex.background-terminal:thread-235:server-process-1")
+        XCTAssertEqual(tabs.snapshot.instance(id: tabID)?.title, "npm run dev")
+        XCTAssertNil(tabs.snapshot.instance(id: tabID)?.durableRoute)
+        XCTAssertNotNil(tabs.content(for: tabID))
+
+        tabs.register([
+            CodexBackgroundTerminalWorkspaceTabAdapter(
+                threadID: ThreadID("thread-235"),
+                terminal: CanonicalBackgroundTerminal(
+                    processID: "server-process-1",
+                    command: "npm run dev -- --host",
+                    cwd: .string("/tmp"),
+                    itemID: "item-2"
+                ),
+                onTerminate: {}
+            )
+        ])
+
+        XCTAssertTrue(tabs.isAvailable(tabID))
+        XCTAssertEqual(tabs.snapshot.instance(id: tabID)?.title, "npm run dev -- --host")
+    }
+
+    @MainActor
+    func testExpiredBackgroundTerminalDetailRouteFailsClosedWhenFactsDisappear() throws {
+        let terminal = CanonicalBackgroundTerminal(
+            processID: "expired-process",
+            command: "npm run dev",
+            cwd: .string("/tmp"),
+            itemID: "item-1"
+        )
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: terminal,
+            onTerminate: {}
+        )
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(adapter, from: .summary)
+
+        tabs.register([])
+
+        XCTAssertFalse(tabs.isAvailable(tabID))
+        XCTAssertFalse(tabs.snapshot.instance(id: tabID)?.isMaterialized ?? true)
+        XCTAssertNil(tabs.content(for: tabID))
+    }
+
+    @MainActor
+    func testClosingBackgroundTerminalDetailDoesNotTerminateUntilExplicitAction() throws {
+        var terminated = false
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: CanonicalBackgroundTerminal(
+                processID: "process-1",
+                command: "npm run dev",
+                cwd: .string("/tmp"),
+                itemID: "item-1"
+            ),
+            onTerminate: { terminated = true }
+        )
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(adapter, from: .summary)
+
+        tabs.close(tabID)
+
+        XCTAssertFalse(terminated)
+        XCTAssertEqual(tabs.undoClose(), tabID)
+    }
+
+    @MainActor
+    func testMountedProcessSessionsDeduplicateEachCategoryInFirstSeenOrder() {
         let first = CodexWorkspacePanelState()
-        first.terminalSessions = [
-            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp"),
-            CodexTerminalSession(id: "terminal-first", workingDirectory: "/tmp"),
-        ]
         first.browserSessions = [CodexBrowserSession(id: "browser-shared")]
-        first.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp"))
-        first.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-        ]
 
         let second = CodexWorkspacePanelState()
-        second.terminalSessions = [
-            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp/other"),
-            CodexTerminalSession(id: "terminal-second", workingDirectory: "/tmp"),
-        ]
         second.browserSessions = [
             CodexBrowserSession(id: "browser-shared"),
             CodexBrowserSession(id: "browser-second"),
         ]
-        second.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp/other"))
-        second.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/second.swift")),
-        ]
 
         let mounted = CodexMountedWorkspaceToolSessions(panels: [first, second])
 
-        XCTAssertEqual(mounted.terminal.map(\.id), ["terminal-shared", "terminal-first", "terminal-second"])
         XCTAssertEqual(mounted.browser.map(\.id), ["browser-shared", "browser-second"])
-        XCTAssertEqual(mounted.files.map(\.id), ["files-shared"])
-        XCTAssertEqual(
-            mounted.filePreview.map(\.id),
-            [
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/shared.swift"), ref: nil),
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/second.swift"), ref: nil),
-            ]
-        )
     }
 
     @MainActor
@@ -109,8 +324,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         let second = panel.openFiles(workspacePath: "/tmp/other")
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(panel.filesSession?.id, first)
-        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .workspace(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.instance(id: first)?.title, "Files")
         XCTAssertEqual(panel.filesSession?.rootURL.path, "/tmp/workspace")
         XCTAssertTrue(panel.hasOpenTools)
     }
@@ -126,8 +341,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             from: .summary
         )
 
-        panel.workspaceTabs.activateLegacy(files)
-        panel.closeFiles(id: files)
+        panel.workspaceTabs.activate(files)
+        panel.workspaceTabs.close(files)
         XCTAssertNil(panel.filesSession)
         XCTAssertEqual(
             panel.workspaceTabs.snapshot.topology.right.activeTab,
@@ -149,6 +364,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             panel.workspaceTabs.snapshot.topology.right.activeTab,
             .workspace(planID)
         )
+        panel.workspaceTabs.close(planID)
         XCTAssertFalse(panel.hasOpenTools)
     }
 
@@ -350,6 +566,84 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(entries.map(\.kind), [.directory, .file])
     }
 
+    func testFileTreeLoaderBoundsDirectoryEntries() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        for index in 0..<(CodexFileTreeLoader.maximumEntriesPerDirectory + 25) {
+            FileManager.default.createFile(
+                atPath: workspace.appendingPathComponent("File-\(index).txt").path,
+                contents: Data()
+            )
+        }
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace)
+
+        XCTAssertEqual(entries.count, CodexFileTreeLoader.maximumEntriesPerDirectory)
+    }
+
+    func testFileTreeLoaderCancellationStopsSupersededEnumeration() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        for index in 0..<64 {
+            FileManager.default.createFile(
+                atPath: workspace.appendingPathComponent("File-\(index).txt").path,
+                contents: Data()
+            )
+        }
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace) {
+            throw CancellationError()
+        }
+
+        XCTAssertTrue(entries.isEmpty, "a superseded outline load must not publish partial children")
+    }
+
+    @MainActor
+    func testMountedFilesDismantleCancelsPendingEnumerationAndDropsStaleChildren() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        let staleURL = workspace.appendingPathComponent("stale.swift")
+        let probe = FileTreeLoadProbe()
+        let session = CodexFilesSession(rootURL: workspace, childrenLoader: { url in
+            await probe.started(url)
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                await probe.cancelled(url)
+                return [CodexFileTreeEntry(url: staleURL, name: "stale.swift", kind: .file)]
+            }
+            await probe.finished(url)
+            return []
+        })
+        let model = FilesDismantleHarnessModel()
+        let hosting = NSHostingView(rootView: FilesDismantleHarness(model: model, session: session))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 640)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        pumpMainRunLoop()
+        let outline = try XCTUnwrap(firstFileOutline(in: hosting))
+        _ = outline.dataSource?.outlineView?(outline, numberOfChildrenOfItem: nil)
+        pumpMainRunLoop()
+
+        let started = await probe.waitForStart(workspace)
+        XCTAssertTrue(started)
+
+        model.isVisible = false
+        hosting.layoutSubtreeIfNeeded()
+        pumpMainRunLoop()
+
+        let cancelled = await probe.waitForCancellation(workspace)
+        XCTAssertTrue(cancelled)
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(session.rootNode.areChildrenLoaded, "cancelled enumeration must not publish stale children")
+    }
+
     func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {
         let workspace = try makeTemporaryWorkspace()
         let target = workspace.appendingPathComponent("target")
@@ -458,5 +752,65 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    @MainActor
+    private func pumpMainRunLoop() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    @MainActor
+    private func firstFileOutline(in view: NSView) -> NSOutlineView? {
+        if let outline = view as? NSOutlineView { return outline }
+        for child in view.subviews {
+            if let outline = firstFileOutline(in: child) { return outline }
+        }
+        return nil
+    }
+}
+
+@MainActor
+private final class FilesDismantleHarnessModel: ObservableObject {
+    @Published var isVisible = true
+}
+
+private struct FilesDismantleHarness: View {
+    @ObservedObject var model: FilesDismantleHarnessModel
+    let session: CodexFilesSession
+
+    var body: some View {
+        Group {
+            if model.isVisible {
+                CodexFilesToolView(session: session)
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
+private actor FileTreeLoadProbe {
+    private var startedPaths: Set<String> = []
+    private var cancelledPaths: Set<String> = []
+    private var finishedPaths: Set<String> = []
+
+    func started(_ url: URL) { startedPaths.insert(url.path) }
+    func cancelled(_ url: URL) { cancelledPaths.insert(url.path) }
+    func finished(_ url: URL) { finishedPaths.insert(url.path) }
+
+    func waitForStart(_ url: URL) async -> Bool {
+        await wait { startedPaths.contains(url.path) }
+    }
+
+    func waitForCancellation(_ url: URL) async -> Bool {
+        await wait { cancelledPaths.contains(url.path) }
+    }
+
+    private func wait(_ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if predicate() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return predicate()
     }
 }

@@ -80,6 +80,24 @@ Callers never construct or switch on tab IDs. Persist
 `CodexWorkspacePanelState.init` or apply it before opening live tools. Only
 routes and per-tab presentation state are durable. Current Plan/Review facts
 remain disposable projections and are supplied again after restoration.
+Terminal sessions use the same adapter seam; `openTerminal` targets the bottom
+panel by default. Server-owned background-terminal facts are exposed through a
+metadata/detail adapter with the supported terminate action; the protocol does
+not expose a stream-attachment endpoint, so the UI never fabricates a Ghostty
+host for those rows. Keep the panel state alive outside the SwiftUI view tree
+so moving, hiding, and restoring an interactive terminal never creates a second
+host. Restored interactive routes register lazily and create their PTY only when
+the user activates the tab; missing canonical background facts remain
+unavailable rather than producing a blank detail surface.
+
+Files are opened through the public panel facade:
+`panel.openFiles(workspacePath:)` registers the workspace browser and
+`panel.openFilePreview(fileURL:ref:)` opens a typed file/ref preview. The
+package-internal adapters own replacement, pinning, and active-only editor
+policy; hosts persist `workspaceTabRestorationState` rather than constructing
+those adapters directly. The current implementation accepts only files from
+the active workspace; a non-`nil` ref is rejected with an explicit preview
+notice until a bounded ref resolver is supplied.
 
 When a host exposes recursive agent work, pass the active
 `CodexSubagentPresentationCoordinator` as `subagentCoordinator` to

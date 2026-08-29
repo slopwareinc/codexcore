@@ -82,7 +82,8 @@ enum CodexFilePreviewState: Sendable {
 
 /// Loads and highlights a file. Every call is self-contained — it creates its
 /// own tree-sitter parser/query locally and returns only `Sendable` values, so
-/// it is safe to run from a detached task under strict concurrency.
+/// an owning off-main task can cancel and discard it safely under strict
+/// concurrency.
 enum CodexFilePreviewLoader {
     /// Hard cap on bytes we will read into memory for preview.
     static let maxByteSize = 2 * 1024 * 1024
@@ -90,7 +91,46 @@ enum CodexFilePreviewLoader {
     static let maxHighlightBytes = 512 * 1024
 
     static func load(url: URL) -> CodexFilePreviewState {
+        loadImplementation(url: url, checkpoint: {})
+    }
+
+    static func load(reference: CodexWorkspaceFileReference) -> CodexFilePreviewState {
+        guard reference.ref == nil else {
+            return .notice("Only files from the current workspace can be previewed.")
+        }
+        return load(url: reference.fileURL)
+    }
+
+    /// Structured owners use this entry point so cancellation propagates into
+    /// the off-main worker instead of leaving an unowned detached task behind.
+    @concurrent
+    nonisolated static func loadAsync(url: URL) async throws -> CodexFilePreviewState {
+        try Task.checkCancellation()
+        return try loadImplementation(url: url) {
+            try Task.checkCancellation()
+        }
+    }
+
+    @concurrent
+    nonisolated static func loadAsync(
+        reference: CodexWorkspaceFileReference
+    ) async throws -> CodexFilePreviewState {
+        try Task.checkCancellation()
+        guard reference.ref == nil else {
+            return .notice("Only files from the current workspace can be previewed.")
+        }
+        return try loadImplementation(url: reference.fileURL) {
+            try Task.checkCancellation()
+        }
+    }
+
+    private static func loadImplementation(
+        url: URL,
+        checkpoint: @Sendable () throws -> Void
+    ) rethrows -> CodexFilePreviewState {
+        try checkpoint()
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        try checkpoint()
         if values?.isDirectory == true { return .empty }
 
         if let size = values?.fileSize, size > maxByteSize {
@@ -98,17 +138,33 @@ enum CodexFilePreviewLoader {
             return .notice("File is too large to preview (\(human)).")
         }
 
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+              let data = try? handle.read(upToCount: maxByteSize + 1) else {
             return .notice("Unable to read this file.")
         }
+        defer { try? handle.close() }
+        try checkpoint()
+        if data.count > maxByteSize {
+            let reportedSize: Int64 = values?.fileSize.map(Int64.init) ?? Int64(data.count)
+            let human = ByteCountFormatter.string(
+                fromByteCount: reportedSize,
+                countStyle: .file
+            )
+            return .notice("File is too large to preview (\(human)).")
+        }
         if isBinary(data) {
+            try checkpoint()
             return .notice("Binary file — no preview available.")
         }
-        guard let text = decodeText(data) else {
+        let text = decodeText(data)
+        try checkpoint()
+        guard let text else {
             return .notice("Unable to decode this file as text.")
         }
 
+        try checkpoint()
         let spans = data.count <= maxHighlightBytes ? highlight(text: text, url: url) : []
+        try checkpoint()
         return .text(text, spans)
     }
 
@@ -199,28 +255,51 @@ enum CodexFilePreviewLoader {
 @MainActor
 final class CodexFilePreviewModel: ObservableObject {
     @Published private(set) var state: CodexFilePreviewState = .empty
+    @Published private(set) var contentIdentity: UUID?
 
-    private var currentURL: URL?
+    private var currentFile: CodexWorkspaceFileReference?
     private var loadTask: Task<Void, Never>?
+    private let loader: @Sendable (CodexWorkspaceFileReference) async throws -> CodexFilePreviewState
 
-    func update(url: URL?) {
-        guard url != currentURL else { return }
-        currentURL = url
+    init(
+        loader: @escaping @Sendable (CodexWorkspaceFileReference) async throws -> CodexFilePreviewState = CodexFilePreviewLoader.loadAsync(reference:)
+    ) {
+        self.loader = loader
+    }
+
+    deinit { loadTask?.cancel() }
+
+    func update(file: CodexWorkspaceFileReference?) {
+        guard file != currentFile else { return }
+        currentFile = file
         loadTask?.cancel()
+        contentIdentity = nil
 
-        guard let url else {
+        guard let file else {
             state = .empty
             return
         }
 
         state = .loading
-        loadTask = Task { [url] in
-            let result = await Task.detached(priority: .userInitiated) {
-                CodexFilePreviewLoader.load(url: url)
-            }.value
-            guard !Task.isCancelled else { return }
-            self.state = result
+        loadTask = Task { [weak self, loader] in
+            do {
+                let result = try await loader(file)
+                guard !Task.isCancelled else { return }
+                guard let self, self.currentFile == file else { return }
+                if case .text = result { self.contentIdentity = UUID() }
+                self.state = result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                guard let self, self.currentFile == file else { return }
+                self.state = .notice("Unable to read this file.")
+            }
         }
+    }
+
+    func update(url: URL?) {
+        update(file: url.map { CodexWorkspaceFileReference(fileURL: $0) })
     }
 }
 
@@ -228,16 +307,81 @@ final class CodexFilePreviewModel: ObservableObject {
 
 struct CodexFilePreviewView: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.codexWorkspaceTabInteraction) private var tabInteraction
     @StateObject private var model = CodexFilePreviewModel()
 
-    let url: URL?
+    let file: CodexWorkspaceFileReference
+    @Binding var tabState: CodexWorkspaceTabState
+
+    init(
+        file: CodexWorkspaceFileReference,
+        tabState: Binding<CodexWorkspaceTabState>
+    ) {
+        self.file = file
+        self._tabState = tabState
+    }
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.colors.codeBackground)
-            .onAppear { model.update(url: url) }
-            .onChange(of: url) { _, newValue in model.update(url: newValue) }
+        VStack(spacing: 0) {
+            toolbar
+            Divider().overlay(theme.colors.border)
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(theme.colors.codeBackground)
+        .onAppear { model.update(file: file) }
+        .onChange(of: file.id) { _, _ in model.update(file: file) }
+    }
+
+    private var previewState: CodexFilePreviewTabState {
+        CodexFilePreviewTabState(tabState: tabState)
+    }
+
+    private var searchBinding: Binding<String> {
+        Binding(
+            get: { previewState.searchQuery },
+            set: { value in
+                var next = previewState
+                next.searchQuery = value
+                tabState = next.tabState
+                tabInteraction()
+            }
+        )
+    }
+
+    private var lineBinding: Binding<String> {
+        Binding(
+            get: { previewState.goToLine.map(String.init) ?? "" },
+            set: { value in
+                var next = previewState
+                next.goToLine = Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+                tabState = next.tabState
+                tabInteraction()
+            }
+        )
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(theme.colors.textTertiary)
+            Text(file.displayName)
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            TextField("Find", text: searchBinding)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 150)
+                .onSubmit { tabInteraction() }
+            TextField("Line", text: lineBinding)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 58)
+                .onSubmit { tabInteraction() }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 38)
     }
 
     @ViewBuilder
@@ -252,7 +396,16 @@ struct CodexFilePreviewView: View {
         case let .notice(message):
             placeholder(message, symbol: "doc.questionmark")
         case let .text(text, spans):
-            CodexCodeTextView(text: text, spans: spans, theme: theme)
+            CodexCodeTextView(
+                text: text,
+                spans: spans,
+                theme: theme,
+                searchQuery: previewState.searchQuery,
+                goToLine: previewState.goToLine,
+                contentIdentity: model.contentIdentity
+            )
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded(tabInteraction))
         }
     }
 
@@ -271,43 +424,15 @@ struct CodexFilePreviewView: View {
     }
 }
 
-// MARK: - Session
-
-/// A single open file-preview tab in the workspace tool deck. Identity is the
-/// file URL combined with an optional ref, so the same file at different refs
-/// (e.g. working tree vs. a commit) each get their own unique tab.
-@MainActor
-public final class CodexFilePreviewSession: ObservableObject, Identifiable {
-    public let id: String
-    public let fileURL: URL
-    public let ref: String?
-
-    public init(fileURL: URL, ref: String? = nil) {
-        let standardized = fileURL.standardizedFileURL
-        self.fileURL = standardized
-        self.ref = ref
-        self.id = Self.identity(fileURL: standardized, ref: ref)
-    }
-
-    public var title: String {
-        let name = fileURL.lastPathComponent
-        guard let ref, !ref.isEmpty else { return name }
-        return "\(name)@\(ref)"
-    }
-
-    /// Stable identity for a file/ref pair, so re-opening the same combination
-    /// re-activates the existing tab instead of spawning a duplicate.
-    public static func identity(fileURL: URL, ref: String?) -> String {
-        "filepreview:\(ref ?? "")|\(fileURL.standardizedFileURL.path)"
-    }
-}
-
 // MARK: - NSTextView bridge
 
 private struct CodexCodeTextView: NSViewRepresentable {
     let text: String
     let spans: [CodexHighlightSpan]
     let theme: CodexAgentTheme
+    let searchQuery: String
+    let goToLine: Int?
+    let contentIdentity: UUID?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -342,43 +467,77 @@ private struct CodexCodeTextView: NSViewRepresentable {
     }
 
     /// Rebuilds the attributed string only when the content actually changes,
-    /// so routine SwiftUI updates don't re-lay-out the whole document.
-    ///
-    /// The cache token includes the resolved appearance name, not just `text`
-    /// and `spans`. Theme colors are adaptive, so a pure light/dark flip with
-    /// unchanged text would otherwise leave every highlight color stale —
-    /// the token wouldn't change, so `apply` would never re-run and the file
-    /// preview would keep drawing yesterday's appearance.
+    /// so routine SwiftUI updates don't re-lay-out the whole document. The
+    /// loader supplies an O(1) identity; hashing the entire file on the main
+    /// actor would make a large preview proportional to its byte count.
     private func apply(to textView: NSTextView, coordinator: Coordinator) {
         let appearance = textView.effectiveAppearance
-        let token = text.hashValue
+        let token = (contentIdentity?.hashValue ?? 0)
             ^ (spans.count &* 2_654_435_761)
             ^ appearance.name.rawValue.hashValue
-        guard coordinator.appliedToken != token else { return }
-        coordinator.appliedToken = token
+        if coordinator.appliedToken != token {
+            coordinator.appliedToken = token
 
-        let font = theme.fonts.codeNSFont ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
-        let attributed = NSMutableAttributedString(
-            string: text,
-            attributes: [
-                .font: font,
-                // Resolved against this view's own live appearance rather
-                // than NSColor(_:) directly: converting an adaptive Color
-                // outside a draw pass resolves against whatever appearance
-                // happens to be current app-wide, not necessarily this
-                // window's. See CodexAppKitColor.
-                .foregroundColor: appearance.codexResolve(theme.colors.codeText),
-            ]
-        )
+            let font = theme.fonts.codeNSFont ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+            let attributed = NSMutableAttributedString(
+                string: text,
+                attributes: [
+                    .font: font,
+                    // Resolved against this view's own live appearance rather
+                    // than NSColor(_:) directly: converting an adaptive Color
+                    // outside a draw pass resolves against whatever appearance
+                    // happens to be current app-wide, not necessarily this
+                    // window's. See CodexAppKitColor.
+                    .foregroundColor: appearance.codexResolve(theme.colors.codeText),
+                ]
+            )
 
-        let length = (text as NSString).length
-        for span in spans where span.range.location >= 0 && NSMaxRange(span.range) <= length {
-            attributed.addAttribute(.foregroundColor, value: color(for: span.kind, appearance: appearance), range: span.range)
+            let length = (text as NSString).length
+            for span in spans where span.range.location >= 0 && NSMaxRange(span.range) <= length {
+                attributed.addAttribute(.foregroundColor, value: color(for: span.kind, appearance: appearance), range: span.range)
+            }
+
+            textView.textStorage?.setAttributedString(attributed)
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         }
 
-        textView.textStorage?.setAttributedString(attributed)
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
-        textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        if coordinator.appliedSearchQuery != searchQuery {
+            coordinator.appliedSearchQuery = searchQuery
+            selectSearchMatch(in: textView, query: searchQuery)
+        }
+        if coordinator.appliedLine != goToLine {
+            coordinator.appliedLine = goToLine
+            scroll(toLine: goToLine, in: textView)
+        }
+    }
+
+    private func selectSearchMatch(in textView: NSTextView, query: String) {
+        guard !query.isEmpty,
+              let text = textView.string.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) else {
+            return
+        }
+        let range = NSRange(text, in: textView.string)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+    }
+
+    private func scroll(toLine line: Int?, in textView: NSTextView) {
+        guard let line, line > 0 else { return }
+        let text = textView.string as NSString
+        let targetLine = min(line, 100_000)
+        var location = 0
+        if targetLine > 1 {
+            for _ in 1..<targetLine {
+                let range = text.range(of: "\\n", options: [], range: NSRange(location: location, length: text.length - location))
+                guard range.location != NSNotFound else { break }
+                location = NSMaxRange(range)
+            }
+        }
+        guard location <= text.length else { return }
+        let range = NSRange(location: location, length: min(1, text.length - location))
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
     }
 
     /// Maps token buckets onto existing theme tokens so colours stay coherent
@@ -401,5 +560,7 @@ private struct CodexCodeTextView: NSViewRepresentable {
 
     final class Coordinator {
         var appliedToken: Int?
+        var appliedSearchQuery: String?
+        var appliedLine: Int?
     }
 }

@@ -409,7 +409,8 @@ public extension CanonicalStateSnapshot {
             return CanonicalStateSnapshot(
                 revision: revision,
                 account: account,
-                mcpServerStartupStatuses: mcpServerStartupStatuses
+                mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals
             )
 
         case .threads(let selectedThreadIDs):
@@ -423,6 +424,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,
@@ -452,6 +454,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,
@@ -484,6 +487,7 @@ public extension CanonicalStateSnapshot {
                 revision: revision,
                 account: account,
                 mcpServerStartupStatuses: mcpServerStartupStatuses,
+                backgroundTerminals: backgroundTerminals.filter { selectedThreadIDs.contains($0.key) },
                 threadOrder: threadOrder.filter(selectedThreadIDs.contains),
                 threads: scopedThreads,
                 turns: scopedTurns,

@@ -41,7 +41,10 @@ final class CodexWorkspacePanelStore {
         if let existing = states[key] {
             return existing
         }
-        let created = CodexWorkspacePanelState(panelWidth: defaultPanelWidth)
+        let created = CodexWorkspacePanelState(
+            panelWidth: defaultPanelWidth,
+            threadID: threadID
+        )
         states[key] = created
         evictIfNeeded()
         return created

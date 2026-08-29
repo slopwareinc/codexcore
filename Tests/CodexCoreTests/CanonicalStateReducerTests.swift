@@ -2,6 +2,50 @@ import XCTest
 @testable import CodexCore
 
 final class CanonicalStateReducerTests: XCTestCase {
+    func testBackgroundTerminalPagesReplaceAppendAndTerminateCanonically() throws {
+        var reducer = CanonicalStateReducer()
+        var graph = CanonicalStateGraph()
+        let terminal = CanonicalBackgroundTerminal(
+            processID: "process-1",
+            command: "sleep 10",
+            cwd: .string("/tmp"),
+            itemID: "item-1"
+        )
+        _ = reducer.apply(.backgroundTerminalsPage(
+            threadID: "thread-1",
+            terminals: [terminal],
+            nextCursor: "older",
+            replacesExisting: true
+        ), to: &graph)
+        XCTAssertEqual(graph.backgroundTerminals["thread-1"]?.terminals, [terminal])
+        XCTAssertEqual(graph.backgroundTerminals["thread-1"]?.nextCursor, "older")
+
+        let second = CanonicalBackgroundTerminal(
+            processID: "process-2",
+            command: "tail -f log",
+            cwd: .string("/tmp"),
+            itemID: "item-2"
+        )
+        _ = reducer.apply(.backgroundTerminalsPage(
+            threadID: "thread-1",
+            terminals: [second],
+            nextCursor: nil,
+            replacesExisting: false
+        ), to: &graph)
+        XCTAssertEqual(
+            graph.backgroundTerminals["thread-1"]?.terminals.map(\.processID),
+            ["process-1", "process-2"]
+        )
+
+        _ = reducer.apply(.backgroundTerminalRemoved(
+            threadID: "thread-1",
+            processID: "process-1"
+        ), to: &graph)
+        XCTAssertEqual(graph.backgroundTerminals["thread-1"]?.terminals, [second])
+        _ = reducer.apply(.backgroundTerminalsRemoved(threadID: "thread-1"), to: &graph)
+        XCTAssertNil(graph.backgroundTerminals["thread-1"])
+    }
+
     func testHistoryPageCannotRegressLiveTerminalTurnOrCompletedItem() throws {
         var reducer = CanonicalStateReducer()
         var graph = CanonicalStateGraph()

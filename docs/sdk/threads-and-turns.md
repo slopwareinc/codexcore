@@ -30,6 +30,12 @@ let terminal = try await turn.awaitTerminal(timeout: .seconds(600))
 
 `runTurn` combines these steps. The returned `CodexTerminalTurn` is one atomic canonical projection containing the terminal turn and its items.
 
+Server-owned background processes are available through the same lease-scoped
+session: `listBackgroundTerminals(threadID:)` refreshes the canonical process
+rows, while `terminateBackgroundTerminal` and `cleanBackgroundTerminals` issue
+explicit mutations. A background-terminal list page never overwrites older
+pages unless it is the first page of a refresh.
+
 For convenience builders, `CodexInput` covers text (including
 `text_elements`), URL/local images with optional `CodexSchemaImageDetail`,
 URL/local audio, skills, mentions, and a lossless `raw` escape hatch.

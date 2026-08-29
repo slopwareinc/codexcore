@@ -1035,6 +1035,20 @@ private extension ProtocolStateAdapter {
         )
     }
 
+    func canonicalBackgroundTerminal(
+        _ value: CodexSchemaThreadBackgroundTerminal
+    ) -> CanonicalBackgroundTerminal {
+        CanonicalBackgroundTerminal(
+            processID: value.processID,
+            command: value.command,
+            cwd: value.cwd.rawValue,
+            itemID: value.itemID,
+            osPID: value.osPid,
+            cpuPercent: value.cpuPercent,
+            rssKB: value.rssKb
+        )
+    }
+
     func canonicalPlanStep(
         raw value: CodexJSONValue,
         method: String
@@ -1194,6 +1208,36 @@ private extension ProtocolStateAdapter {
         result: CodexJSONValue
     ) throws -> ProtocolStateAdaptation {
         switch context.method {
+        case .threadBackgroundTerminalsList:
+            let value: CodexSchemaThreadBackgroundTerminalsListResponse =
+                try decodeResponse(context, result)
+            let threadID = try requestThreadID(context)
+            return .state([.backgroundTerminalsPage(
+                threadID: threadID,
+                terminals: value.data.map(canonicalBackgroundTerminal),
+                nextCursor: value.nextCursor,
+                replacesExisting: context.requestParams["cursor"] == nil
+                    || context.requestParams["cursor"] == .null
+            )])
+
+        case .threadBackgroundTerminalsTerminate:
+            let value: CodexSchemaThreadBackgroundTerminalsTerminateResponse =
+                try decodeResponse(context, result)
+            guard value.terminated else { return .init(disposition: .ignored) }
+            guard let processID = context.requestParams.string(at: "processId") else {
+                throw ProtocolStateAdapterError.missingRequestContext(
+                    method: context.method.rawValue,
+                    field: "processId"
+                )
+            }
+            return .state([.backgroundTerminalRemoved(
+                threadID: try requestThreadID(context),
+                processID: processID
+            )])
+
+        case .threadBackgroundTerminalsClean:
+            return .state([.backgroundTerminalsRemoved(threadID: try requestThreadID(context))])
+
         case .threadArchive:
             try requireObjectResponse(context, result)
             return .state([.threadLifecycleUpdated(

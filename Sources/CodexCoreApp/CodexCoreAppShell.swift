@@ -238,7 +238,22 @@ struct CodexCoreAppShell: View {
             onOpenFolder: { chooseWorkspaceFolder() },
             onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
             onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } },
+            onToggleSection: { model.toggleSidebarSection($0) },
+            onToggleThreadSelection: { model.toggleSidebarThreadSelection($0) },
+            onSelectAllThreads: { model.selectAllSidebarThreads() },
+            onTogglePinnedSelectedChats: { model.togglePinnedSelectedSidebarChats() },
+            onClearThreadSelection: { model.clearSidebarThreadSelection() },
+            onArchiveSelectedChats: { Task { await model.archiveSelectedSidebarChats() } },
+            onLoadArchivedChats: { Task { await model.refreshArchivedSidebarChats() } },
+            onLoadMoreArchivedChats: { Task { await model.loadMoreArchivedSidebarChats() } },
+            onUnarchiveChat: { chat in Task { await model.unarchiveSidebarChat(chat) } },
+            sectionDestinations: model.threadSections.enumerated().map {
+                CodexSidebarSectionSummary(schema: $0.element, position: $0.offset)
+            },
+            onMoveChat: { chat, sectionID in
+                Task { await model.moveSidebarChat(chat, toSectionID: sectionID) }
+            }
         )
     }
 
@@ -414,6 +429,7 @@ struct CodexCoreAppShell: View {
         let supplementalVoicePresentation = model.voiceSession.threadID == model.currentThreadID
             ? model.voiceSession.transcriptPresentation
             : CodexVoiceTranscriptPresentation()
+        let backgroundThreadID = model.currentThreadID
 
         return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
@@ -428,6 +444,18 @@ struct CodexCoreAppShell: View {
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
+                backgroundTerminalActions: CodexBackgroundTerminalActions(
+                    refresh: { Task { await model.refreshBackgroundTerminals(threadID: backgroundThreadID) } },
+                    terminate: { processID in
+                        Task {
+                            await model.terminateBackgroundTerminal(
+                                processID: processID,
+                                threadID: backgroundThreadID
+                            )
+                        }
+                    },
+                    clean: { Task { await model.cleanBackgroundTerminals(threadID: backgroundThreadID) } }
+                ),
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed

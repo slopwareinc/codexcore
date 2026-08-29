@@ -26,6 +26,7 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     public var environmentInfo: CodexEnvironmentInfoState
     public var sourceFiles: [CodexReferencedFile]
     public var plan: CodexPlanSummary?
+    public var backgroundTerminals: CanonicalBackgroundTerminalState?
 
     public init(
         workspacePath: String,
@@ -33,7 +34,8 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
         turnDiff: String? = nil,
         environmentInfo: CodexEnvironmentInfoState = .unavailable,
         sourceFiles: [CodexReferencedFile] = [],
-        plan: CodexPlanSummary? = nil
+        plan: CodexPlanSummary? = nil,
+        backgroundTerminals: CanonicalBackgroundTerminalState? = nil
     ) {
         self.workspacePath = workspacePath
         self.gitBranch = gitBranch
@@ -41,6 +43,7 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
         self.environmentInfo = environmentInfo
         self.sourceFiles = sourceFiles
         self.plan = plan
+        self.backgroundTerminals = backgroundTerminals
     }
 
     public var workspaceLine: String {

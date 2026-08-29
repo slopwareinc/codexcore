@@ -21,7 +21,7 @@ Open **Files** to browse the active workspace and preview text files without lea
 
 ### Terminal
 
-Open **Terminal** for a real interactive shell rooted in the workspace. Terminal commands use the permissions of the host process; opening the panel does not grant an agent permission to run them.
+Open **Terminal** for a real interactive shell rooted in the workspace. Terminal tabs live in the shared right/bottom workspace topology: moving or hiding a tab preserves its PTY, while hidden terminals suspend their display link. Server-owned background processes are shown from canonical thread facts in the overview; selecting one opens a metadata/detail tab with its command, working directory, process and item IDs, and the supported **Terminate** action. The protocol has no stream-attachment endpoint, so background facts never fabricate a second Ghostty shell. Interactive Terminal identity is scoped to the chat thread and checkout. Terminal commands use the permissions of the host process; opening the panel does not grant an agent permission to run them.
 
 ![Interactive workspace terminal beside a completed task](../assets/screenshots/workspace-terminal.png)
 

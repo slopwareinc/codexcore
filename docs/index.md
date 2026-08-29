@@ -41,6 +41,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)
 - [Support status](reference/support-status.md)
+- [Official transcript widget and state oracle](reference/official-transcript-widget-oracle.md)
 - [Development](contributing/development.md)
 - [Protocol upgrades](contributing/protocol-upgrades.md)
 - [Documentation conventions](contributing/documentation.md)

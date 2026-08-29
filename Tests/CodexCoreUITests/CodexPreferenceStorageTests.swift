@@ -112,6 +112,16 @@ final class CodexPreferenceStorageTests: XCTestCase {
         XCTAssertTrue(CodexSelectedThreadStorage.saveSelectedThreadID(nil, to: store))
         XCTAssertNil(CodexSelectedThreadStorage.loadSelectedThreadID(from: store))
     }
+
+    func testSidebarOrganizationWritesVerifySoCallersCanRollBack() {
+        let store = PreferenceStore()
+        store.rejectedKeys = ["CodexCoreApp.projectOrder.v1"]
+
+        XCTAssertFalse(
+            CodexProjectOrderStorage.saveProjectOrder(["/tmp/Beta"], to: store)
+        )
+        XCTAssertEqual(CodexProjectOrderStorage.loadProjectOrder(from: store), [])
+    }
 }
 
 private final class FailureRecorder: @unchecked Sendable {
