@@ -158,6 +158,20 @@ struct CodexWorkspaceTabsTests {
         #expect(!tabs.snapshot.topology.right.isOpen)
     }
 
+    @Test func explicitlyOpeningAnEmptyPanelShowsItsLauncher() {
+        let tabs = CodexWorkspaceTabs()
+
+        tabs.setOpen(true)
+
+        #expect(tabs.snapshot.topology.right.isOpen)
+        #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
+        #expect(tabs.snapshot.topology.right.activeTab == nil)
+
+        tabs.setOpen(false)
+
+        #expect(!tabs.snapshot.topology.right.isOpen)
+    }
+
     @Test func previewReplacementPreservesTheSlotUntilPinningMakesItDurable() throws {
         let tabs = CodexWorkspaceTabs()
         let firstID = tabs.open(
