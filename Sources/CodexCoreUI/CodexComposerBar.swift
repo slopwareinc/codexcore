@@ -236,11 +236,14 @@ public struct CodexComposerBar: View {
             )
         }
         .overlay(alignment: .topLeading) {
-            paletteOverlay
-                .alignmentGuide(.top) { dimensions in
-                    dimensions[.bottom] + 8
-                }
-                .zIndex(10)
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                paletteOverlay
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 320)
+            .offset(y: -328)
+            .zIndex(10)
         }
         .onAppear {
             reconcilePaletteSelections()
