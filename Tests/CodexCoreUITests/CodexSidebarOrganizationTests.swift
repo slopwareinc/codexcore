@@ -235,8 +235,8 @@ struct CodexSidebarOrganizationTests {
             currentWorkspacePath: "/tmp",
             pendingThreadIDs: ["task"]
         ))
-        #expect(pending.projectlessRows.first?.isPendingMutation == false)
-        #expect(pending.projects.flatMap(\.rows).first?.isPendingMutation == true)
+        #expect(pending.projectlessRows.isEmpty)
+        #expect(pending.olderProjects.flatMap(\.rows).first?.isPendingMutation == true)
     }
 
     @Test func projectListFactsArePreferredOverCwdInference() {
