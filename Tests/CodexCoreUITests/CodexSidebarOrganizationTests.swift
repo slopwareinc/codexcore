@@ -53,7 +53,7 @@ struct CodexSidebarOrganizationTests {
         #expect(snapshot.sections[0].rows[0].summary.sectionID == section.id)
     }
 
-    @Test func projectionSortsTiesByStableIdentityAndDoesNotRebuildUnrelatedSections() {
+    @Test func projectionSortsTiesByStableIdentityAndKeepsMountedSectionIdentity() {
         let project = CodexProjectSummary(workspacePath: "/tmp/Alpha", updatedAt: 100)
         let first = CodexThreadSummary(id: "a", title: "Same", workspacePath: project.workspacePath, recencyAt: 10)
         let second = CodexThreadSummary(id: "b", title: "Same", workspacePath: project.workspacePath, recencyAt: 10)
@@ -72,10 +72,9 @@ struct CodexSidebarOrganizationTests {
         ))
 
         #expect(base.projects[0].rows.map(\.id) == ["a", "b"])
-        let diff = CodexSidebarProjection.diff(base, changed)
-        #expect(diff.changedRowIDs == ["a"])
-        #expect(diff.changedSectionIDs == [project.id])
-        #expect(diff.rebuiltSectionIDs == [project.id])
+        #expect(changed.projects[0].rows.map(\.id) == base.projects[0].rows.map(\.id))
+        #expect(changed.projects[0].id == base.projects[0].id)
+        #expect(changed.projects[0].rows[0] != base.projects[0].rows[0])
 
         let sectionBefore = CodexSidebarProjection.snapshot(.init(
             chats: [CodexThreadSummary(id: "section-task", title: "Task", sectionID: "s")],
@@ -89,7 +88,39 @@ struct CodexSidebarOrganizationTests {
             currentWorkspacePath: "/tmp",
             now: 100
         ))
-        #expect(CodexSidebarProjection.diff(sectionBefore, sectionAfter).changedSectionIDs == ["s"])
+        #expect(sectionBefore.sections[0].id == sectionAfter.sections[0].id)
+        #expect(sectionBefore.sections[0].rows.map(\.id) == sectionAfter.sections[0].rows.map(\.id))
+        #expect(sectionBefore.sections[0].section.name != sectionAfter.sections[0].section.name)
+    }
+
+    @Test func mountedForEachInputsRetainUnrelatedProjectAndRowIdentity() {
+        let alpha = CodexProjectSummary(workspacePath: "/tmp/alpha", updatedAt: 100)
+        let beta = CodexProjectSummary(workspacePath: "/tmp/beta", updatedAt: 100)
+        let before = CodexSidebarProjection.snapshot(.init(
+            projects: [alpha, beta],
+            chats: [
+                .init(id: "alpha-task", title: "Alpha", workspacePath: alpha.workspacePath, recencyAt: 1),
+                .init(id: "beta-task", title: "Beta", workspacePath: beta.workspacePath, recencyAt: 1),
+            ],
+            currentWorkspacePath: alpha.workspacePath,
+            now: 100
+        ))
+        let after = CodexSidebarProjection.snapshot(.init(
+            projects: [alpha, beta],
+            chats: [
+                .init(id: "alpha-task", title: "Alpha", workspacePath: alpha.workspacePath, recencyAt: 1),
+                .init(id: "beta-task", title: "Beta renamed", workspacePath: beta.workspacePath, recencyAt: 1),
+            ],
+            currentWorkspacePath: alpha.workspacePath,
+            now: 100
+        ))
+
+        #expect(before.projects.map(\.id) == after.projects.map(\.id))
+        #expect(before.projects[0] == after.projects[0])
+        #expect(before.projects[0].rows.map(\.id) == after.projects[0].rows.map(\.id))
+        #expect(before.projects[1].id == after.projects[1].id)
+        #expect(before.projects[1].rows.first?.id == after.projects[1].rows.first?.id)
+        #expect(before.projects[1].rows.first != after.projects[1].rows.first)
     }
 
     @Test func archivedPagesAppendByCursorWithoutDuplicateRows() {
@@ -181,6 +212,8 @@ struct CodexSidebarOrganizationTests {
         ) == nil)
         #expect(CodexSidebarMutation.toggledPin(id: "delta", in: original).ids == ["delta", "alpha", "beta", "gamma"])
         #expect(CodexSidebarMutation.toggledPin(id: "delta", in: original).isPinned)
+        #expect(!CodexSidebarMutation.shouldRollback(operationGeneration: 1, currentGeneration: 2))
+        #expect(CodexSidebarMutation.shouldRollback(operationGeneration: 2, currentGeneration: 2))
     }
 
     @Test func localSearchUsesOneDeterministicSortPath() {

@@ -112,6 +112,8 @@ final class CodexCoreAppModel {
     private var turnAttachmentTask: Task<CodexTurnLease?, Never>?
     private var turnAttachmentKey: TurnKey?
     private var connectedSessionBackgroundTasks: [Task<Void, Never>] = []
+    private var sidebarProjectMutationTask: Task<Void, Never>?
+    private var sidebarProjectMutationGeneration: UInt64 = 0
     private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
@@ -353,6 +355,9 @@ final class CodexCoreAppModel {
         cancelSkillsChangedObservation()
         cancelThreadQueueObservation()
         cancelConnectedSessionBackgroundRefreshes()
+        sidebarProjectMutationTask?.cancel()
+        sidebarProjectMutationTask = nil
+        sidebarProjectMutationGeneration &+= 1
         mentionSearchSession.reset()
         loginTask?.cancel()
         loginTask = nil
@@ -1449,20 +1454,32 @@ final class CodexCoreAppModel {
     }
 
     private func refreshRecentChats(using codex: Codex) async {
-        var session = threadListSession
-        guard session.beginThreadListLoad() else { return }
-        threadListSession = session
-        _ = await session.refreshRecentChats(
-            using: codex,
-            currentWorkspacePath: workspacePath,
-            errorMessage: CodexErrorFormat.localizedDescription,
-            beginLoading: false
-        )
-        threadListSession = session
+        guard threadListSession.beginThreadListLoad() else { return }
+        do {
+            let result = try await CodexThreadListSession.fetchRecentChats(
+                using: codex,
+                currentWorkspacePath: workspacePath
+            )
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.applyThreadList(
+                currentRaw: result.currentRaw,
+                allRaw: result.allRaw,
+                currentWorkspacePath: workspacePath
+            )
+            for (index, page) in result.projectPages.enumerated() {
+                threadListSession.applyProjectList(page, reset: index == 0)
+            }
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.applyThreadListFailure(
+                currentWorkspacePath: workspacePath,
+                message: CodexErrorFormat.localizedDescription(error)
+            )
+        }
 
         if !hasStoredExpandedProjectState {
             sidebarNavigationSession.setExpandedProjects(
-                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: session.recentProjects)
+                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: threadListSession.recentProjects)
             )
             saveExpandedSidebarProjects()
         }
@@ -1842,6 +1859,8 @@ final class CodexCoreAppModel {
         guard let codex,
               let sourceID = sourceProject?.serverID,
               let targetID = targetProject?.serverID else { return }
+        sidebarProjectMutationGeneration &+= 1
+        let mutationGeneration = sidebarProjectMutationGeneration
         let orderedProjects = recentProjects.sorted {
             let left = sidebarNavigationSession.projectOrder.firstIndex(of: $0.workspacePath) ?? Int.max
             let right = sidebarNavigationSession.projectOrder.firstIndex(of: $1.workspacePath) ?? Int.max
@@ -1855,14 +1874,22 @@ final class CodexCoreAppModel {
         } else {
             beforeProjectID = nil
         }
-        Task { [weak self] in
+        let previousMutation = sidebarProjectMutationTask
+        sidebarProjectMutationTask = Task { [weak self] in
             guard let self else { return }
+            await previousMutation?.value
+            guard !Task.isCancelled,
+                  sidebarProjectMutationGeneration == mutationGeneration else { return }
             do {
                 _ = try await codex.perform(CodexRequest.projectMove(.init(
                     beforeProjectID: beforeProjectID,
                     projectID: sourceID
                 )))
             } catch {
+                guard CodexSidebarMutation.shouldRollback(
+                    operationGeneration: mutationGeneration,
+                    currentGeneration: sidebarProjectMutationGeneration
+                ) else { return }
                 sidebarNavigationSession.setProjectOrder(previousOrder)
                 _ = saveSidebarProjectOrder()
                 sidebarActionError = friendlyError(error)
@@ -2768,35 +2795,35 @@ final class CodexCoreAppModel {
 
     func refreshArchivedSidebarChats() async {
         guard let codex else {
-            var session = threadListSession
-            session.failArchivedLoad(message: "Connect to Codex before browsing archived chats.")
-            threadListSession = session
+            threadListSession.failArchivedLoad(message: "Connect to Codex before browsing archived chats.")
             return
         }
-        var session = threadListSession
-        guard session.beginArchivedLoad(reset: true) else { return }
-        threadListSession = session
-        _ = await session.refreshArchivedChats(
-            using: codex,
-            errorMessage: CodexErrorFormat.localizedDescription,
-            beginLoading: false
-        )
-        guard self.codex === codex else { return }
-        threadListSession = session
+        guard threadListSession.beginArchivedLoad(reset: true) else { return }
+        do {
+            let response = try await CodexThreadListSession.fetchArchivedPage(using: codex)
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = threadListSession.applyArchivedPage(response, reset: true)
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.failArchivedLoad(message: CodexErrorFormat.localizedDescription(error))
+        }
     }
 
     func loadMoreArchivedSidebarChats() async {
         guard let codex else { return }
-        var session = threadListSession
-        guard session.beginArchivedLoad(reset: false) else { return }
-        threadListSession = session
-        _ = await session.loadMoreArchivedChats(
-            using: codex,
-            errorMessage: CodexErrorFormat.localizedDescription,
-            beginLoading: false
-        )
-        guard self.codex === codex else { return }
-        threadListSession = session
+        guard let cursor = threadListSession.beginArchivedPageLoad() else { return }
+        do {
+            let response = try await CodexThreadListSession.fetchArchivedPage(
+                using: codex,
+                cursor: cursor
+            )
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = threadListSession.applyArchivedPage(response)
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.cancelArchivedPageLoad(cursor: cursor)
+            threadListSession.failArchivedLoad(message: CodexErrorFormat.localizedDescription(error))
+        }
     }
 
     func unarchiveSidebarChat(_ chat: CodexThreadSummary) async {
@@ -3760,6 +3787,9 @@ final class CodexCoreAppModel {
         threadSections = []
         threadSectionsError = nil
         isLoadingThreadSections = false
+        sidebarProjectMutationTask?.cancel()
+        sidebarProjectMutationTask = nil
+        sidebarProjectMutationGeneration &+= 1
         sidebarActionError = nil
         pendingSidebarMutationIDs.removeAll()
         hooksCatalog = .init()

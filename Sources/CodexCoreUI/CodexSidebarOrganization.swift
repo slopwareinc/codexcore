@@ -206,36 +206,7 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
     }
 }
 
-/// Describes the minimal work a mounted sidebar needs after a projection
-/// update. Row and section identities are stable, so unrelated sections can
-/// stay mounted while a running task changes its compact status.
-public struct CodexSidebarProjectionDiff: Equatable, Sendable {
-    public var insertedRowIDs: [String]
-    public var removedRowIDs: [String]
-    public var changedRowIDs: [String]
-    public var changedSectionIDs: [String]
-    public var rebuiltSectionIDs: [String]
-
-    public init(
-        insertedRowIDs: [String] = [],
-        removedRowIDs: [String] = [],
-        changedRowIDs: [String] = [],
-        changedSectionIDs: [String] = [],
-        rebuiltSectionIDs: [String] = []
-    ) {
-        self.insertedRowIDs = insertedRowIDs
-        self.removedRowIDs = removedRowIDs
-        self.changedRowIDs = changedRowIDs
-        self.changedSectionIDs = changedSectionIDs
-        self.rebuiltSectionIDs = rebuiltSectionIDs
-    }
-}
-
 public enum CodexSidebarProjection {
-    private struct SectionHeader: Equatable {
-        var title: String
-        var isExpanded: Bool
-    }
     /// Combines authoritative project/list facts with the host's local
     /// multi-folder presentation preferences. No display alias, hidden flag,
     /// or ordering is written into the returned server summaries.
@@ -453,71 +424,6 @@ public enum CodexSidebarProjection {
         )
     }
 
-    public static func diff(
-        _ previous: CodexSidebarSnapshot,
-        _ next: CodexSidebarSnapshot
-    ) -> CodexSidebarProjectionDiff {
-        let oldRows = rowMap(previous)
-        let newRows = rowMap(next)
-        let oldIDs = Set(oldRows.keys)
-        let newIDs = Set(newRows.keys)
-        let inserted = newIDs.subtracting(oldIDs).sorted()
-        let removed = oldIDs.subtracting(newIDs).sorted()
-        let changed = newIDs.intersection(oldIDs).filter { oldRows[$0] != newRows[$0] }.sorted()
-        let oldSections = sectionMap(previous)
-        let newSections = sectionMap(next)
-        let sectionIDs = Set(oldSections.keys).union(newSections.keys)
-        var changedSectionSet = Set(sectionIDs.filter { oldSections[$0] != newSections[$0] })
-        let oldHeaders = sectionHeaders(previous)
-        let newHeaders = sectionHeaders(next)
-        changedSectionSet.formUnion(sectionIDs.filter { oldHeaders[$0] != newHeaders[$0] })
-        let changedSections = changedSectionSet.sorted()
-        return CodexSidebarProjectionDiff(
-            insertedRowIDs: inserted,
-            removedRowIDs: removed,
-            changedRowIDs: changed,
-            changedSectionIDs: changedSections,
-            rebuiltSectionIDs: changedSections
-        )
-    }
-
-    private static func rowMap(_ snapshot: CodexSidebarSnapshot) -> [String: CodexSidebarThreadRow] {
-        var map: [String: CodexSidebarThreadRow] = [:]
-        for row in snapshot.pinnedRows + snapshot.projectlessRows + snapshot.archivedRows { map[row.id] = row }
-        for section in snapshot.sections { for row in section.rows { map[row.id] = row } }
-        for group in snapshot.pinnedProjects + snapshot.projects + snapshot.olderProjects {
-            for row in group.rows { map[row.id] = row }
-        }
-        return map
-    }
-
-    private static func sectionMap(_ snapshot: CodexSidebarSnapshot) -> [String: [CodexSidebarThreadRow]] {
-        var map: [String: [CodexSidebarThreadRow]] = [:]
-        map["pinned"] = snapshot.pinnedRows + snapshot.pinnedProjects.flatMap(\.rows)
-        map["projectless"] = snapshot.projectlessRows
-        map["archived"] = snapshot.archivedRows
-        for section in snapshot.sections { map[section.id] = section.rows }
-        for group in snapshot.pinnedProjects + snapshot.projects + snapshot.olderProjects {
-            map[group.id] = group.rows
-        }
-        return map
-    }
-
-    private static func sectionHeaders(_ snapshot: CodexSidebarSnapshot) -> [String: SectionHeader] {
-        var map: [String: SectionHeader] = [
-            "pinned": SectionHeader(title: "Pinned", isExpanded: true),
-            "projectless": SectionHeader(title: "Chats", isExpanded: true),
-            "archived": SectionHeader(title: "Archived", isExpanded: true),
-        ]
-        for section in snapshot.sections {
-            map[section.id] = SectionHeader(title: section.section.name, isExpanded: section.isExpanded)
-        }
-        for group in snapshot.pinnedProjects + snapshot.projects + snapshot.olderProjects {
-            map[group.id] = SectionHeader(title: group.project.displayName, isExpanded: group.isExpanded)
-        }
-        return map
-    }
-
     private static func orderedProjects(
         _ projects: [CodexProjectSummary],
         order: [String]
@@ -582,6 +488,13 @@ public enum CodexSidebarProjection {
 /// here makes local preference updates transactional and easy to test without a
 /// live app-server connection.
 public enum CodexSidebarMutation {
+    public static func shouldRollback(
+        operationGeneration: UInt64,
+        currentGeneration: UInt64
+    ) -> Bool {
+        operationGeneration == currentGeneration
+    }
+
     public static func reordered(
         sourceID: String,
         targetID: String,

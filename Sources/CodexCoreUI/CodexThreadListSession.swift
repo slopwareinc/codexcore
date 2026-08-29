@@ -11,6 +11,22 @@ public struct CodexThreadListActivity: Equatable, Sendable {
     }
 }
 
+public struct CodexThreadListRefreshResult: Sendable, Equatable {
+    public var currentRaw: CodexJSONValue
+    public var allRaw: CodexJSONValue
+    public var projectPages: [CodexSchemaProjectListResponse]
+
+    public init(
+        currentRaw: CodexJSONValue,
+        allRaw: CodexJSONValue,
+        projectPages: [CodexSchemaProjectListResponse] = []
+    ) {
+        self.currentRaw = currentRaw
+        self.allRaw = allRaw
+        self.projectPages = projectPages
+    }
+}
+
 public struct CodexThreadListSession: Sendable {
     public private(set) var recentChats: [CodexThreadSummary]
     public private(set) var allChats: [CodexThreadSummary]
@@ -202,6 +218,84 @@ public struct CodexThreadListSession: Sendable {
         return true
     }
 
+    /// Reserves the next opaque cursor before an asynchronous page request.
+    /// Only the archived partition is touched, so a caller can merge the
+    /// response into the latest session after the await without replaying or
+    /// erasing active thread/project/search state.
+    public mutating func beginArchivedPageLoad() -> String? {
+        guard !isLoadingArchived, let cursor = archivedNextCursor else { return nil }
+        isLoadingArchived = true
+        archivedErrorMessage = nil
+        guard archivedSeenCursors.insert(cursor).inserted else {
+            failArchivedLoad(message: "Archived chat pagination returned a repeated cursor.")
+            return nil
+        }
+        return cursor
+    }
+
+    public mutating func cancelArchivedPageLoad(cursor: String) {
+        archivedSeenCursors.remove(cursor)
+        isLoadingArchived = false
+    }
+
+    public static func fetchArchivedPage(
+        using codex: Codex,
+        cursor: String? = nil
+    ) async throws -> CodexSchemaThreadListResponse {
+        try await codex.perform(CodexRequest.threadList(.init(
+            archived: true,
+            cursor: cursor,
+            limit: 50,
+            sortDirection: .desc,
+            sortKey: .recencyAt
+        )))
+    }
+
+    public static func fetchRecentChats(
+        using codex: Codex,
+        currentWorkspacePath: String
+    ) async throws -> CodexThreadListRefreshResult {
+        let currentRequest = CodexRequest.threadList(.init(
+            archived: false,
+            cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
+            limit: 50,
+            sortDirection: .desc,
+            sortKey: .recencyAt
+        ))
+        let allRequest = CodexRequest.threadList(.init(
+            archived: false,
+            limit: 100,
+            sortDirection: .desc,
+            sortKey: .recencyAt
+        ))
+        async let currentResponse = codex.perform(currentRequest)
+        async let allResponse = codex.perform(allRequest)
+        let (currentPayload, allPayload) = try await (currentResponse, allResponse)
+        let currentRaw = try CodexJSONValue(encoding: currentPayload)
+        let allRaw = try CodexJSONValue(encoding: allPayload)
+
+        var projectPages: [CodexSchemaProjectListResponse] = []
+        var projectCursor: String?
+        var seenProjectCursors: Set<String> = []
+        repeat {
+            guard !Task.isCancelled else { break }
+            guard let projectResponse = try? await codex.perform(CodexRequest.projectList(.init(
+                cursor: projectCursor,
+                limit: 100
+            ))) else { break }
+            projectPages.append(projectResponse)
+            projectCursor = projectResponse.nextCursor
+            if let projectCursor, !seenProjectCursors.insert(projectCursor).inserted {
+                break
+            }
+        } while projectCursor != nil
+        return CodexThreadListRefreshResult(
+            currentRaw: currentRaw,
+            allRaw: allRaw,
+            projectPages: projectPages
+        )
+    }
+
     public mutating func failArchivedLoad(message: String) {
         isLoadingArchived = false
         archivedErrorMessage = message
@@ -224,12 +318,7 @@ public struct CodexThreadListSession: Sendable {
             guard beginArchivedLoad(reset: true) else { return nil }
         }
         do {
-            let response = try await codex.perform(CodexRequest.threadList(.init(
-                archived: true,
-                limit: 50,
-                sortDirection: .desc,
-                sortKey: .recencyAt
-            )))
+            let response = try await Self.fetchArchivedPage(using: codex)
             _ = applyArchivedPage(response, reset: true)
             return nil
         } catch {
@@ -255,13 +344,7 @@ public struct CodexThreadListSession: Sendable {
             return nil
         }
         do {
-            let response = try await codex.perform(CodexRequest.threadList(.init(
-                archived: true,
-                cursor: cursor,
-                limit: 50,
-                sortDirection: .desc,
-                sortKey: .recencyAt
-            )))
+            let response = try await Self.fetchArchivedPage(using: codex, cursor: cursor)
             _ = applyArchivedPage(response)
             return nil
         } catch {
@@ -303,48 +386,19 @@ public struct CodexThreadListSession: Sendable {
         beginLoading: Bool = true
     ) async -> CodexThreadListActivity? {
         if beginLoading { _ = beginThreadListLoad() }
-        let currentRequest = CodexRequest.threadList(.init(
-            archived: false,
-            cwd: CodexAppServerSchemaValue(.string(currentWorkspacePath)),
-            limit: 50,
-            sortDirection: .desc,
-            sortKey: .recencyAt
-        ))
-        let allRequest = CodexRequest.threadList(.init(
-            archived: false,
-            limit: 100,
-            sortDirection: .desc,
-            sortKey: .recencyAt
-        ))
-
-        // These lists are independent reads. Start both requests together so
-        // sidebar readiness is bounded by the slower response rather than the
-        // sum of the two round trips; applyThreadList remains deterministic.
-        async let currentResponse = codex.perform(currentRequest)
-        async let allResponse = codex.perform(allRequest)
         do {
-            let (currentResponse, allResponse) = try await (currentResponse, allResponse)
-            let currentRaw = try CodexJSONValue(encoding: currentResponse)
-            let allRaw = try CodexJSONValue(encoding: allResponse)
-            applyThreadList(currentRaw: currentRaw, allRaw: allRaw, currentWorkspacePath: currentWorkspacePath)
-            // Project/list is a separate capability on newer servers. Keep it
-            // best-effort so older servers retain cwd-derived project shells.
-            var projectCursor: String?
-            var seenProjectCursors: Set<String> = []
-            var isFirstProjectPage = true
-            repeat {
-                guard !Task.isCancelled else { break }
-                guard let projectResponse = try? await codex.perform(CodexRequest.projectList(.init(
-                    cursor: projectCursor,
-                    limit: 100
-                ))) else { break }
-                applyProjectList(projectResponse, reset: isFirstProjectPage)
-                isFirstProjectPage = false
-                projectCursor = projectResponse.nextCursor
-                if let projectCursor, !seenProjectCursors.insert(projectCursor).inserted {
-                    break
-                }
-            } while projectCursor != nil
+            let result = try await Self.fetchRecentChats(
+                using: codex,
+                currentWorkspacePath: currentWorkspacePath
+            )
+            applyThreadList(
+                currentRaw: result.currentRaw,
+                allRaw: result.allRaw,
+                currentWorkspacePath: currentWorkspacePath
+            )
+            for (index, page) in result.projectPages.enumerated() {
+                applyProjectList(page, reset: index == 0)
+            }
             return nil
         } catch {
             let message = errorMessage(error)

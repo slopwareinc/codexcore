@@ -23,7 +23,6 @@ public struct CodexProjectSidebar: View {
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
     @State private var isProjectsSectionExpanded = true
-    @State private var showsArchivedChats = false
     @State private var dragStartWidth: CGFloat?
     @State private var liveResizeWidth: CGFloat?
 
@@ -60,6 +59,7 @@ public struct CodexProjectSidebar: View {
     let onUnarchiveChat: (CodexThreadSummary) -> Void
     let sectionDestinations: [CodexSidebarSectionSummary]
     let onMoveChat: (CodexThreadSummary, String?) -> Void
+    let renderCounter: CodexSidebarMountedRenderCounter?
 
     public init(
         serverName: String?,
@@ -94,7 +94,8 @@ public struct CodexProjectSidebar: View {
         onLoadMoreArchivedChats: @escaping () -> Void = {},
         onUnarchiveChat: @escaping (CodexThreadSummary) -> Void = { _ in },
         sectionDestinations: [CodexSidebarSectionSummary] = [],
-        onMoveChat: @escaping (CodexThreadSummary, String?) -> Void = { _, _ in }
+        onMoveChat: @escaping (CodexThreadSummary, String?) -> Void = { _, _ in },
+        renderCounter: CodexSidebarMountedRenderCounter? = nil
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -129,6 +130,7 @@ public struct CodexProjectSidebar: View {
         self.onUnarchiveChat = onUnarchiveChat
         self.sectionDestinations = sectionDestinations
         self.onMoveChat = onMoveChat
+        self.renderCounter = renderCounter
     }
 
     public var body: some View {
@@ -342,97 +344,28 @@ public struct CodexProjectSidebar: View {
     }
 
     private var bulkSelectionToolbar: some View {
-        HStack(spacing: 6) {
-            Text("\(snapshot.selectedThreadIDs.count) selected")
-                .font(theme.fonts.sidebar.disclosureTitle.font)
-                .foregroundStyle(theme.colors.textSecondary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Button("Select all", action: onSelectAllThreads)
-                .font(theme.fonts.sidebar.hiddenRowsPrompt.font)
-                .buttonStyle(.plain)
-                .keyboardShortcut("a", modifiers: [.command])
-                .accessibilityLabel("Select all chats")
-            Button {
-                onTogglePinnedSelectedChats()
-            } label: {
-                Image(systemName: "pin")
-                    .font(theme.fonts.sidebar.chatActionIcon.font)
-            }
-            .buttonStyle(.plain)
-            .help("Pin or unpin selected chats")
-            .accessibilityLabel("Pin or unpin selected chats")
-            Button {
-                onArchiveSelectedChats()
-            } label: {
-                Image(systemName: "archivebox")
-                    .font(theme.fonts.sidebar.chatActionIcon.font)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.delete, modifiers: [.command])
-            .disabled(snapshot.selectedThreadIDs.isEmpty)
-            .help("Archive selected chats")
-            .accessibilityLabel("Archive selected chats")
-            Button {
-                onClearThreadSelection()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(theme.fonts.sidebar.chatActionIcon.font)
-            }
-            .buttonStyle(.plain)
-            .help("Exit selection mode")
-            .accessibilityLabel("Exit chat selection mode")
-        }
-        .padding(.horizontal, 8)
-        .frame(height: theme.fonts.sidebar.disclosureRowHeight)
-        .background(theme.colors.selection.opacity(theme.effects.selectionOpacity), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Chat selection mode")
+        CodexSidebarBulkSelectionToolbar(
+            snapshot: snapshot,
+            onSelectAll: onSelectAllThreads,
+            onTogglePinned: onTogglePinnedSelectedChats,
+            onArchive: onArchiveSelectedChats,
+            onClear: onClearThreadSelection
+        )
     }
 
     @ViewBuilder
     private var customSectionsSection: some View {
-        if !snapshot.sections.isEmpty && !snapshot.isCollapsed {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(snapshot.sections) { section in
-                    VStack(alignment: .leading, spacing: 2) {
-                        SidebarSectionHeader(
-                            title: section.section.name,
-                            isExpanded: section.isExpanded,
-                            attentionState: CodexSidebarAttentionState.aggregate(section.rows),
-                            icon: section.section.icon,
-                            color: section.section.color
-                        ) {
-                            onToggleSection(section.id)
-                        }
-                        if section.isExpanded {
-                            if section.rows.isEmpty {
-                                Text("No chats in this section")
-                                    .font(theme.fonts.sidebar.emptyState.font)
-                                    .foregroundStyle(theme.colors.textTertiary)
-                                    .padding(.leading, 30)
-                                    .padding(.vertical, 5)
-                            } else {
-                                ForEach(section.rows) { row in
-                                    SidebarChatRow(
-                                        row: row,
-                                        indentation: 0,
-                                        showsRecency: true,
-                                        onSelect: { onSelectChat(row.summary) },
-                                        onTogglePin: { onTogglePinChat(row.summary) },
-                                        onArchive: { onArchiveChat(row.summary) },
-                                        selectionMode: snapshot.isBulkSelectionMode,
-                                        onToggleSelection: { onToggleThreadSelection(row.id) },
-                                        sectionDestinations: sectionDestinations,
-                                        onMoveChat: { sectionID in onMoveChat(row.summary, sectionID) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        CodexSidebarCustomSectionsView(
+            snapshot: snapshot,
+            sectionDestinations: sectionDestinations,
+            onToggleSection: onToggleSection,
+            onSelectChat: onSelectChat,
+            onTogglePinChat: onTogglePinChat,
+            onArchiveChat: onArchiveChat,
+            onToggleThreadSelection: onToggleThreadSelection,
+            onMoveChat: onMoveChat,
+            renderCounter: renderCounter
+        )
     }
 
     @ViewBuilder
@@ -483,7 +416,8 @@ public struct CodexProjectSidebar: View {
                             selectionMode: snapshot.isBulkSelectionMode,
                             onToggleThreadSelection: onToggleThreadSelection,
                             sectionDestinations: sectionDestinations,
-                            onMoveChat: onMoveChat
+                            onMoveChat: onMoveChat,
+                            renderCounter: renderCounter
                         )
                     }
                 }
@@ -526,7 +460,8 @@ public struct CodexProjectSidebar: View {
                         selectionMode: snapshot.isBulkSelectionMode,
                         onToggleThreadSelection: onToggleThreadSelection,
                         sectionDestinations: sectionDestinations,
-                        onMoveChat: onMoveChat
+                        onMoveChat: onMoveChat,
+                        renderCounter: renderCounter
                     )
                 }
             }
@@ -610,7 +545,8 @@ public struct CodexProjectSidebar: View {
                                 selectionMode: snapshot.isBulkSelectionMode,
                                 onToggleThreadSelection: onToggleThreadSelection,
                                 sectionDestinations: sectionDestinations,
-                                onMoveChat: onMoveChat
+                                onMoveChat: onMoveChat,
+                                renderCounter: renderCounter
                             )
                         }
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -622,79 +558,14 @@ public struct CodexProjectSidebar: View {
 
     @ViewBuilder
     private var archivedSection: some View {
-        if !snapshot.isCollapsed {
-            VStack(alignment: .leading, spacing: 2) {
-                Button {
-                    showsArchivedChats.toggle()
-                    if showsArchivedChats && snapshot.archivedLoadState == .idle {
-                        onLoadArchivedChats()
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: showsArchivedChats ? "chevron.down" : "chevron.right")
-                            .font(theme.fonts.sidebar.disclosureChevron.font)
-                            .frame(width: 14)
-                        Image(systemName: "archivebox")
-                            .font(theme.fonts.sidebar.chatActionIcon.font)
-                        Text("Archived")
-                            .font(theme.fonts.sidebar.disclosureTitle.font)
-                        if !snapshot.archivedRows.isEmpty {
-                            Text("\(snapshot.archivedRows.count)")
-                                .font(theme.fonts.sidebar.disclosureCount.font)
-                                .foregroundStyle(theme.colors.textTertiary)
-                        }
-                        Spacer(minLength: 0)
-                        if snapshot.archivedLoadState.isLoading {
-                            CodexSpinner(color: theme.colors.textTertiary, size: .small)
-                        }
-                    }
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(height: theme.fonts.sidebar.disclosureRowHeight)
-                    .padding(.horizontal, 2)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(showsArchivedChats ? "Hide" : "Show") archived chats")
-
-                if showsArchivedChats {
-                    if let message = snapshot.archivedLoadState.errorMessage {
-                        Text(message)
-                            .font(theme.fonts.sidebar.emptyState.font)
-                            .foregroundStyle(theme.colors.danger)
-                            .padding(.leading, 30)
-                            .padding(.vertical, 5)
-                    } else if snapshot.archivedRows.isEmpty && !snapshot.archivedLoadState.isLoading {
-                        Text("No archived chats")
-                            .font(theme.fonts.sidebar.emptyState.font)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .padding(.leading, 30)
-                            .padding(.vertical, 5)
-                    }
-                    ForEach(snapshot.archivedRows) { row in
-                        SidebarChatRow(
-                            row: row,
-                            indentation: 0,
-                            showsRecency: true,
-                            onSelect: { onSelectChat(row.summary) },
-                            onTogglePin: {},
-                            onArchive: {},
-                            onUnarchive: { onUnarchiveChat(row.summary) },
-                            sectionDestinations: [],
-                            onMoveChat: { _ in }
-                        )
-                    }
-                    if snapshot.archivedNextCursor != nil {
-                        Button("Load more archived chats", action: onLoadMoreArchivedChats)
-                            .font(theme.fonts.sidebar.hiddenRowsPrompt.font)
-                            .foregroundStyle(theme.colors.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 30)
-                            .disabled(snapshot.archivedLoadState.isLoading)
-                            .accessibilityLabel("Load more archived chats")
-                    }
-                }
-            }
-        }
+        CodexSidebarArchivedSectionView(
+            snapshot: snapshot,
+            onSelectChat: onSelectChat,
+            onLoadArchived: onLoadArchivedChats,
+            onLoadMore: onLoadMoreArchivedChats,
+            onUnarchive: onUnarchiveChat,
+            renderCounter: renderCounter
+        )
     }
 
     private var utilitySection: some View {
@@ -785,7 +656,7 @@ private struct SidebarCommandRow: View {
     }
 }
 
-private struct SidebarSectionHeader: View {
+struct SidebarSectionHeader: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var isHovered = false
 
@@ -857,7 +728,7 @@ private struct SidebarAttentionIndicator: View {
     }
 }
 
-private struct ProjectSidebarGroupView: View {
+struct ProjectSidebarGroupView: View {
     @Environment(\.codexAgentTheme) private var theme
     @State private var isHovered = false
     @State private var isDropTargeted = false
@@ -882,6 +753,7 @@ private struct ProjectSidebarGroupView: View {
     let onToggleThreadSelection: (String) -> Void
     let sectionDestinations: [CodexSidebarSectionSummary]
     let onMoveChat: (CodexThreadSummary, String?) -> Void
+    let renderCounter: CodexSidebarMountedRenderCounter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -995,6 +867,7 @@ private struct ProjectSidebarGroupView: View {
                 }
             }
         }
+        .onAppear { renderCounter?.record(sectionID: group.id) }
     }
 
     private var hasSelectedThread: Bool {
@@ -1076,7 +949,7 @@ private struct ProjectSidebarGroupView: View {
     }
 }
 
-private struct SidebarChatRow: View {
+struct SidebarChatRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let row: CodexSidebarThreadRow
