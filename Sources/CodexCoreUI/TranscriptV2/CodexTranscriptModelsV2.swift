@@ -26,11 +26,22 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
     public var generatedImages: [CodexGeneratedImageV2]
     /// Structured terminal failures displayed beside final turn content.
     public var imageGenerationFailures: [CodexImageGenerationFailureV2]
+    /// Structured cards are presentation-ready projections of canonical plan,
+    /// todo, and implementation facts. They retain no expansion state.
+    public var structuredCards: [CodexStructuredTranscriptCardV2]
+    /// Automatic approval review outcomes are kept separate from pending
+    /// interaction prompts so a completed denial/timeout remains visible.
+    public var approvalReviews: [CodexApprovalReviewCardV2]
+    /// Hook runs are chronological transcript activity, not diagnostics only.
+    public var hookActivities: [CodexHookActivityV2]
+    /// Recoverable failures are explicit transcript notices rather than a
+    /// spinner that can survive a disconnected session.
+    public var recoveryNotices: [CodexTranscriptRecoveryNoticeV2]
     public var liveTail: String?
     public var status: CodexTurnStatusV2
     public var presentationStyle: CodexTurnPresentationStyleV2
 
-    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], imageGenerationFailures: [CodexImageGenerationFailureV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
+    public init(id: String, userMessage: CodexUserMessageV2? = nil, steeredMessages: [CodexUserMessageV2] = [], conversationSegments: [CodexTurnConversationSegmentV2]? = nil, narrative: [CodexNarrativeEntry] = [], finalAnswer: CodexAssistantTextV2? = nil, generatedImages: [CodexGeneratedImageV2] = [], imageGenerationFailures: [CodexImageGenerationFailureV2] = [], structuredCards: [CodexStructuredTranscriptCardV2] = [], approvalReviews: [CodexApprovalReviewCardV2] = [], hookActivities: [CodexHookActivityV2] = [], recoveryNotices: [CodexTranscriptRecoveryNoticeV2] = [], liveTail: String? = nil, status: CodexTurnStatusV2, presentationStyle: CodexTurnPresentationStyleV2 = .standard) {
         self.id = id; self.userMessage = userMessage; self.steeredMessages = steeredMessages; self.narrative = narrative
         self.conversationSegments = conversationSegments ?? [
             CodexTurnConversationSegmentV2(id: "\(id):initial", narrative: narrative)
@@ -42,6 +53,10 @@ public struct CodexTurnV2: Identifiable, Sendable, Equatable {
         }
         self.finalAnswer = finalAnswer; self.generatedImages = generatedImages
         self.imageGenerationFailures = imageGenerationFailures
+        self.structuredCards = structuredCards
+        self.approvalReviews = approvalReviews
+        self.hookActivities = hookActivities
+        self.recoveryNotices = recoveryNotices
         self.liveTail = liveTail; self.status = status
         self.presentationStyle = presentationStyle
     }
@@ -70,6 +85,11 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
     public var rawText: String
     public var referencedFiles: [CodexReferencedFile]
     public var responseAnnotations: [CodexResponseAnnotationContent]
+    /// Typed non-text input arms from the app-server UserInput union.
+    public var attachments: [CodexUserAttachmentV2]
+    /// Additional context is canonical input metadata and is never folded into
+    /// the editable request string.
+    public var context: [CodexUserContextV2]
     /// Independent Codex task that sent this message, when present.
     public var delegationSource: CodexThreadReferenceV2?
     public var isOptimistic: Bool
@@ -83,6 +103,8 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         rawText: String? = nil,
         referencedFiles: [CodexReferencedFile] = [],
         responseAnnotations: [CodexResponseAnnotationContent] = [],
+        attachments: [CodexUserAttachmentV2] = [],
+        context: [CodexUserContextV2] = [],
         delegationSource: CodexThreadReferenceV2? = nil,
         isOptimistic: Bool = false,
         sentAt: Date? = nil
@@ -93,6 +115,8 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
         self.rawText = rawText ?? text
         self.referencedFiles = referencedFiles
         self.responseAnnotations = responseAnnotations
+        self.attachments = attachments
+        self.context = context
         self.delegationSource = delegationSource
         self.isOptimistic = isOptimistic
         self.sentAt = sentAt
@@ -100,10 +124,61 @@ public struct CodexUserMessageV2: Identifiable, Sendable, Equatable {
 
     public var displayText: String {
         let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let attachments = referencedFiles.map { "📎 \($0.displayName)" }.joined(separator: "  ")
-        return [request, attachments]
+        let files = referencedFiles.map { "📎 \($0.displayName)" }
+        let typed = attachments.map { "📎 \($0.label)" }
+        return [request, (files + typed).joined(separator: "  ")]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+}
+
+/// A user attachment projected from a typed app-server `UserInput` arm.
+public struct CodexUserAttachmentV2: Identifiable, Sendable, Equatable {
+    public enum Kind: String, Sendable, Equatable {
+        case image
+        case audio
+        case skill
+        case mention
+        case file
+        case raw
+    }
+
+    public var id: String
+    public var kind: Kind
+    public var label: String
+    public var value: String
+    public var detail: String?
+
+    public init(
+        id: String,
+        kind: Kind,
+        label: String,
+        value: String,
+        detail: String? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.label = label
+        self.value = value
+        self.detail = detail
+    }
+}
+
+public struct CodexUserContextV2: Identifiable, Sendable, Equatable {
+    public enum Kind: String, Sendable, Equatable {
+        case application
+        case untrusted
+        case unknown
+    }
+
+    public var id: String
+    public var kind: Kind
+    public var value: String
+
+    public init(id: String, kind: Kind, value: String) {
+        self.id = id
+        self.kind = kind
+        self.value = value
     }
 }
 
@@ -123,8 +198,35 @@ public struct CodexAssistantTextV2: Identifiable, Sendable, Equatable {
     public var text: String
     public var isStreaming: Bool
     public var sentAt: Date?
-    public init(id: String, text: String = "", isStreaming: Bool = true, sentAt: Date? = nil) {
+    public var memoryCitations: [CodexMemoryCitationV2]
+    public init(id: String, text: String = "", isStreaming: Bool = true, sentAt: Date? = nil, memoryCitations: [CodexMemoryCitationV2] = []) {
         self.id = id; self.text = text; self.isStreaming = isStreaming; self.sentAt = sentAt
+        self.memoryCitations = memoryCitations
+    }
+}
+
+public struct CodexMemoryCitationV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var path: String
+    public var lineStart: Int
+    public var lineEnd: Int
+    public var note: String
+    public var sourceThreadIDs: [String]
+
+    public init(
+        id: String? = nil,
+        path: String,
+        lineStart: Int,
+        lineEnd: Int,
+        note: String,
+        sourceThreadIDs: [String] = []
+    ) {
+        self.path = path
+        self.lineStart = max(1, lineStart)
+        self.lineEnd = max(self.lineStart, lineEnd)
+        self.note = note
+        self.sourceThreadIDs = sourceThreadIDs
+        self.id = id ?? "(path):(self.lineStart):(self.lineEnd)"
     }
 }
 
@@ -222,6 +324,10 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
     case workGroup(CodexWorkGroupV2)
     case productToolCall(CodexProductToolCallV2)
     case inlineActivity(CodexInlineActivityV2)
+    case structuredCard(CodexStructuredTranscriptCardV2)
+    case approvalReview(CodexApprovalReviewCardV2)
+    case hookActivity(CodexHookActivityV2)
+    case recovery(CodexTranscriptRecoveryNoticeV2)
     case notice(CodexTurnNoticeV2)
 
     public var id: String {
@@ -230,8 +336,184 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
         case .workGroup(let value): value.id
         case .productToolCall(let value): value.id
         case .inlineActivity(let value): value.id
+        case .structuredCard(let value): value.id
+        case .approvalReview(let value): value.id
+        case .hookActivity(let value): value.id
+        case .recovery(let value): value.id
         case .notice(let value): value.id
         }
+    }
+}
+
+public enum CodexStructuredTranscriptCardKindV2: String, Sendable, Equatable {
+    case todo
+    case proposedPlan
+    case planImplementation
+}
+
+public enum CodexStructuredTranscriptCardStatusV2: Sendable, Equatable {
+    case pending
+    case inProgress
+    case completed
+    case failed
+    case unknown(String)
+}
+
+public struct CodexStructuredTranscriptCardStepV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var status: CodexStructuredTranscriptCardStatusV2
+    public var detail: String?
+
+    public init(
+        id: String,
+        title: String,
+        status: CodexStructuredTranscriptCardStatusV2 = .pending,
+        detail: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.detail = detail
+    }
+}
+
+public struct CodexStructuredTranscriptCardV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var kind: CodexStructuredTranscriptCardKindV2
+    public var title: String
+    public var explanation: String?
+    public var steps: [CodexStructuredTranscriptCardStepV2]
+    public var status: CodexStructuredTranscriptCardStatusV2
+
+    public init(
+        id: String,
+        kind: CodexStructuredTranscriptCardKindV2,
+        title: String,
+        explanation: String? = nil,
+        steps: [CodexStructuredTranscriptCardStepV2] = [],
+        status: CodexStructuredTranscriptCardStatusV2 = .pending
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.explanation = explanation
+        self.steps = steps
+        self.status = status
+    }
+}
+
+/// Short aliases keep the public surface discoverable for hosts that prefer
+/// the product names used by the official renderer.
+public typealias CodexTodoCardV2 = CodexStructuredTranscriptCardV2
+public typealias CodexProposedPlanCardV2 = CodexStructuredTranscriptCardV2
+public typealias CodexPlanImplementationCardV2 = CodexStructuredTranscriptCardV2
+
+public enum CodexApprovalReviewStatusV2: Sendable, Equatable {
+    case inProgress
+    case approved
+    case denied
+    case timedOut
+    case aborted
+    case unknown(String)
+}
+
+public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var status: CodexApprovalReviewStatusV2
+    public var rationale: String?
+    public var riskLevel: String?
+    public var targetItemID: String?
+
+    public init(
+        id: String,
+        title: String = "Approval review",
+        status: CodexApprovalReviewStatusV2,
+        rationale: String? = nil,
+        riskLevel: String? = nil,
+        targetItemID: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.rationale = rationale
+        self.riskLevel = riskLevel
+        self.targetItemID = targetItemID
+    }
+
+    public var statusLabel: String {
+        switch status {
+        case .inProgress: "Reviewing"
+        case .approved: "Approved"
+        case .denied: "Denied"
+        case .timedOut: "Timed out"
+        case .aborted: "Review stopped"
+        case .unknown: "Review status unavailable"
+        }
+    }
+}
+
+public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var eventName: String
+    public var handler: String
+    public var status: CodexWorkItemStatusV2
+    public var durationMs: Int?
+    public var entries: [String]
+    public var statusMessage: String?
+
+    public init(
+        id: String,
+        eventName: String,
+        handler: String,
+        status: CodexWorkItemStatusV2,
+        durationMs: Int? = nil,
+        entries: [String] = [],
+        statusMessage: String? = nil
+    ) {
+        self.id = id
+        self.eventName = eventName
+        self.handler = handler
+        self.status = status
+        self.durationMs = durationMs
+        self.entries = entries
+        self.statusMessage = statusMessage
+    }
+
+    public var label: String {
+        let event = eventName.isEmpty ? "Hook" : eventName
+        return handler.isEmpty ? event : "(event) · (handler)"
+    }
+}
+
+public enum CodexTranscriptRecoveryKindV2: Sendable, Equatable {
+    case reconnecting(attempt: Int)
+    case overload
+    case historyRetry
+    case turnRetry
+    case writerConflict
+    case rollback
+    case streamFailure
+    case unknown(String)
+}
+
+public struct CodexTranscriptRecoveryNoticeV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var kind: CodexTranscriptRecoveryKindV2
+    public var message: String
+    public var canRetry: Bool
+
+    public init(
+        id: String,
+        kind: CodexTranscriptRecoveryKindV2,
+        message: String,
+        canRetry: Bool = false
+    ) {
+        self.id = id
+        self.kind = kind
+        self.message = message
+        self.canRetry = canRetry
     }
 }
 
@@ -307,6 +589,69 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var status: CodexWorkItemStatusV2; public var durationMs: Int?; public var errorFirstLine: String?
     public var arguments: CodexJSONValue?; public var result: CodexJSONValue?
     public var readOnlyHint: Bool?
+    public var contentBlocks: [CodexMCPContentBlockV2]
+
+    public init(
+        id: String,
+        appName: String,
+        server: String,
+        tool: String,
+        status: CodexWorkItemStatusV2,
+        durationMs: Int? = nil,
+        errorFirstLine: String? = nil,
+        arguments: CodexJSONValue? = nil,
+        result: CodexJSONValue? = nil,
+        readOnlyHint: Bool? = nil,
+        contentBlocks: [CodexMCPContentBlockV2] = []
+    ) {
+        self.id = id
+        self.appName = appName
+        self.server = server
+        self.tool = tool
+        self.status = status
+        self.durationMs = durationMs
+        self.errorFirstLine = errorFirstLine
+        self.arguments = arguments
+        self.result = result
+        self.readOnlyHint = readOnlyHint
+        self.contentBlocks = contentBlocks
+    }
+}
+
+/// Bounded, typed MCP result content. Unknown or malformed blocks are omitted
+/// from the normal transcript; raw JSON remains available through the explicit
+/// debug/copy path on the row.
+public enum CodexMCPContentBlockV2: Sendable, Equatable {
+    case text(String)
+    case image(source: String, mimeType: String?, alt: String?)
+    case audio(source: String, mimeType: String?)
+    case resource(uri: String, mimeType: String?, text: String?)
+    case resourceLink(uri: String, name: String?, mimeType: String?)
+    case structured([String: CodexJSONValue])
+    case widget(id: String?, uri: String?, payload: [String: CodexJSONValue])
+
+    public var kind: String {
+        switch self {
+        case .text: "text"
+        case .image: "image"
+        case .audio: "audio"
+        case .resource: "resource"
+        case .resourceLink: "resourceLink"
+        case .structured: "structured"
+        case .widget: "widget"
+        }
+    }
+
+    public var displayText: String? {
+        switch self {
+        case .text(let value): return value
+        case .resource(_, _, let text): return text
+        case .resourceLink(_, let name, _): return name
+        case .image(_, _, let alt): return alt
+        case .audio: return nil
+        case .structured, .widget: return nil
+        }
+    }
 }
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2

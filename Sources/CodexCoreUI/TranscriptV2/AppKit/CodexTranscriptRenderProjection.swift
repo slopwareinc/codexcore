@@ -989,6 +989,62 @@ actor CodexTranscriptRenderProjector {
                             accessibilityLabel: notice.message,
                             maxWidthKind: .card
                         ))
+                    case .structuredCard(let card):
+                        if tailMode { continue }
+                        let summary = [card.title, card.explanation]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        append(ItemDraft(
+                            id: "\(sectionID):structured-card:\(card.id)",
+                            fingerprint: "structured-card:\(String(describing: card))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            copyText: summary,
+                            accessibilityLabel: "\(card.title), structured card",
+                            maxWidthKind: .card
+                        ))
+                    case .approvalReview(let review):
+                        if tailMode { continue }
+                        let summary = [review.title, review.statusLabel, review.rationale]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        append(ItemDraft(
+                            id: "\(sectionID):approval-review:\(review.id)",
+                            fingerprint: "approval-review:\(String(describing: review))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            copyText: summary,
+                            accessibilityLabel: "\(review.title), \(review.statusLabel)",
+                            maxWidthKind: .card
+                        ))
+                    case .hookActivity(let hook):
+                        if tailMode { continue }
+                        let summary = [hook.label, hook.statusMessage]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        append(ItemDraft(
+                            id: "\(sectionID):hook:\(hook.id)",
+                            fingerprint: "hook:\(String(describing: hook))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            copyText: summary,
+                            accessibilityLabel: "\(hook.label), hook \(hook.status)",
+                            maxWidthKind: .card
+                        ))
+                    case .recovery(let recovery):
+                        let summary = recovery.message
+                        append(ItemDraft(
+                            id: "\(sectionID):recovery:\(recovery.id)",
+                            fingerprint: "recovery:\(String(describing: recovery))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            copyText: summary,
+                            accessibilityLabel: summary,
+                            maxWidthKind: .card
+                        ))
                         }
                     }
                 }
@@ -2451,6 +2507,10 @@ private extension CodexTranscriptRenderProjector {
                         .joined(separator: "\n")
                     work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
                 case .inlineActivity(let activity): work.append(activity.label)
+                case .structuredCard(let card): work.append(card.title)
+                case .approvalReview(let review): work.append("\(review.title): \(review.statusLabel)")
+                case .hookActivity(let hook): work.append(hook.label)
+                case .recovery(let recovery): work.append(recovery.message)
                 case .notice(let notice): work.append(notice.message)
                 }
             }
