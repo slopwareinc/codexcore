@@ -82,7 +82,8 @@ enum CodexFilePreviewState: Sendable {
 
 /// Loads and highlights a file. Every call is self-contained — it creates its
 /// own tree-sitter parser/query locally and returns only `Sendable` values, so
-/// it is safe to run from a detached task under strict concurrency.
+/// an owning off-main task can cancel and discard it safely under strict
+/// concurrency.
 enum CodexFilePreviewLoader {
     /// Hard cap on bytes we will read into memory for preview.
     static let maxByteSize = 2 * 1024 * 1024
