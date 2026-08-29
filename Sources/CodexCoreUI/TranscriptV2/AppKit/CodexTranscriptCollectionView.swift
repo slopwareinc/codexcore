@@ -1070,6 +1070,11 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     turnID: turnID,
                     threadID: ThreadID(presentation.threadID)
                 )
+            case .toggleBookmark(let turnID):
+                _ = presentationStore?.toggleBookmark(
+                    turnID: turnID,
+                    threadID: ThreadID(presentation.threadID)
+                )
             case .toggleRow(let rowID):
                 captureScrollAnchor()
                 let expanded = !presentation.expandedRowIDs.contains(rowID)

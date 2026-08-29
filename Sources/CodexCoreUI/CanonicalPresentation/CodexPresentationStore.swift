@@ -77,6 +77,10 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
     public var expandedWorkTurnIDs: Set<String>
     public var expandedRowIDs: Set<String>
     public var selectedDiffFileIndexByRowID: [String: Int]
+    public var editingMessageID: String?
+    public var editingMessageText: String
+    public var bookmarkedTurnIDs: Set<String>
+    public var outputBadgesByTurnID: [String: String]
     public var firstPresentedAtByTurnID: [String: Date]
     public var lastSeenAttentionRevision: StateRevision
 
@@ -86,6 +90,10 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
         expandedWorkTurnIDs: Set<String> = [],
         expandedRowIDs: Set<String> = [],
         selectedDiffFileIndexByRowID: [String: Int] = [:],
+        editingMessageID: String? = nil,
+        editingMessageText: String = "",
+        bookmarkedTurnIDs: Set<String> = [],
+        outputBadgesByTurnID: [String: String] = [:],
         firstPresentedAtByTurnID: [String: Date] = [:],
         lastSeenAttentionRevision: StateRevision = .zero
     ) {
@@ -94,6 +102,10 @@ public struct CodexThreadPresentationLocalState: Sendable, Equatable {
         self.expandedWorkTurnIDs = expandedWorkTurnIDs
         self.expandedRowIDs = expandedRowIDs
         self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
+        self.editingMessageID = editingMessageID
+        self.editingMessageText = editingMessageText
+        self.bookmarkedTurnIDs = bookmarkedTurnIDs
+        self.outputBadgesByTurnID = outputBadgesByTurnID
         self.firstPresentedAtByTurnID = firstPresentedAtByTurnID
         self.lastSeenAttentionRevision = lastSeenAttentionRevision
     }
@@ -344,6 +356,75 @@ public final class CodexPresentationStore {
     public func selectDiffFile(index: Int, rowID: String, threadID: ThreadID) {
         guard var local = localStateByThreadID[threadID] else { return }
         local.selectedDiffFileIndexByRowID[rowID] = max(0, index)
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    /// Starts an inline edit without changing canonical transcript content.
+    public func beginEditingMessage(
+        messageID: String,
+        text: String,
+        threadID: ThreadID
+    ) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.editingMessageID = messageID
+        local.editingMessageText = text
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    public func updateEditingMessageText(_ text: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID], local.editingMessageID != nil else { return }
+        local.editingMessageText = text
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    @discardableResult
+    public func commitEditingMessage(threadID: ThreadID) -> String? {
+        guard var local = localStateByThreadID[threadID], local.editingMessageID != nil else { return nil }
+        let text = local.editingMessageText
+        local.editingMessageID = nil
+        local.editingMessageText = ""
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+        return text
+    }
+
+    public func cancelEditingMessage(threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.editingMessageID = nil
+        local.editingMessageText = ""
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    @discardableResult
+    public func toggleBookmark(turnID: String, threadID: ThreadID) -> Bool {
+        guard var local = localStateByThreadID[threadID] else { return false }
+        if local.bookmarkedTurnIDs.contains(turnID) {
+            local.bookmarkedTurnIDs.remove(turnID)
+        } else {
+            local.bookmarkedTurnIDs.insert(turnID)
+        }
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+        return local.bookmarkedTurnIDs.contains(turnID)
+    }
+
+    public func setOutputBadge(_ badge: String?, turnID: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        if let badge = badge?.trimmingCharacters(in: .whitespacesAndNewlines), !badge.isEmpty {
+            local.outputBadgesByTurnID[turnID] = String(badge.prefix(120))
+        } else {
+            local.outputBadgesByTurnID.removeValue(forKey: turnID)
+        }
         localStateByThreadID[threadID] = local
         if selectedThreadID == threadID { refreshActiveLocalState() }
         touch(threadID)
@@ -824,6 +905,10 @@ private extension CodexPresentationStore {
         presentation.expandedWorkTurnIDs = local.expandedWorkTurnIDs
         presentation.expandedRowIDs = local.expandedRowIDs
         presentation.selectedDiffFileIndexByRowID = local.selectedDiffFileIndexByRowID
+        presentation.editingMessageID = local.editingMessageID
+        presentation.editingMessageText = local.editingMessageText
+        presentation.bookmarkedTurnIDs = local.bookmarkedTurnIDs
+        presentation.outputBadgesByTurnID = local.outputBadgesByTurnID
         presentation.presentedAtByTurnID = local.firstPresentedAtByTurnID
         activePresentation = presentation
         presentationRevision &+= 1
@@ -843,6 +928,10 @@ private extension CodexPresentationStore {
             expandedWorkTurnIDs: localState.expandedWorkTurnIDs,
             expandedRowIDs: localState.expandedRowIDs,
             selectedDiffFileIndexByRowID: localState.selectedDiffFileIndexByRowID,
+            editingMessageID: localState.editingMessageID,
+            editingMessageText: localState.editingMessageText,
+            bookmarkedTurnIDs: localState.bookmarkedTurnIDs,
+            outputBadgesByTurnID: localState.outputBadgesByTurnID,
             presentedAtByTurnID: localState.firstPresentedAtByTurnID,
             pendingApprovals: pendingApprovals
         )

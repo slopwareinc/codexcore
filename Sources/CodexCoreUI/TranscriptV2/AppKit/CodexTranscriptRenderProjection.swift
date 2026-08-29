@@ -164,6 +164,7 @@ enum CodexTranscriptTextRole: Sendable, Equatable {
 
 enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleWork(turnID: String)
+    case toggleBookmark(turnID: String)
     case toggleRow(rowID: String)
     case selectDiffFile(rowID: String, index: Int)
     case openSubagent(threadID: String)

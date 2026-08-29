@@ -8,19 +8,36 @@ public struct CodexTurnViewV2: View {
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
+    private let onEditMessage: ((CodexUserMessageV2, String) -> Void)?
+    @State private var isEditingUserMessage = false
+    @State private var editingText = ""
     @State private var presentedAt = Date()
 
-    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }) {
+    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }, onEditMessage: ((CodexUserMessageV2, String) -> Void)? = nil, initiallyEditing: Bool = false) {
         self.turn = turn
         self.productToolRenderer = productToolRenderer
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
+        self.onEditMessage = onEditMessage
+        self._isEditingUserMessage = State(initialValue: initiallyEditing)
+        self._editingText = State(initialValue: turn.userMessage?.rawText ?? turn.userMessage?.text ?? "")
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let user = turn.userMessage {
-                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
+                if isEditingUserMessage {
+                    CodexInlineMessageEditor(
+                        text: $editingText,
+                        onCommit: {
+                            onEditMessage?(user, editingText)
+                            isEditingUserMessage = false
+                        },
+                        onCancel: { isEditingUserMessage = false }
+                    )
+                } else {
+                    CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
+                }
             }
 
             CodexWorkBlockViewV2(
@@ -44,6 +61,17 @@ public struct CodexTurnViewV2: View {
                             isStreaming: answer.isStreaming,
                             cacheNamespace: "transcript-v2-final-\(answer.id)"
                         )
+                    }
+                    if let answer = turn.finalAnswer {
+                        ForEach(answer.memoryCitations) { citation in
+                            Label(
+                                "\(citation.path):\(citation.lineStart)-\(citation.lineEnd)",
+                                systemImage: "book.closed"
+                            )
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .accessibilityLabel("Memory citation \(citation.path), lines \(citation.lineStart) through \(citation.lineEnd)")
+                        }
                     }
                     ForEach(turn.generatedImages) { image in
                         CodexGeneratedImageViewV2(image: image)

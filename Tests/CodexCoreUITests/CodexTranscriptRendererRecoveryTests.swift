@@ -295,6 +295,42 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(hook.entries == ["checked"])
     }
 
+    @Test func automaticReviewOutcomesAreVisibleAfterACompletedTurn() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let turn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .completed,
+            extensions: [
+                "autoApprovalReview:review": .dictionary([
+                    "reviewId": .string("review"),
+                    "review": .dictionary(["status": .string("denied")])
+                ])
+            ]
+        )
+        let thread = CanonicalThread(
+            id: threadID,
+            status: .idle,
+            turnOrder: [turnID],
+            history: .init(mode: .legacy, turnsCoverage: .full)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: .init(2),
+            threadOrder: [threadID],
+            threads: [threadID: thread],
+            turns: [turn.key: turn]
+        )
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        #expect(projected.approvalReviews.first?.status == .denied)
+        #expect(projected.narrative.contains { entry in
+            if case .approvalReview = entry { return true }
+            return false
+        })
+    }
+
     @Test func markdownProjectionUsesTypedMathAndMermaidBlocks() {
         let blocks = CodexBlockProjector.project(
             "$$x^2 + y^2$$\n\n```mermaid\ngraph TD\n A-->B\n```",
@@ -406,5 +442,61 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(history?.kind == .historyRetry)
         #expect(history?.canRetry == true)
         #expect(history?.message.count ?? 0 < 300)
+    }
+
+    @Test @MainActor func inlineEditingRemainsPresentationLocalUntilCommit() {
+        let store = CodexPresentationStore()
+        let threadID: ThreadID = "thread"
+        store.select(threadID: threadID)
+        store.beginEditingMessage(messageID: "user", text: "Original", threadID: threadID)
+        #expect(store.localState(for: threadID)?.editingMessageID == "user")
+        #expect(store.localState(for: threadID)?.editingMessageText == "Original")
+        store.updateEditingMessageText("Updated", threadID: threadID)
+        #expect(store.localState(for: threadID)?.editingMessageText == "Updated")
+        #expect(store.commitEditingMessage(threadID: threadID) == "Updated")
+        #expect(store.localState(for: threadID)?.editingMessageID == nil)
+    }
+
+    @Test @MainActor func bookmarksAndOutputBadgesStayInPresentationState() {
+        let store = CodexPresentationStore()
+        let threadID: ThreadID = "thread"
+        let turn = CodexTurnV2(
+            id: "turn",
+            userMessage: .init(id: "user", text: "Inspect the output"),
+            status: .done(durationMs: 1)
+        )
+        let presentation = CodexThreadUIPresentation(
+            threadID: threadID.rawValue,
+            transcript: .init(turns: [turn])
+        )
+        store.select(threadID: threadID)
+        _ = store.toggleBookmark(turnID: "turn", threadID: threadID)
+        store.setOutputBadge("Generated artifact", turnID: "turn", threadID: threadID)
+        var localPresentation = presentation
+        localPresentation.bookmarkedTurnIDs = store.localState(for: threadID)?.bookmarkedTurnIDs ?? []
+        localPresentation.outputBadgesByTurnID = store.localState(for: threadID)?.outputBadgesByTurnID ?? [:]
+        #expect(CodexTranscriptNavigationProjection.bookmarks(for: localPresentation).map(\.turnID) == ["turn"])
+        #expect(CodexTranscriptNavigationProjection.outputBadges(for: localPresentation).first?.text == "Generated artifact")
+    }
+
+    @Test func voiceOverLifecycleAnnouncesStreamingTransitionsOnce() {
+        var lifecycle = CodexTranscriptVoiceOverLifecycle()
+        let started = CodexTranscriptV2(turns: [.init(
+            id: "turn",
+            liveTail: "Thinking",
+            status: .working(since: nil)
+        )])
+        #expect(lifecycle.update(current: started).map(\.kind) == [.started])
+
+        let progress = CodexTranscriptV2(turns: [.init(
+            id: "turn",
+            liveTail: "Running tests",
+            status: .working(since: nil)
+        )])
+        #expect(lifecycle.update(previous: started, current: progress).map(\.message) == ["Running tests"])
+        #expect(lifecycle.update(previous: progress, current: progress).isEmpty)
+
+        let completed = CodexTranscriptV2(turns: [.init(id: "turn", status: .done(durationMs: 1))])
+        #expect(lifecycle.update(previous: progress, current: completed).map(\.kind) == [.completed])
     }
 }
