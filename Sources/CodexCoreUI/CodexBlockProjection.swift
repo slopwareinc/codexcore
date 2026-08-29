@@ -16,6 +16,9 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
     case code(id: String, language: String?, code: String, complete: Bool)
     case math(id: String, latex: String, display: Bool)
     case mermaid(id: String, diagram: String, complete: Bool)
+    /// A visualization directive/reference. Rendering is delegated to a host
+    /// adapter; the default view exposes a bounded textual reference.
+    case visualization(id: String, source: String, complete: Bool)
     case table(id: String, model: CodexTableModel)
     case heading(id: String, level: Int, text: String, attributed: AttributedString)
     case list(id: String, ordered: Bool, items: [CodexListItem])
@@ -29,6 +32,7 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
              .code(let id, _, _, _),
              .math(let id, _, _),
              .mermaid(let id, _, _),
+             .visualization(let id, _, _),
              .table(let id, _),
              .heading(let id, _, _, _),
              .list(let id, _, _),
@@ -55,6 +59,8 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
             return CodexBlockDigest.digest("math\u{0}\(display)\u{0}\(latex)")
         case .mermaid(_, let diagram, let complete):
             return CodexBlockDigest.digest("mermaid\u{0}\(complete)\u{0}\(diagram)")
+        case .visualization(_, let source, let complete):
+            return CodexBlockDigest.digest("visualization\u{0}\(complete)\u{0}\(source)")
         case .table(_, let model):
             return model.digest
         case .heading(_, let level, let text, _):
@@ -214,6 +220,7 @@ public enum CodexBlockProjector {
         case prose(text: String)
         case code(language: String?, body: String, complete: Bool)
         case math(latex: String, display: Bool)
+        case visualization(source: String, complete: Bool)
         case table(text: String)
         case heading(level: Int, text: String)
         case list(ordered: Bool, items: [CodexListItem])
@@ -254,6 +261,17 @@ public enum CodexBlockProjector {
                     body: body,
                     complete: complete
                 ))
+                index += consumed + 1
+                continue
+            }
+
+            if let directive = matchVisualizationDirective(trimmed) {
+                let (source, complete, consumed) = consumeVisualization(
+                    lines: lines,
+                    startIndex: index + 1,
+                    initial: directive
+                )
+                regions.append(.visualization(source: source, complete: complete))
                 index += consumed + 1
                 continue
             }
@@ -370,11 +388,15 @@ public enum CodexBlockProjector {
                 return .math(id: baseID, latex: body, display: true)
             case "mermaid", "mmd":
                 return .mermaid(id: baseID, diagram: body, complete: resolvedComplete)
+            case "visualization", "viz":
+                return .visualization(id: baseID, source: body, complete: resolvedComplete)
             default:
                 return .code(id: baseID, language: language, code: body, complete: resolvedComplete)
             }
         case .math(let latex, let display):
             return .math(id: baseID, latex: latex, display: display)
+        case .visualization(let source, let complete):
+            return .visualization(id: baseID, source: source, complete: complete && !isTail)
         case .table(let text):
             if let model = CodexGFMTableParser.parse(text) {
                 return .table(id: baseID, model: model)
@@ -463,8 +485,10 @@ public enum CodexBlockProjector {
             case .math(_, let latex, let display):
                 let delimiter = display ? "$$" : "$"
                 parts.append("\(delimiter)\(latex)\(delimiter)")
-            case .mermaid(_, let diagram, _):
+        case .mermaid(_, let diagram, _):
                 parts.append("```mermaid\n\(diagram)\n```")
+            case .visualization(_, let source, _):
+                parts.append("```visualization\n\(source)\n```")
             case .table(_, let model):
                 parts.append(model.renderMarkdown())
             case .list(_, let ordered, let items):
@@ -477,7 +501,7 @@ public enum CodexBlockProjector {
                 parts.append(text.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n"))
             case .horizontalRule:
                 parts.append("---")
-            case .htmlFallback(_, let text):
+        case .htmlFallback(_, let text):
                 parts.append(text)
             }
         }
@@ -498,6 +522,8 @@ public enum CodexBlockProjector {
             return latex
         case .mermaid(_, let diagram, _):
             return diagram
+        case .visualization(_, let source, _):
+            return source
         case .table:
             return ""
         case .list:
@@ -536,6 +562,43 @@ public enum CodexBlockProjector {
         }
         // Ran off the end without a closing fence — still streaming.
         return (body.joined(separator: "\n"), false, index - startIndex)
+    }
+
+    struct VisualizationDirective {
+        let initial: String
+        let isDelimited: Bool
+    }
+
+    static func matchVisualizationDirective(_ trimmed: String) -> VisualizationDirective? {
+        let lowercased = trimmed.lowercased()
+        if lowercased == "::: visualization" || lowercased == ":::visualization" {
+            return .init(initial: "", isDelimited: true)
+        }
+        if lowercased.hasPrefix("@visualization(") || lowercased.hasPrefix("@viz(") {
+            return .init(initial: trimmed, isDelimited: false)
+        }
+        return nil
+    }
+
+    static func consumeVisualization(
+        lines: [String],
+        startIndex: Int,
+        initial: VisualizationDirective
+    ) -> (source: String, complete: Bool, consumed: Int) {
+        guard initial.isDelimited else {
+            return (initial.initial, true, 0)
+        }
+        var collected: [String] = []
+        var index = startIndex
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed == ":::" {
+                return (collected.joined(separator: "\n"), true, index - startIndex + 1)
+            }
+            collected.append(lines[index])
+            index += 1
+        }
+        return (collected.joined(separator: "\n"), false, index - startIndex)
     }
 
     static func isClosingFence(_ trimmed: String, char: Character, minLength: Int) -> Bool {
@@ -827,6 +890,7 @@ public enum CodexBlockProjector {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { break }
             if matchFence(trimmed) != nil { break }
+            if matchVisualizationDirective(trimmed) != nil { break }
             if matchHeading(trimmed) != nil { break }
             if isTableStart(lines: lines, startIndex: index) { break }
             if matchListMarker(trimmed) != nil { break }
@@ -866,6 +930,12 @@ extension CodexBlock {
             return lid == rid && ltext == rtext
         case (.code(let lid, let llang, let lcode, let lcomp), .code(let rid, let rlang, let rcode, let rcomp)):
             return lid == rid && llang == rlang && lcode == rcode && lcomp == rcomp
+        case (.math(let lid, let llatex, let ldisplay), .math(let rid, let rlatex, let rdisplay)):
+            return lid == rid && llatex == rlatex && ldisplay == rdisplay
+        case (.mermaid(let lid, let ldiagram, let lcomplete), .mermaid(let rid, let rdiagram, let rcomplete)):
+            return lid == rid && ldiagram == rdiagram && lcomplete == rcomplete
+        case (.visualization(let lid, let lsource, let lcomplete), .visualization(let rid, let rsource, let rcomplete)):
+            return lid == rid && lsource == rsource && lcomplete == rcomplete
         case (.table(let lid, let lmodel), .table(let rid, let rmodel)):
             return lid == rid && lmodel == rmodel
         case (.heading(let lid, let llevel, let ltext, _), .heading(let rid, let rlevel, let rtext, _)):

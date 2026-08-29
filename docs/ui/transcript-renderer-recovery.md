@@ -8,15 +8,23 @@ CodexCoreUI projects the canonical replica through two typed seams:
 - `CodexTranscriptRendererRegistry` maps those semantic entries to renderer
   nodes. AppKit and SwiftUI can bind the same node without reparsing protocol
   JSON.
+- `CodexTranscriptWidgetInventoryV1` is the checked-in coverage contract for
+  every record in the official bundle audit. It keeps the audit's IDs out of
+  generated protocol code while making missing adapters test-visible.
 
 Protocol payloads remain in `CanonicalStateSnapshot`. Expansion, inline editing,
 bookmarks, output badges, scroll position, and focus remain presentation state.
-Unknown or malformed content is omitted from the normal transcript rather than
-shown as raw JSON. MCP content is bounded and typed; hosts can provide a richer
-widget renderer at the existing product-tool seam.
+Unknown object content becomes a typed warning row and malformed values fail
+closed; no raw JSON is rendered implicitly. MCP content is bounded and typed,
+MCP App hosts are sandboxed/lazy with bounded preview retention, and hosts can
+provide richer resource renderers at the existing adapter seam. Source
+citations and generated output resources remain typed references with lazy
+previews.
 
-`CodexTranscriptRecoveryAdapter` turns reconnect, stream, overload, history, and
-writer-conflict failures into retryable notices. `CodexTranscriptVoiceOverLifecycle`
-emits one stable announcement for turn start, meaningful streaming progress, and
-terminal completion/failure so a long transcript does not produce announcement
-noise.
+`CodexTranscriptRecoveryAdapter` and `CodexTranscriptRecoveryState` turn
+reconnect, stream, overload, history, and writer-conflict failures into scoped
+retryable notices. An indeterminate write must be verified before a turn retry;
+rollback failure leaves canonical state untouched. `CodexTranscriptVoiceOverLifecycle`
+coalesces semantic phase announcements (including tool-active, reconnecting,
+interrupted, and recovered) and marks blocking safety failures assertive, so a
+long transcript does not produce token-level announcement noise.

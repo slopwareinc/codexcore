@@ -199,9 +199,17 @@ public struct CodexAssistantTextV2: Identifiable, Sendable, Equatable {
     public var isStreaming: Bool
     public var sentAt: Date?
     public var memoryCitations: [CodexMemoryCitationV2]
-    public init(id: String, text: String = "", isStreaming: Bool = true, sentAt: Date? = nil, memoryCitations: [CodexMemoryCitationV2] = []) {
+    /// Source/provenance annotations attached to the assistant response. These
+    /// are immutable canonical facts; opening a source is a host action.
+    public var sourceCitations: [CodexTranscriptSourceCitationV2]
+    /// Generated files/resources shown after the answer without eagerly
+    /// materializing their bytes.
+    public var outputResources: [CodexTranscriptOutputResourceV2]
+    public init(id: String, text: String = "", isStreaming: Bool = true, sentAt: Date? = nil, memoryCitations: [CodexMemoryCitationV2] = [], sourceCitations: [CodexTranscriptSourceCitationV2] = [], outputResources: [CodexTranscriptOutputResourceV2] = []) {
         self.id = id; self.text = text; self.isStreaming = isStreaming; self.sentAt = sentAt
         self.memoryCitations = memoryCitations
+        self.sourceCitations = sourceCitations
+        self.outputResources = outputResources
     }
 }
 
@@ -221,12 +229,12 @@ public struct CodexMemoryCitationV2: Identifiable, Sendable, Equatable {
         note: String,
         sourceThreadIDs: [String] = []
     ) {
-        self.path = path
+        self.path = String(path.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_096))
         self.lineStart = max(1, lineStart)
         self.lineEnd = max(self.lineStart, lineEnd)
-        self.note = note
-        self.sourceThreadIDs = sourceThreadIDs
-        self.id = id ?? path + ":" + String(self.lineStart) + ":" + String(self.lineEnd)
+        self.note = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(20_000))
+        self.sourceThreadIDs = sourceThreadIDs.prefix(32).map { String($0.prefix(256)) }
+        self.id = id ?? self.path + ":" + String(self.lineStart) + ":" + String(self.lineEnd)
     }
 }
 
@@ -359,6 +367,13 @@ public enum CodexStructuredTranscriptCardStatusV2: Sendable, Equatable {
     case unknown(String)
 }
 
+public enum CodexStructuredTranscriptCardActionV2: String, Sendable, Equatable {
+    case collapse
+    case expand
+    case implement
+    case openPlan
+}
+
 public struct CodexStructuredTranscriptCardStepV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -385,6 +400,31 @@ public struct CodexStructuredTranscriptCardV2: Identifiable, Sendable, Equatable
     public var explanation: String?
     public var steps: [CodexStructuredTranscriptCardStepV2]
     public var status: CodexStructuredTranscriptCardStatusV2
+
+    public var completedStepCount: Int {
+        steps.reduce(into: 0) { count, step in
+            if step.status == .completed { count += 1 }
+        }
+    }
+
+    public var summary: String {
+        guard !steps.isEmpty else { return title }
+        return String(completedStepCount) + " of " + String(steps.count) + " tasks completed"
+    }
+
+    public var availableActions: [CodexStructuredTranscriptCardActionV2] {
+        switch kind {
+        case .todo:
+            return steps.isEmpty ? [] : [.collapse, .expand]
+        case .proposedPlan:
+            switch status {
+            case .pending, .completed: return [.collapse, .expand, .implement]
+            case .inProgress, .failed, .unknown: return [.collapse, .expand]
+            }
+        case .planImplementation:
+            return [.openPlan]
+        }
+    }
 
     public init(
         id: String,
@@ -456,6 +496,15 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
     public var rationale: String?
     public var riskLevel: String?
     public var targetItemID: String?
+    public var targetSummary: String?
+    public var isHighRisk: Bool { Self.highRisk(riskLevel) }
+    public var interruptedTurn: Bool
+
+    public var availableActions: [String] {
+        var actions = ["expand details"]
+        if status == .inProgress || interruptedTurn { actions.append("change permission mode") }
+        return actions
+    }
 
     public init(
         id: String,
@@ -463,7 +512,9 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
         status: CodexApprovalReviewStatusV2,
         rationale: String? = nil,
         riskLevel: String? = nil,
-        targetItemID: String? = nil
+        targetItemID: String? = nil,
+        targetSummary: String? = nil,
+        interruptedTurn: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -471,6 +522,8 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
         self.rationale = rationale
         self.riskLevel = riskLevel
         self.targetItemID = targetItemID
+        self.targetSummary = targetSummary
+        self.interruptedTurn = interruptedTurn
     }
 
     public init(
@@ -483,7 +536,8 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
             status: Self.status(review.status),
             rationale: review.rationale,
             riskLevel: review.riskLevel?.rawValue,
-            targetItemID: targetItemID
+            targetItemID: targetItemID,
+            targetSummary: nil
         )
     }
 
@@ -508,6 +562,12 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
         case .unrecognized(let raw): .unknown(raw)
         }
     }
+
+    private static func highRisk(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return value.caseInsensitiveCompare("high") == .orderedSame
+            || value.caseInsensitiveCompare("critical") == .orderedSame
+    }
 }
 
 public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
@@ -518,6 +578,7 @@ public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
     public var durationMs: Int?
     public var entries: [String]
     public var statusMessage: String?
+    public var outputIsTruncated: Bool
 
     public init(
         id: String,
@@ -526,7 +587,8 @@ public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
         status: CodexWorkItemStatusV2,
         durationMs: Int? = nil,
         entries: [String] = [],
-        statusMessage: String? = nil
+        statusMessage: String? = nil,
+        outputIsTruncated: Bool = false
     ) {
         self.id = id
         self.eventName = eventName
@@ -535,6 +597,7 @@ public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
         self.durationMs = durationMs
         self.entries = entries
         self.statusMessage = statusMessage
+        self.outputIsTruncated = outputIsTruncated
     }
 
     public var label: String {
@@ -567,22 +630,55 @@ public enum CodexTranscriptRecoveryKindV2: Sendable, Equatable {
     case unknown(String)
 }
 
+public extension CodexTranscriptRecoveryKindV2 {
+    var label: String {
+        switch self {
+        case .reconnecting: "Reconnecting"
+        case .overload: "Service busy"
+        case .historyRetry: "History retry"
+        case .turnRetry: "Turn retry"
+        case .writerConflict: "Writer conflict"
+        case .rollback: "Rollback"
+        case .streamFailure: "Stream disconnected"
+        case .unknown: "Recovery"
+        }
+    }
+}
+
 public struct CodexTranscriptRecoveryNoticeV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var kind: CodexTranscriptRecoveryKindV2
     public var message: String
     public var canRetry: Bool
+    public var scope: String?
+    public var attempt: Int?
+    public var maximumAttempts: Int?
+    public var countdownSeconds: Int?
+    public var isTerminal: Bool
+    public var retryLabel: String?
 
     public init(
         id: String,
         kind: CodexTranscriptRecoveryKindV2,
         message: String,
-        canRetry: Bool = false
+        canRetry: Bool = false,
+        scope: String? = nil,
+        attempt: Int? = nil,
+        maximumAttempts: Int? = nil,
+        countdownSeconds: Int? = nil,
+        isTerminal: Bool = false,
+        retryLabel: String? = nil
     ) {
         self.id = id
         self.kind = kind
         self.message = message
         self.canRetry = canRetry
+        self.scope = scope
+        self.attempt = attempt.map { max(0, $0) }
+        self.maximumAttempts = maximumAttempts.map { max(0, $0) }
+        self.countdownSeconds = countdownSeconds.map { max(0, $0) }
+        self.isTerminal = isTerminal
+        self.retryLabel = retryLabel
     }
 }
 
@@ -694,90 +790,6 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     }
 }
 
-/// Bounded, typed MCP result content. Unknown or malformed blocks are omitted
-/// from the normal transcript; raw JSON remains available through the explicit
-/// debug/copy path on the row.
-public enum CodexMCPContentBlockV2: Sendable, Equatable {
-    case text(String)
-    case image(source: String, mimeType: String?, alt: String?)
-    case audio(source: String, mimeType: String?)
-    case resource(uri: String, mimeType: String?, text: String?)
-    case resourceLink(uri: String, name: String?, mimeType: String?)
-    case structured([String: CodexJSONValue])
-    case widget(id: String?, uri: String?, payload: [String: CodexJSONValue])
-
-    public var kind: String {
-        switch self {
-        case .text: "text"
-        case .image: "image"
-        case .audio: "audio"
-        case .resource: "resource"
-        case .resourceLink: "resourceLink"
-        case .structured: "structured"
-        case .widget: "widget"
-        }
-    }
-
-    public var displayText: String? {
-        switch self {
-        case .text(let value): return value
-        case .resource(_, _, let text): return text
-        case .resourceLink(_, let name, _): return name
-        case .image(_, _, let alt): return alt
-        case .audio: return nil
-        case .structured, .widget: return nil
-        }
-    }
-
-    public var isInteractive: Bool {
-        if case .widget = self { return true }
-        return false
-    }
-}
-
-public typealias CodexMCPContentBlock = CodexMCPContentBlockV2
-
-public struct CodexMCPWidgetV2: Identifiable, Sendable, Equatable {
-    public var id: String
-    public var uri: String?
-    public var payload: [String: CodexJSONValue]
-
-    public init(id: String, uri: String? = nil, payload: [String: CodexJSONValue] = [:]) {
-        self.id = id
-        self.uri = uri
-        self.payload = payload
-    }
-}
-public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
-    public var id: String; public var query: String; public var status: CodexWorkItemStatusV2
-    public var results: [CodexWebSearchResultV2]
-
-    public init(
-        id: String,
-        query: String,
-        status: CodexWorkItemStatusV2,
-        results: [CodexWebSearchResultV2] = []
-    ) {
-        self.id = id
-        self.query = query
-        self.status = status
-        self.results = results
-    }
-}
-
-public struct CodexWebSearchResultV2: Identifiable, Sendable, Equatable {
-    public var id: String
-    public var title: String
-    public var url: String?
-    public var snippet: String?
-
-    public init(id: String, title: String, url: String? = nil, snippet: String? = nil) {
-        self.id = id
-        self.title = title
-        self.url = url
-        self.snippet = snippet
-    }
-}
  public enum CodexCollabActionV2: Sendable, Equatable {
     case created, sentInput, waited, closed
     case started, interacted, interrupted
@@ -930,15 +942,27 @@ public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
     public var id: String
     public var message: String
     public var kind: CodexTurnNoticeKindV2
+    public var detail: String?
+    public var target: CodexThreadReferenceV2?
+    public var isBlocking: Bool
+    public var actionLabel: String?
 
     public init(
         id: String,
         message: String,
-        kind: CodexTurnNoticeKindV2 = .generic
+        kind: CodexTurnNoticeKindV2 = .generic,
+        detail: String? = nil,
+        target: CodexThreadReferenceV2? = nil,
+        isBlocking: Bool = false,
+        actionLabel: String? = nil
     ) {
         self.id = id
         self.message = message
         self.kind = kind
+        self.detail = detail
+        self.target = target
+        self.isBlocking = isBlocking
+        self.actionLabel = actionLabel
     }
 }
 

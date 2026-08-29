@@ -5,6 +5,8 @@ import Foundation
 public enum CodexTranscriptRenderNodeV2: Sendable, Equatable {
     case structuredCard(CodexStructuredTranscriptCardV2)
     case mcpContent([CodexMCPContentBlockV2])
+    case mcpAppWidget(CodexMCPWidgetV2)
+    case richContent([CodexBlock])
     case productTool(CodexProductToolCallV2)
     case approvalReview(CodexApprovalReviewCardV2)
     case hookActivity(CodexHookActivityV2)
@@ -15,6 +17,8 @@ public enum CodexTranscriptRenderNodeV2: Sendable, Equatable {
         switch self {
         case .structuredCard(let card): card.id
         case .mcpContent: "mcp-content"
+        case .mcpAppWidget(let widget): widget.id
+        case .richContent(let blocks): blocks.first?.id ?? "rich-content"
         case .productTool(let call): call.id
         case .approvalReview(let review): review.id
         case .hookActivity(let hook): hook.id
@@ -55,6 +59,10 @@ public struct CodexTranscriptRendererRegistry: Sendable {
         adapters.lazy.compactMap { $0.node(for: entry) }.first
     }
 
+    public var rendererIdentifiers: Set<String> {
+        Set(adapters.map(\.identifier))
+    }
+
     public static let `default`: Self = .init()
 
     public static let defaultAdapters: [CodexTranscriptRendererAdapter] = [
@@ -68,11 +76,36 @@ public struct CodexTranscriptRendererRegistry: Sendable {
                 guard case .mcpToolCall(let value) = row else { return nil }
                 return value.contentBlocks
             }.flatMap { $0 }
+            guard !blocks.contains(where: { if case .widget = $0 { true } else { false } }) else { return nil }
             return blocks.isEmpty ? nil : .mcpContent(blocks)
+        },
+        .init(identifier: "mcp-app-widget") { entry in
+            guard case .workGroup(let group) = entry else { return nil }
+            let widgets = group.rows.compactMap { row -> [CodexMCPWidgetV2]? in
+                guard case .mcpToolCall(let value) = row else { return nil }
+                return value.widgets
+            }.flatMap { $0 }
+            guard let widget = widgets.first else { return nil }
+            return .mcpAppWidget(widget)
         },
         .init(identifier: "product-tool") { entry in
             guard case .productToolCall(let call) = entry else { return nil }
             return .productTool(call)
+        },
+        .init(identifier: "rich-content") { entry in
+            guard case .prose(let prose) = entry else { return nil }
+            let blocks = CodexBlockProjector.project(
+                prose.text,
+                streaming: prose.isStreaming,
+                cacheNamespace: prose.id
+            )
+            let hasRichBlock = blocks.contains { block in
+                switch block {
+                case .math, .mermaid, .visualization: true
+                default: false
+                }
+            }
+            return hasRichBlock ? .richContent(blocks) : nil
         },
         .init(identifier: "approval-review") { entry in
             guard case .approvalReview(let review) = entry else { return nil }

@@ -5,7 +5,12 @@ import SwiftUI
 struct CodexStructuredTranscriptCardViewV2: View {
     @Environment(\.codexAgentTheme) private var theme
     let card: CodexStructuredTranscriptCardV2
-    @State private var isExpanded = false
+    @Binding private var isExpanded: Bool
+
+    init(card: CodexStructuredTranscriptCardV2, isExpanded: Binding<Bool> = .constant(false)) {
+        self.card = card
+        self._isExpanded = isExpanded
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

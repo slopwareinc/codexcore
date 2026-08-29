@@ -60,6 +60,8 @@ public struct CodexTurnViewV2: View {
             )
 
             if turn.finalAnswer?.text.isEmpty == false
+                || turn.finalAnswer?.sourceCitations.isEmpty == false
+                || turn.finalAnswer?.outputResources.isEmpty == false
                 || !turn.generatedImages.isEmpty
                 || !turn.imageGenerationFailures.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -79,6 +81,18 @@ public struct CodexTurnViewV2: View {
                             .font(theme.fonts.micro)
                             .foregroundStyle(theme.colors.textTertiary)
                             .accessibilityLabel("Memory citation \(citation.path), lines \(citation.lineStart) through \(citation.lineEnd)")
+                        }
+                        ForEach(answer.sourceCitations) { source in
+                            Label(source.title, systemImage: source.location.hasPrefix("http") ? "link" : "doc.text")
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .accessibilityLabel("Source \(source.title): \(source.location)")
+                        }
+                        ForEach(answer.outputResources) { resource in
+                            Label(resource.name, systemImage: resource.kind == .image ? "photo" : "doc")
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .accessibilityLabel("Generated output \(resource.name)")
                         }
                     }
                     ForEach(turn.generatedImages) { image in

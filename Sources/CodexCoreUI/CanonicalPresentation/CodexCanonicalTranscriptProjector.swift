@@ -250,7 +250,7 @@ private extension CodexCanonicalTranscriptProjector {
             if let event = eventRegistry.event(for: item, completed: completed) {
                 switch event {
                 case .structuredCard(let card):
-                    appendStructuredCard(card, to: &turn)
+                    appendStructuredCard(normalizedStructuredCard(card, turnID: turnID), to: &turn)
                     continue
                 case .mcpContent(let blocks):
                     if item.kind == .mcpToolCall {
@@ -265,8 +265,8 @@ private extension CodexCanonicalTranscriptProjector {
                         }
                         continue
                     }
-                case .memoryCitations, .userContext, .approvalReview, .hookActivity,
-                     .recovery, .notice:
+                case .memoryCitations, .sourceCitations, .outputResources,
+                     .userContext, .approvalReview, .hookActivity, .recovery, .notice:
                     // These are consumed by the item-specific or turn-extension
                     // adapter below. Keeping the event typed avoids a raw
                     // payload fallback for unknown/malformed values.
@@ -303,16 +303,14 @@ private extension CodexCanonicalTranscriptProjector {
             case .hookPrompt:
                 break
                 case .agentMessage:
-                let citations: [CodexMemoryCitationV2] = {
-                    guard case .memoryCitations(let values)? = eventRegistry.event(for: item, completed: completed)
-                    else { return [] }
-                    return values
-                }()
+                let provenance = eventRegistry.provenance(for: item)
                 appendAgent(
                     item,
                     completed: completed,
                     sentAt: item.startedAt.map(Self.date) ?? canonical?.completedAt.map(Self.date),
-                    memoryCitations: citations,
+                    memoryCitations: provenance.memoryCitations,
+                    sourceCitations: provenance.sourceCitations,
+                    outputResources: provenance.outputResources,
                     to: &turn
                 )
             case .plan:
@@ -447,8 +445,9 @@ private extension CodexCanonicalTranscriptProjector {
                 case .hookActivity(let hook): appendHookActivity(hook, to: &turn)
                 case .recovery(let recovery): appendRecovery(recovery, to: &turn)
                 case .notice(let notice): appendNotice(notice, to: &turn)
-                case .structuredCard(let card): appendStructuredCard(card, to: &turn)
-                case .memoryCitations, .userContext, .mcpContent:
+                case .structuredCard(let card):
+                    appendStructuredCard(normalizedStructuredCard(card, turnID: turnID), to: &turn)
+                case .memoryCitations, .sourceCitations, .outputResources, .userContext, .mcpContent:
                     break
                 }
             }
@@ -661,6 +660,8 @@ private extension CodexCanonicalTranscriptProjector {
         completed: Bool,
         sentAt: Date?,
         memoryCitations: [CodexMemoryCitationV2] = [],
+        sourceCitations: [CodexTranscriptSourceCitationV2] = [],
+        outputResources: [CodexTranscriptOutputResourceV2] = [],
         to turn: inout CodexTurnV2
     ) {
         let id = item.key.itemID.rawValue
@@ -672,7 +673,9 @@ private extension CodexCanonicalTranscriptProjector {
             text: text,
             isStreaming: !completed,
             sentAt: sentAt,
-            memoryCitations: memoryCitations
+            memoryCitations: memoryCitations,
+            sourceCitations: sourceCitations,
+            outputResources: outputResources
         )
         switch item.payload.string("phase") {
         case "commentary":
@@ -742,6 +745,25 @@ private extension CodexCanonicalTranscriptProjector {
             turn.structuredCards.append(card)
         }
         upsertNarrative(.structuredCard(card), to: &turn)
+    }
+
+    /// Plan items and `turn/plan/updated` carry the same semantic card. Keep a
+    /// turn-scoped identity so streaming updates replace the card in place and
+    /// hydration never shows a raw plan plus a synthetic summary.
+    func normalizedStructuredCard(
+        _ card: CodexStructuredTranscriptCardV2,
+        turnID: TurnID
+    ) -> CodexStructuredTranscriptCardV2 {
+        var normalized = card
+        switch card.kind {
+        case .todo:
+            normalized.id = "todo:\(turnID.rawValue)"
+        case .proposedPlan:
+            normalized.id = "plan:\(turnID.rawValue)"
+        case .planImplementation:
+            normalized.id = "plan-implementation:\(turnID.rawValue)"
+        }
+        return normalized
     }
 
     func appendApprovalReview(

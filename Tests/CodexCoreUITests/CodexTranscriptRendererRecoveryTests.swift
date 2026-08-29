@@ -57,14 +57,19 @@ struct CodexTranscriptRendererRecoveryTests {
             Issue.record("Expected typed MCP content")
             return
         }
-        #expect(blocks.count == 3)
+        #expect(blocks.count == 4)
         #expect(blocks[0] == .text("done"))
         guard case .image(let source, _, _) = blocks[1] else {
             Issue.record("Expected typed image content")
             return
         }
         #expect(source == "https://example.com/image.png")
-        guard case .structured(let fields) = blocks[2] else {
+        guard case .unknown(let type) = blocks[2] else {
+            Issue.record("Expected a typed unknown MCP fallback")
+            return
+        }
+        #expect(type == "futureblock")
+        guard case .structured(let fields) = blocks[3] else {
             Issue.record("Expected typed structured content")
             return
         }

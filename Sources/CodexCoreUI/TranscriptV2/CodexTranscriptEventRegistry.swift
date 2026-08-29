@@ -8,6 +8,8 @@ public enum CodexTranscriptEvent: Sendable, Equatable {
     case structuredCard(CodexStructuredTranscriptCardV2)
     case userContext(attachments: [CodexUserAttachmentV2], context: [CodexUserContextV2])
     case memoryCitations([CodexMemoryCitationV2])
+    case sourceCitations([CodexTranscriptSourceCitationV2])
+    case outputResources([CodexTranscriptOutputResourceV2])
     case mcpContent([CodexMCPContentBlockV2])
     case approvalReview(CodexApprovalReviewCardV2)
     case hookActivity(CodexHookActivityV2)
@@ -29,13 +31,16 @@ public struct CodexTranscriptEventInput: Sendable, Equatable {
 /// a host can add product-specific event interpretation without introducing a
 /// central renderer switch or sharing mutable state across turns.
 public struct CodexTranscriptEventAdapter: Sendable {
+    public let identifier: String
     public let kind: ThreadItemKind
     private let body: @Sendable (CodexTranscriptEventInput) -> CodexTranscriptEvent?
 
     public init(
+        identifier: String? = nil,
         kind: ThreadItemKind,
         body: @escaping @Sendable (CodexTranscriptEventInput) -> CodexTranscriptEvent?
     ) {
+        self.identifier = identifier ?? kind.rawValue
         self.kind = kind
         self.body = body
     }
@@ -59,13 +64,108 @@ public struct CodexTranscriptEventRegistry: Sendable {
         adapters[item.kind]?.event(for: .init(item: item, completed: completed))
     }
 
+    /// Returns every bounded provenance arm for an assistant item. This is
+    /// intentionally additive to `event(for:)`: older hosts can keep matching
+    /// the narrow memory-citation event while newer hosts retain sources and
+    /// generated outputs on the same answer.
+    public func provenance(for item: CanonicalItem) -> CodexTranscriptProvenanceV2 {
+        Self.provenance(from: item.payload)
+    }
+
+    /// Adapts one already-reduced extension fact. Hosts that receive a
+    /// notification through a custom transport can use this without creating
+    /// a synthetic canonical turn.
+    public func event(
+        forExtensionKey key: String,
+        value: CodexJSONValue
+    ) -> CodexTranscriptEvent? {
+        Self.event(forExtensionKey: key, value: value)
+    }
+
+    /// Replays a notification through the same typed adapters used by
+    /// hydrated turns.  This is deliberately a pure convenience boundary for
+    /// live streams; canonical reduction still belongs to `ProtocolStateAdapter`.
+    public func events(
+        method: String,
+        params: [String: CodexJSONValue]
+    ) -> [CodexTranscriptEvent] {
+        if method == "item/autoApprovalReview/started"
+            || method == "item/autoApprovalReview/completed" {
+            let reviewID = params.string("reviewId") ?? params.string("reviewID") ?? "review"
+            let key = "autoApprovalReview:\(reviewID)"
+            return Self.event(forExtensionKey: key, value: .dictionary(params)).map { [$0] } ?? []
+        }
+        if method == "autoApprovalReview/strictReviewRequired" {
+            guard let event = Self.event(
+                forExtensionKey: "autoApprovalReview:strictReviewRequired",
+                value: .dictionary(params)
+            ) else { return [] }
+            let recovery = CodexTranscriptRecoveryNoticeV2(
+                id: "autoApprovalReview:strictReviewRequired:recovery",
+                kind: .turnRetry,
+                message: "Auto-review stopped this turn after repeated denials. Add more context or choose a different permission mode to continue.",
+                canRetry: true,
+                scope: "turn",
+                isTerminal: true,
+                retryLabel: "Retry with context"
+            )
+            return [event, .recovery(recovery)]
+        }
+        if method == "hook/started" || method == "hook/completed" {
+            let hookID = params.object("run")?.string("id") ?? params.string("id") ?? "hook"
+            return Self.event(forExtensionKey: "hook:\(hookID)", value: .dictionary(params)).map { [$0] } ?? []
+        }
+        if method == "model/rerouted" {
+            return Self.event(forExtensionKey: method, value: .dictionary(params)).map { [$0] } ?? []
+        }
+        if method == "turn/plan/updated" {
+            let turnID = params.string("turnId") ?? "turn"
+            var payload = params
+            payload["cardType"] = .string("proposed-plan")
+            return Self.planEvent(from: payload, completed: false, itemID: "plan:\(turnID)").map { [$0] } ?? []
+        }
+        if method == "item/started" || method == "item/completed" {
+            guard let itemObject = params.object("item"),
+                  let itemID = itemObject.string("id"),
+                  let threadID = params.string("threadId"),
+                  let turnID = params.string("turnId"),
+                  let type = itemObject.string("type")
+            else { return [] }
+            let item = CanonicalItem(
+                key: .init(threadID: ThreadID(threadID), turnID: TurnID(turnID), itemID: ItemID(itemID)),
+                kind: ThreadItemKind(rawValue: type),
+                payload: itemObject,
+                authority: method == "item/completed" ? .completed : .started
+            )
+            return event(for: item, completed: method == "item/completed").map { [$0] } ?? []
+        }
+        return []
+    }
+
+    public var adapterIdentifiers: Set<String> {
+        Set(adapters.values.map(\.identifier))
+    }
+
     /// Turns store notification-backed extension facts as typed events. These
     /// extensions are canonical facts; this method only chooses their display
     /// representation and safely ignores malformed dictionaries.
     public func events(for turn: CanonicalTurn) -> [CodexTranscriptEvent] {
-        var events: [CodexTranscriptEvent] = turn.extensions.keys.sorted().compactMap { key in
-            guard let value = turn.extensions[key] else { return nil }
-            return Self.event(forExtensionKey: key, value: value)
+        var events: [CodexTranscriptEvent] = turn.extensions.keys.sorted().flatMap { key in
+            guard let value = turn.extensions[key],
+                  let event = Self.event(forExtensionKey: key, value: value) else { return [CodexTranscriptEvent]() }
+            if key == "autoApprovalReview:strictReviewRequired" {
+                let recovery = CodexTranscriptRecoveryNoticeV2(
+                    id: key + ":recovery",
+                    kind: .turnRetry,
+                    message: "Auto-review stopped this turn after repeated denials. Add more context or choose a different permission mode to continue.",
+                    canRetry: true,
+                    scope: "turn",
+                    isTerminal: true,
+                    retryLabel: "Retry with context"
+                )
+                return [event, .recovery(recovery)]
+            }
+            return [event]
         }
         if let error = turn.error?.typedCodexErrorInfo,
            let recovery = Self.recovery(for: error, turn: turn) {
@@ -129,16 +229,16 @@ public struct CodexTranscriptEventRegistry: Sendable {
     }
 
     public static let defaultAdapters: [CodexTranscriptEventAdapter] = [
-        .init(kind: .plan) { input in
+        .init(identifier: "plan", kind: .plan) { input in
             Self.planEvent(from: input.item.payload, completed: input.completed, itemID: input.item.key.itemID.rawValue)
         },
-        .init(kind: .agentMessage) { input in
-            Self.memoryEvent(from: input.item.payload)
+        .init(identifier: "memory-citation", kind: .agentMessage) { input in
+            Self.provenanceEvent(from: input.item.payload)
         },
-        .init(kind: .userMessage) { input in
+        .init(identifier: "user-context", kind: .userMessage) { input in
             Self.userContextEvent(from: input.item.payload)
         },
-        .init(kind: .mcpToolCall) { input in
+        .init(identifier: "mcp-tool-call", kind: .mcpToolCall) { input in
             Self.mcpEvent(from: input.item.payload)
         },
     ]
@@ -151,11 +251,18 @@ private extension CodexTranscriptEventRegistry {
         itemID: String
     ) -> CodexTranscriptEvent? {
         let rawKind = payload.string("cardType")
+            ?? payload.string("itemType")
             ?? payload.string("kind")
             ?? payload.string("type")
+        let normalizedRawKind = rawKind?.lowercased()
+        let hasExplicitCardKind = [
+            "todo", "todos", "todo_list", "todo-list",
+            "proposed-plan", "proposed_plan", "proposedplan",
+            "planimplementation", "plan_implementation", "plan-implementation", "implementation"
+        ].contains(normalizedRawKind)
         let kind: CodexStructuredTranscriptCardKindV2 = switch rawKind?.lowercased() {
-        case "todo", "todos", "todo_list": .todo
-        case "planimplementation", "plan_implementation", "implementation": .planImplementation
+        case "todo", "todos", "todo_list", "todo-list": .todo
+        case "planimplementation", "plan_implementation", "plan-implementation", "implementation": .planImplementation
         default: .proposedPlan
         }
         let title = payload.string("title")
@@ -165,6 +272,16 @@ private extension CodexTranscriptEventRegistry {
             payload.array("steps") ?? payload.array("plan") ?? payload.array("items") ?? [],
             itemID: itemID
         )
+        // A legacy `plan` item containing only markdown is ordinary narrative;
+        // turn-level plan updates and explicit card discriminators are handled
+        // by the structured adapter. This preserves the stable legacy row ID
+        // while preventing a duplicate raw plan card in hydrated history.
+        if !hasExplicitCardKind, steps.isEmpty,
+           payload.string("cardType") == nil,
+           payload.string("itemType") == nil,
+           payload.string("kind") == nil {
+            return nil
+        }
         guard title?.isEmpty == false || !steps.isEmpty else { return nil }
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
             .codexTranscriptNonEmpty ?? (kind == .todo ? "Todo" : "Plan")
@@ -190,6 +307,10 @@ private extension CodexTranscriptEventRegistry {
         itemID: String
     ) -> [CodexStructuredTranscriptCardStepV2] {
         values.enumerated().compactMap { index, value in
+            if case .string(let title) = value,
+               let title = title.trimmingCharacters(in: .whitespacesAndNewlines).codexTranscriptNonEmpty {
+                return .init(id: "\(itemID):step:\(index)", title: title)
+            }
             guard case .dictionary(let object) = value else { return nil }
             let title = object.string("step")
                 ?? object.string("title")
@@ -198,7 +319,9 @@ private extension CodexTranscriptEventRegistry {
                   !title.isEmpty,
                   title.utf8.count <= 16_384
             else { return nil }
-            let status = cardStatus(object.string("status"), completed: false, steps: [])
+            let status = object.bool("completed") == true
+                ? CodexStructuredTranscriptCardStatusV2.completed
+                : cardStatus(object.string("status"), completed: false, steps: [])
             return .init(
                 id: object.string("id") ?? itemID + ":step:" + String(index),
                 title: title,
@@ -334,6 +457,79 @@ private extension CodexTranscriptEventRegistry {
         return entries.isEmpty ? nil : .memoryCitations(entries)
     }
 
+    static func provenance(from payload: [String: CodexJSONValue]) -> CodexTranscriptProvenanceV2 {
+        .init(
+            memoryCitations: memoryEvent(from: payload).flatMap { event in
+                guard case .memoryCitations(let values) = event else { return nil }
+                return values
+            } ?? [],
+            sourceCitations: sourceCitations(from: payload) ?? [],
+            outputResources: outputResources(from: payload) ?? []
+        )
+    }
+
+    static func provenanceEvent(from payload: [String: CodexJSONValue]) -> CodexTranscriptEvent? {
+        let value = provenance(from: payload)
+        if !value.memoryCitations.isEmpty { return .memoryCitations(value.memoryCitations) }
+        if !value.sourceCitations.isEmpty { return .sourceCitations(value.sourceCitations) }
+        if !value.outputResources.isEmpty { return .outputResources(value.outputResources) }
+        return nil
+    }
+
+    static func sourceCitations(from payload: [String: CodexJSONValue]) -> [CodexTranscriptSourceCitationV2]? {
+        let values = payload.array("sources")
+            ?? payload.array("sourceCitations")
+            ?? payload.array("source_citations")
+            ?? payload.object("annotations")?.array("sources")
+        guard let values else { return nil }
+        return values.enumerated().compactMap { index, value in
+            guard case .dictionary(let object) = value,
+                  let location = (object.string("url") ?? object.string("uri") ?? object.string("path"))?.codexTranscriptNonEmpty
+            else { return nil }
+            let title = object.string("title") ?? object.string("name") ?? location
+            return .init(
+                id: object.string("id") ?? "source:\(index):\(location)",
+                title: title,
+                location: location,
+                snippet: object.string("snippet") ?? object.string("text") ?? object.string("description"),
+                sourceKind: object.string("kind") ?? object.string("type") ?? "source"
+            )
+        }
+    }
+
+    static func outputResources(from payload: [String: CodexJSONValue]) -> [CodexTranscriptOutputResourceV2]? {
+        let values = payload.array("outputResources")
+            ?? payload.array("output_resources")
+            ?? payload.array("resources")
+        guard let values else { return nil }
+        return values.enumerated().compactMap { index, value in
+            guard case .dictionary(let object) = value,
+                  let location = (object.string("url") ?? object.string("uri") ?? object.string("path"))?.codexTranscriptNonEmpty
+            else { return nil }
+            let rawKind = (object.string("kind") ?? object.string("type") ?? "resource").lowercased()
+            let kind: CodexTranscriptOutputResourceV2.Kind = switch rawKind {
+            case "file", "file_url", "fileurl": .file
+            case "image", "image_url", "imageurl": .image
+            case "audio", "audio_url", "audiourl": .audio
+            case "resource", "resource_link", "resourcelink": .resource
+            default: .unknown
+            }
+            return .init(
+                id: object.string("id") ?? "output:\(index):\(location)",
+                kind: kind,
+                name: object.string("name")
+                    ?? (location.hasPrefix("http")
+                        ? (URL(string: location)?.lastPathComponent ?? "Output")
+                        : (URL(fileURLWithPath: location).lastPathComponent.isEmpty
+                            ? "Output" : URL(fileURLWithPath: location).lastPathComponent)),
+                location: location,
+                mimeType: object.string("mimeType") ?? object.string("mime_type"),
+                sizeBytes: object.int("sizeBytes") ?? object.int("size_bytes"),
+                isPreviewable: object.bool("previewable") ?? (kind == .image || kind == .audio)
+            )
+        }
+    }
+
     static func mcpEvent(from payload: [String: CodexJSONValue]) -> CodexTranscriptEvent? {
         var blocks: [CodexMCPContentBlockV2] = []
         if let result = payload.object("result") {
@@ -345,18 +541,38 @@ private extension CodexTranscriptEventRegistry {
         if let content = payload.array("contentItems") {
             blocks += content.compactMap(CodexMCPContentBlockAdapter.decode)
         }
+        // MCP Apps are represented by a resource URI on the tool item even
+        // when the result has no eager content. Keep a typed widget placeholder
+        // so the host can load its sandbox only when the row is revealed.
+        if let uri = payload.string("mcpAppResourceUri")
+            ?? payload.object("appContext")?.string("resourceUri") {
+            blocks.append(.widget(
+                id: payload.string("id"),
+                uri: uri,
+                payload: [:]
+            ))
+        }
         return blocks.isEmpty ? nil : .mcpContent(blocks)
     }
 
     static func event(forExtensionKey key: String, value: CodexJSONValue) -> CodexTranscriptEvent? {
+        let normalizedKey = key
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "/", with: "")
+            .lowercased()
         if key == "autoApprovalReview:strictReviewRequired", let object = value.object {
             return .approvalReview(.init(
                 id: key,
-                title: "Additional approval review required",
+                title: "Turn ended by Auto-review",
                 status: .inProgress,
-                rationale: object.string("reason") ?? object.string("message"),
+                rationale: object.string("reason")
+                    ?? object.string("message")
+                    ?? "Auto-review stopped this turn after repeated denials. Add more context or choose a different permission mode to continue.",
                 riskLevel: object.string("riskLevel"),
-                targetItemID: object.string("itemId")
+                targetItemID: object.string("targetItemId") ?? object.string("itemId"),
+                targetSummary: object.string("target"),
+                interruptedTurn: true
             ))
         }
         if key.hasPrefix("autoApprovalReview:"),
@@ -380,16 +596,18 @@ private extension CodexTranscriptEventRegistry {
                 status: reviewStatus,
                 rationale: review.string("rationale"),
                 riskLevel: review.string("riskLevel"),
-                targetItemID: object.string("targetItemId")
+                targetItemID: object.string("targetItemId") ?? review.string("targetItemId"),
+                targetSummary: review.string("command") ?? review.string("file")
             ))
         }
         if key.hasPrefix("hook:"), let object = value.object {
             let run = object.object("run") ?? object
             let status = workStatus(run.string("status"))
-            let entries = run.array("entries")?.compactMap { entry -> String? in
+            let rawEntries = run.array("entries") ?? []
+            let entries = rawEntries.prefix(128).compactMap { entry -> String? in
                 guard case .dictionary(let value) = entry else { return nil }
                 return value.string("text")?.codexTranscriptBounded
-            } ?? []
+            }
             return .hookActivity(.init(
                 id: run.string("id") ?? key,
                 eventName: run.string("eventName") ?? "Hook",
@@ -397,61 +615,117 @@ private extension CodexTranscriptEventRegistry {
                 status: status,
                 durationMs: run.int("durationMs"),
                 entries: entries,
-                statusMessage: run.string("statusMessage")?.codexTranscriptBounded
+                statusMessage: run.string("statusMessage")?.codexTranscriptBounded,
+                outputIsTruncated: rawEntries.count > entries.count || rawEntries.count > 128
             ))
         }
-        if key == "model/rerouted", let object = value.object {
+        if (key == "model/rerouted" || normalizedKey == "modelrerouted"), let object = value.object {
             let from = object.string("fromModel") ?? "previous model"
             let to = object.string("toModel") ?? "another model"
-            return .notice(.init(id: key, message: "Model changed from \(from) to \(to)", kind: .modelReroute))
+            let reason = object.string("reason")
+            let detail = reason.map { "Reason: \($0)" }
+            let highRisk = reason?.localizedCaseInsensitiveContains("highRisk") == true
+                || reason?.localizedCaseInsensitiveContains("cyber") == true
+            return .notice(.init(
+                id: key,
+                message: "Model changed from \(from) to \(to)",
+                kind: .modelReroute,
+                detail: detail,
+                isBlocking: highRisk,
+                actionLabel: highRisk ? "Open risk explanation" : nil
+            ))
         }
-        if key == "model/safetyBuffering/updated", let object = value.object,
+        if (key == "model/safetyBuffering/updated" || normalizedKey == "modelsafetybufferingupdated"), let object = value.object,
            object.bool("showBufferingUi") == true {
-            return .notice(.init(id: key, message: "Model is buffering the response", kind: .modelReroute))
+            return .notice(.init(
+                id: key,
+                message: "Model is buffering the response",
+                kind: .modelReroute,
+                detail: object.array("reasons")?.compactMap(\.stringValue).joined(separator: ", ")
+            ))
         }
-        if key == "personality", let personality = value.stringValue?.codexTranscriptNonEmpty {
+        if (key == "model/verification" || normalizedKey == "modelverification"), let object = value.object {
+            let values = object.array("verifications")?.compactMap(\.stringValue) ?? []
+            let detail = values.isEmpty ? nil : values.joined(separator: ", ")
+            return .notice(.init(
+                id: key,
+                message: "Model verification updated",
+                kind: .modelReroute,
+                detail: detail,
+                isBlocking: values.contains { $0.localizedCaseInsensitiveContains("cyber") },
+                actionLabel: values.contains { $0.localizedCaseInsensitiveContains("cyber") } ? "Open risk explanation" : nil
+            ))
+        }
+        if (key == "personality" || normalizedKey == "personalitychanged"), let personality = value.stringValue?.codexTranscriptNonEmpty {
             return .notice(.init(id: key, message: "Personality: \(personality)", kind: .personality))
         }
-        if key == "forkedFromId", let source = value.stringValue?.codexTranscriptNonEmpty {
+        if (key == "forkedFromId" || normalizedKey == "forkedfromconversation"), let source = value.stringValue?.codexTranscriptNonEmpty {
             return .notice(.init(id: key, message: "Forked from chat \(shortID(source))", kind: .fork))
         }
-        if key == "worktree", let object = value.object {
+        if (key == "worktree" || normalizedKey == "worktreeinit"), let object = value.object {
             let name = object.string("name") ?? object.string("path")
-            return name.map { .notice(.init(id: key, message: "Working in \($0)", kind: .worktree)) }
+            let status = object.string("status")
+            return name.map { value in
+                let message = status.map { "Worktree \($0): \(value)" } ?? "Working in \(value)"
+                return .notice(.init(id: key, message: message, kind: .worktree))
+            }
         }
-        if key == "remoteTask", let object = value.object {
+        if (key == "remoteTask" || normalizedKey == "remotetaskcreated"), let object = value.object {
             let state = object.string("status") ?? "connected"
-            return .notice(.init(id: key, message: "Remote task \(state)", kind: .remoteTask))
+            let target = object.string("threadId") ?? object.string("threadID")
+            return .notice(.init(
+                id: key,
+                message: "Remote task \(state)",
+                kind: .remoteTask,
+                target: target.map { .init(hostID: object.string("hostId"), threadID: $0) }
+            ))
         }
         if key == "remoteTask", let state = value.stringValue?.codexTranscriptNonEmpty {
             return .notice(.init(id: key, message: "Remote task \(state)", kind: .remoteTask))
         }
-        if key == "historyRetry", value == .bool(true) {
-            return .recovery(.init(id: key, kind: .historyRetry, message: "Retrying history", canRetry: true))
+        if (key == "historyRetry" || normalizedKey == "historyretry"), value == .bool(true) {
+            return .recovery(.init(id: key, kind: .historyRetry, message: "Retrying history", canRetry: true, scope: "history", retryLabel: "Retry history"))
         }
         // The item-backed representation already emits the stable
         // `context-compacted-<turn>` notice. Do not add a second entry when the
         // live extension and hydrated item are reconciled.
         if key == "contextCompacted" { return nil }
-        if key == "lastErrorWillRetry", value == .bool(true) {
-            return .recovery(.init(id: key, kind: .turnRetry, message: "Retrying this turn", canRetry: true))
+        if (key == "lastErrorWillRetry" || normalizedKey == "lasterrorwillretry"), value == .bool(true) {
+            return .recovery(.init(id: key, kind: .turnRetry, message: "Retrying this turn", canRetry: true, scope: "turn", retryLabel: "Retry turn"))
         }
-        if key == "writerConflict" {
+        if key == "auto-review-interruption-warning" || normalizedKey == "autoreviewinterruptionwarning" {
+            let detail = value.object?.string("message") ?? value.stringValue
+                ?? "Auto-review stopped this turn after repeated denials. Add more context or choose a different permission mode to continue."
+            return .recovery(.init(
+                id: key,
+                kind: .turnRetry,
+                message: detail,
+                canRetry: true,
+                scope: "turn",
+                isTerminal: true,
+                retryLabel: "Retry with context"
+            ))
+        }
+        if key == "writerConflict" || normalizedKey == "writerconflict" {
             let detail = (value.object?.string("message") ?? value.stringValue)?.codexTranscriptBounded
             return .recovery(.init(
                 id: key,
                 kind: .writerConflict,
                 message: detail.map { "Another writer changed this thread: \($0)" } ?? "Another writer changed this thread",
-                canRetry: true
+                canRetry: true,
+                scope: "thread",
+                retryLabel: "Verify"
             ))
         }
-        if key == "threadRollback" || key == "rollback" {
+        if key == "threadRollback" || key == "rollback" || normalizedKey == "threadrollback" {
             let detail = (value.object?.string("message") ?? value.stringValue)?.codexTranscriptBounded
             return .recovery(.init(
                 id: key,
                 kind: .rollback,
                 message: detail.map { "Rollback: \($0)" } ?? "Rollback applied",
-                canRetry: detail != nil
+                canRetry: detail != nil,
+                scope: "thread",
+                retryLabel: detail != nil ? "Retry after confirmation" : nil
             ))
         }
         return nil
@@ -462,48 +736,75 @@ private extension CodexTranscriptEventRegistry {
         turn: CanonicalTurn
     ) -> CodexTranscriptRecoveryNoticeV2? {
         let id = "turn-recovery:\(turn.key.turnID.rawValue)"
+        let attempt = turn.extensions.int("attempt") ?? turn.extensions.int("retryAttempt")
+        let maximumAttempts = turn.extensions.int("maximumAttempts") ?? turn.extensions.int("maxAttempts")
+        let countdown = turn.extensions.int("countdownSeconds") ?? turn.extensions.int("retryAfterSeconds")
+        let scope = "turn:\(turn.key.turnID.rawValue)"
         switch error {
         case .serverOverloaded:
             return .init(
                 id: id,
                 kind: .overload,
                 message: "The service is busy; retrying this turn",
-                canRetry: true
+                canRetry: true,
+                scope: scope,
+                attempt: attempt,
+                maximumAttempts: maximumAttempts,
+                countdownSeconds: countdown,
+                isTerminal: maximumAttempts.map { (attempt ?? 0) >= $0 } ?? false,
+                retryLabel: "Retry turn"
             )
         case .responseStreamConnectionFailed, .responseStreamDisconnected, .httpConnectionFailed:
             return .init(
                 id: id,
                 kind: .streamFailure,
                 message: "Response stream disconnected; reconnecting",
-                canRetry: true
+                canRetry: true,
+                scope: scope,
+                attempt: attempt,
+                maximumAttempts: maximumAttempts,
+                countdownSeconds: countdown,
+                retryLabel: "Retry turn"
             )
         case .responseTooManyFailedAttempts:
             return .init(
                 id: id,
                 kind: .historyRetry,
                 message: "The response could not be recovered automatically",
-                canRetry: true
+                canRetry: true,
+                scope: scope,
+                attempt: attempt,
+                maximumAttempts: maximumAttempts,
+                isTerminal: true,
+                retryLabel: "Retry turn"
             )
         case .threadRollbackFailed:
             return .init(
                 id: id,
                 kind: .rollback,
                 message: "Rollback was not applied; the thread remains unchanged",
-                canRetry: true
+                canRetry: true,
+                scope: "thread",
+                isTerminal: true,
+                retryLabel: "Retry after confirmation"
             )
         case .contextWindowExceeded:
             return .init(
                 id: id,
                 kind: .historyRetry,
                 message: "Context limit reached; retry after compacting history",
-                canRetry: true
+                canRetry: true,
+                scope: "history",
+                retryLabel: "Retry after compacting"
             )
         case .activeTurnNotSteerable:
             return .init(
                 id: id,
                 kind: .turnRetry,
                 message: "This turn cannot accept another steer yet",
-                canRetry: true
+                canRetry: true,
+                scope: scope,
+                retryLabel: "Retry turn"
             )
         case .usageLimitExceeded, .sessionBudgetExceeded, .cyberPolicy,
              .internalServerError, .unauthorized, .badRequest, .sandboxError,
@@ -581,80 +882,10 @@ public enum CodexMCPContentBlockAdapter {
             let payload = object.object("payload") ?? object.object("data") ?? [:]
             return .widget(id: object.string("id"), uri: object.string("uri") ?? object.string("resourceUri"), payload: payload)
         default:
-            return nil
+            // Keep the call's ordering and a safe explanation without exposing
+            // arbitrary JSON. Malformed non-object values still fail closed.
+            return .unknown(type: type)
         }
-    }
-}
-
-/// Adapts session-level recovery into the same typed notice used by turn
-/// projection. Session lifecycle remains canonical/runtime state; the adapter
-/// merely gives a selected transcript a deterministic explanation.
-public enum CodexTranscriptRecoveryAdapter {
-    public static func notice(
-        for lifecycle: CodexSessionLifecycle,
-        threadID: String? = nil
-    ) -> CodexTranscriptRecoveryNoticeV2? {
-        let scope = threadID.map { ":\($0)" } ?? ""
-        switch lifecycle {
-        case .reconnecting(_, let attempt):
-            return .init(
-                id: "session-reconnecting\(scope)",
-                kind: .reconnecting(attempt: max(1, attempt)),
-                message: "Reconnecting to Codex (attempt \(max(1, attempt)))",
-                canRetry: false
-            )
-        case .failed(let error):
-            return .init(
-                id: "session-failed\(scope)",
-                kind: .streamFailure,
-                message: "Codex connection failed: \(bounded(error))",
-                canRetry: true
-            )
-        case .connecting, .initializing, .ready, .stopped, .closing:
-            return nil
-        }
-    }
-
-    public static func notice(
-        for error: CodexSessionError,
-        threadID: String? = nil
-    ) -> CodexTranscriptRecoveryNoticeV2? {
-        let scope = threadID.map { ":\($0)" } ?? ""
-        switch error {
-        case .historyReconciliationFailed(_, let message):
-            return .init(
-                id: "history-retry\(scope)",
-                kind: .historyRetry,
-                message: "History could not be restored: \(bounded(message))",
-                canRetry: true
-            )
-        case .connectionLost(_, let message), .connectionFailed(let message):
-            return .init(
-                id: "stream-failure\(scope)",
-                kind: .streamFailure,
-                message: "Connection lost: \(bounded(message))",
-                canRetry: true
-            )
-        case .stateCommitFailed(let message):
-            return .init(
-                id: "writer-conflict\(scope)",
-                kind: .writerConflict,
-                message: "Thread state was not written: \(bounded(message))",
-                canRetry: true
-            )
-        case .unsupportedThreadOperation, .notReady, .closed,
-             .protocolViolation, .codexHomePreparationFailed,
-             .codexHomeMismatch, .handshakeBufferOverflow, .requestIdentifierExhausted,
-             .unknownServerRequest, .anonymousLoginAlreadyInProgress,
-             .loginCancellationNotFound, .loginCancellationDidNotCancel:
-            return nil
-        }
-    }
-
-    private static func bounded(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 240 else { return trimmed }
-        return String(trimmed.prefix(240)) + "…"
     }
 }
 
@@ -706,7 +937,8 @@ private extension String {
     var codexTranscriptBounded: String? {
         guard let value = codexTranscriptNonEmpty else { return nil }
         guard value.utf8.count > CodexMCPContentBlockAdapter.maximumTextBytes else { return value }
-        var result = String(value.prefix(100_000))
+        let prefix = value.utf8.prefix(CodexMCPContentBlockAdapter.maximumTextBytes)
+        var result = String(decoding: prefix, as: UTF8.self)
         result += "\n… content truncated"
         return result
     }

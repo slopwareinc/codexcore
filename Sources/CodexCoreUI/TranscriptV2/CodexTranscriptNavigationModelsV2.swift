@@ -28,6 +28,45 @@ public struct CodexTranscriptOutputBadgeV2: Identifiable, Sendable, Equatable {
     }
 }
 
+/// Presentation-only focus anchor used while menus, dialogs, or inline edits
+/// temporarily leave the transcript. The anchor is intentionally stable by
+/// semantic item ID rather than an AppKit index path.
+public struct CodexTranscriptFocusAnchorV2: Sendable, Equatable {
+    public let itemID: String
+    public let characterOffset: Int?
+
+    public init(itemID: String, characterOffset: Int? = nil) {
+        self.itemID = itemID
+        self.characterOffset = characterOffset.map { max(0, $0) }
+    }
+}
+
+public struct CodexTranscriptBookmarkNavigator: Sendable, Equatable {
+    public private(set) var currentTurnID: String?
+
+    public init(currentTurnID: String? = nil) {
+        self.currentTurnID = currentTurnID
+    }
+
+    @discardableResult
+    public mutating func move(
+        in presentation: CodexThreadUIPresentation,
+        backwards: Bool = false
+    ) -> CodexTranscriptBookmarkV2? {
+        let bookmark = CodexTranscriptNavigationProjection.adjacentBookmark(
+            in: presentation,
+            from: currentTurnID,
+            backwards: backwards
+        )
+        if let bookmark { currentTurnID = bookmark.turnID }
+        return bookmark
+    }
+
+    public mutating func reset() {
+        currentTurnID = nil
+    }
+}
+
 public enum CodexTranscriptNavigationProjection {
     public static func bookmarks(for presentation: CodexThreadUIPresentation) -> [CodexTranscriptBookmarkV2] {
         presentation.transcript.turns.compactMap { turn in
@@ -45,5 +84,30 @@ public enum CodexTranscriptNavigationProjection {
             guard let value = presentation.outputBadgesByTurnID[turnID] else { return nil }
             return CodexTranscriptOutputBadgeV2(turnID: turnID, text: value)
         }
+    }
+
+    public static func adjacentBookmark(
+        in presentation: CodexThreadUIPresentation,
+        from turnID: String?,
+        backwards: Bool = false
+    ) -> CodexTranscriptBookmarkV2? {
+        let values = bookmarks(for: presentation)
+        guard !values.isEmpty else { return nil }
+        guard let turnID, let index = values.firstIndex(where: { $0.turnID == turnID }) else {
+            return backwards ? values.last : values.first
+        }
+        let offset = backwards ? -1 : 1
+        let next = index + offset
+        guard values.indices.contains(next) else { return nil }
+        return values[next]
+    }
+
+    public static func focusTarget(
+        in presentation: CodexThreadUIPresentation,
+        turnID: String,
+        itemID: String? = nil
+    ) -> String {
+        if let itemID, !itemID.isEmpty { return "\(turnID):\(itemID)" }
+        return "\(presentation.threadID):turn:\(turnID)"
     }
 }

@@ -154,6 +154,8 @@ struct CodexBlockView: View, Equatable {
             CodexMathBlockView(latex: latex, display: display)
         case .mermaid(_, let diagram, let complete):
             CodexMermaidBlockView(diagram: diagram, isComplete: complete)
+        case .visualization(_, let source, let complete):
+            CodexVisualizationBlockView(source: source, isComplete: complete)
         case .table(_, let model):
             CodexTableBlockView(model: model)
         case .heading(_, let level, let text, let attributed):

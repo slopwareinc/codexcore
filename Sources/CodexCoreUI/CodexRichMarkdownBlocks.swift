@@ -66,3 +66,36 @@ public struct CodexMermaidBlockView: View {
     }
 }
 
+/// Safe textual visualization reference. A host may install a renderer at the
+/// same seam; untrusted source is never evaluated by the default view.
+public struct CodexVisualizationBlockView: View {
+    @Environment(\.codexAgentTheme) private var theme
+    public let source: String
+    public let isComplete: Bool
+
+    public init(source: String, isComplete: Bool = true) {
+        self.source = source
+        self.isComplete = isComplete
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(isComplete ? "Visualization" : "Visualization (streaming)", systemImage: "chart.xyaxis.line")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+            Text(boundedSource)
+                .font(theme.fonts.code)
+                .foregroundStyle(theme.colors.textPrimary)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .background(theme.colors.surfaceSunken, in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Visualization source: \(boundedSource)")
+    }
+
+    private var boundedSource: String {
+        guard source.utf8.count <= 40_000 else { return String(source.prefix(40_000)) + "\n… visualization truncated" }
+        return source
+    }
+}

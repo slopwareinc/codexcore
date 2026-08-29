@@ -53,16 +53,15 @@ public struct CodexMCPContentBlockViewV2: View {
             .font(theme.fonts.caption)
             .foregroundStyle(theme.colors.textSecondary)
         case .widget(let id, let uri, let payload):
-            if let widgetRenderer,
-               let rendered = widgetRenderer(.init(id: id ?? uri ?? "widget", uri: uri, payload: payload)) {
-                rendered
-            } else {
-                Label("Interactive widget", systemImage: "rectangle.on.rectangle")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .accessibilityLabel("Interactive MCP widget")
-            }
+            CodexMCPAppWidgetViewV2(
+                widget: .init(id: id ?? uri ?? "widget", uri: uri, payload: payload),
+                content: widgetRenderer
+            )
+        case .unknown(let type):
+            Label("Unsupported MCP content", systemImage: "questionmark.square")
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.warning)
+                .accessibilityLabel("Unsupported MCP content type: \(type)")
         }
     }
 }
-
