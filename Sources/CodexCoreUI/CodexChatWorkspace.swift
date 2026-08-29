@@ -10,6 +10,13 @@ private struct CodexComposerOverlayHeightKey: PreferenceKey {
     }
 }
 
+enum CodexComposerOverlayHeightReconciler {
+    static func next(current: CGFloat, proposed: CGFloat) -> CGFloat? {
+        guard proposed > 0, abs(current - proposed) > 0.5 else { return nil }
+        return proposed
+    }
+}
+
 public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     /// Preserves the transcript's 736-point reading measure plus its standard
     /// horizontal gutters while a tool panel is docked beside it.
@@ -659,8 +666,11 @@ public struct CodexChatWorkspaceView: View {
             }
         }
         .onPreferenceChange(CodexComposerOverlayHeightKey.self) { height in
-            guard height > 0 else { return }
-            composerOverlayHeight = height
+            guard let next = CodexComposerOverlayHeightReconciler.next(
+                current: composerOverlayHeight,
+                proposed: height
+            ) else { return }
+            composerOverlayHeight = next
         }
     }
 

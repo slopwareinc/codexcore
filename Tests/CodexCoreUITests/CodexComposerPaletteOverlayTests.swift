@@ -5,6 +5,13 @@ import Testing
 
 @MainActor
 struct CodexComposerPaletteOverlayTests {
+    @Test func repeatedComposerHeightPreferencesAreRenderNeutral() {
+        #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 170) == nil)
+        #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 170.4) == nil)
+        #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 0) == nil)
+        #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 172) == 172)
+    }
+
     @Test func slashPaletteDoesNotChangeComposerMeasuredHeight() {
         let idle = hosting(draft: "")
         let slash = hosting(draft: "/")
