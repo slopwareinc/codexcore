@@ -241,4 +241,18 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(streamNotice.kind == .streamFailure)
         #expect(streamNotice.message.contains("disconnected"))
     }
+
+    @Test func rendererRegistrySelectsTypedNodesWithoutAProtocolSwitch() {
+        let card = CodexStructuredTranscriptCardV2(
+            id: "todo",
+            kind: .todo,
+            title: "Todo",
+            steps: [.init(id: "step", title: "Ship")],
+            status: .inProgress
+        )
+        let entry = CodexNarrativeEntry.structuredCard(card)
+        let node = CodexTranscriptRendererRegistry.default.node(for: entry)
+        #expect(node == .structuredCard(card))
+        #expect(node?.id == "todo")
+    }
 }
