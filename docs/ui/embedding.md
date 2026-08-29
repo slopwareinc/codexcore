@@ -90,6 +90,17 @@ host. Restored interactive routes register lazily and create their PTY only when
 the user activates the tab; missing canonical background facts remain
 unavailable rather than producing a blank detail surface.
 
+Summary and the workspace New Tab page consume the same
+`CodexThreadResourceInventory`. Hosts that already observe canonical state can
+construct it with `CodexThreadResourceProjection.project(snapshot:threadID:)`
+and pass it as `threadResourceInventory` to `CodexChatWorkspaceView`. The
+inventory is fact-only and carries stable `CodexThreadResourceOrigin` values;
+resource actions arrive at `onOpenResource` as typed
+`CodexWorkspaceTabRequest` values. Hosts may add bounded supplemental facts for
+Git, MCP catalogs, browser pages, and other adapters without putting panel
+selection or layout into canonical state. Unknown resources remain safe rows
+and do not fabricate a preview host.
+
 Files are opened through the public panel facade:
 `panel.openFiles(workspacePath:)` registers the workspace browser and
 `panel.openFilePreview(fileURL:ref:)` opens a typed file/ref preview. The

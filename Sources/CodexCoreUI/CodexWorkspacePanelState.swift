@@ -254,9 +254,31 @@ public final class CodexWorkspacePanelState: ObservableObject {
     /// the existing tab for that file/ref combination.
     @discardableResult
     public func openFilePreview(fileURL: URL, ref: String? = nil) -> CodexWorkspaceTabID {
+        openFilePreview(
+            fileURL: fileURL,
+            ref: ref,
+            opener: .transcript,
+            placement: nil,
+            focus: true
+        )
+    }
+
+    /// Typed-request-friendly file opening. The resource request chooses the
+    /// opener/placement while the Files adapter still owns preview identity and
+    /// replacement semantics.
+    @discardableResult
+    public func openFilePreview(
+        fileURL: URL,
+        ref: String? = nil,
+        opener: CodexWorkspaceTabOpener,
+        placement: CodexWorkspaceTabPlacement? = nil,
+        focus: Bool = true
+    ) -> CodexWorkspaceTabID {
         workspaceTabs.open(
             CodexFilePreviewWorkspaceTabAdapter(fileURL: fileURL, ref: ref),
-            from: .transcript
+            from: opener,
+            placement: placement,
+            focus: focus
         )
     }
 

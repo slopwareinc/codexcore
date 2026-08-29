@@ -443,6 +443,7 @@ struct CodexCoreAppShell: View {
                 mountedPanels: model.mountedWorkspacePanels,
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
+                threadResourceInventory: model.threadResourceInventory,
                 gitReviewSession: model.gitReviewSession,
                 backgroundTerminalActions: CodexBackgroundTerminalActions(
                     refresh: { Task { await model.refreshBackgroundTerminals(threadID: backgroundThreadID) } },

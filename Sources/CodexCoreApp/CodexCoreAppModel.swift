@@ -123,6 +123,7 @@ final class CodexCoreAppModel {
     private var processActivityTokens: [String: NSObjectProtocol] = [:]
     private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
+    var threadResourceProjectionCache = CodexThreadResourceProjectionCache()
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
     private var unreadState: CodexThreadUnreadState
@@ -1029,6 +1030,14 @@ final class CodexCoreAppModel {
     /// directly instead of standing up a repository.
     func setGitBranchForTesting(_ branch: String?) {
         gitBranch = branch
+    }
+
+    func applySelectedThreadSnapshotForTesting(
+        threadID: String,
+        snapshot: CodexSessionStateSnapshot
+    ) {
+        selectedThreadID = threadID
+        applySelectedThreadSnapshot(snapshot)
     }
     #endif
 
