@@ -661,6 +661,34 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(item.action == nil)
     }
 
+    @Test func visualizationDirectiveBecomesAnOpenableCardInsteadOfRawText() async throws {
+        let path = "/outputs/render-probe.html"
+        let turn = CodexTurnV2(
+            id: "turn",
+            finalAnswer: .init(
+                id: "final",
+                text: #"visualize{"path":"\#(path)","title":"Probe","mode":"wide"}"#,
+                isStreaming: false
+            ),
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.directive != nil })
+        guard case .visualization(let renderedPath, let title, let isWide) = item.directive?.kind else {
+            Issue.record("Expected a visualization render item")
+            return
+        }
+        #expect(renderedPath == path)
+        #expect(title == "Probe")
+        #expect(isWide)
+        #expect(item.action == .openVisualization(path: path))
+        #expect(item.copyText?.contains("visualize") == true)
+    }
+
     @Test func independentThreadCommunicationRendersBidirectionalNavigation() async throws {
         let source = CodexThreadReferenceV2(hostID: "local", threadID: "source-thread")
         let target = CodexThreadReferenceV2(hostID: "remote-host", threadID: "target-thread")

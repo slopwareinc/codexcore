@@ -3328,9 +3328,7 @@ final class CodexCoreAppModel {
         projectlessDraftPaths = paths
         var parameters = threadStartParameters()
         parameters.cwd = paths.cwd
-        parameters.runtimeWorkspaceRoots = [
-            CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
-        ]
+        parameters.runtimeWorkspaceRoots = protocolRuntimeRoots([paths.workspaceRoot])
         parameters.developerInstructions = paths.developerInstructions
         return parameters
     }
@@ -3341,9 +3339,7 @@ final class CodexCoreAppModel {
         var parameters = threadResumeParameters(threadID: threadID)
         if isProjectlessDraft, let paths = projectlessDraftPaths {
             parameters.cwd = paths.cwd
-            parameters.runtimeWorkspaceRoots = [
-                CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot)),
-            ]
+            parameters.runtimeWorkspaceRoots = protocolRuntimeRoots([paths.workspaceRoot])
         }
         if allSidebarChats.first(where: { $0.id == threadID })?
             .threadSource == "realtime_voice" {
@@ -3379,7 +3375,7 @@ final class CodexCoreAppModel {
     ) -> CodexSchemaThreadForkParams {
         let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
         let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
-            [CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot))]
+            protocolRuntimeRoots([paths.workspaceRoot])
         } else {
             protocolWorkspaceRoots
         }
@@ -3447,7 +3443,7 @@ final class CodexCoreAppModel {
         let collaborationMode = configurationSession.collaborationModeOverride
         let cwd = isProjectlessDraft ? projectlessDraftPaths?.cwd ?? workspacePath : workspacePath
         let roots = if isProjectlessDraft, let paths = projectlessDraftPaths {
-            [CodexSchemaAbsolutePathBuf(.string(paths.workspaceRoot))]
+            protocolRuntimeRoots([paths.workspaceRoot])
         } else {
             protocolWorkspaceRoots
         }

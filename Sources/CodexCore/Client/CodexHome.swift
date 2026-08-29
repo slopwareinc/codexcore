@@ -63,6 +63,14 @@ public struct CodexHome: Sendable, Hashable, CustomStringConvertible {
         directoryURL.appendingPathComponent("config.toml", isDirectory: false)
     }
 
+    /// Host-owned output root for in-conversation visualizations.
+    ///
+    /// The runtime home and visualization root move together for the reference
+    /// app, while embedders may expose a different explicit root to their UI.
+    public var visualizationsDirectoryURL: URL {
+        directoryURL.appendingPathComponent("visualizations", isDirectory: true)
+    }
+
     public var description: String { path }
 
     public init(path: String) {
@@ -139,6 +147,14 @@ public struct CodexHome: Sendable, Hashable, CustomStringConvertible {
             configuredPath: path,
             resolvedPath: openedPath
         )
+
+        let visualizationsDescriptor = try Self.openOrCreateDirectory(
+            named: "visualizations",
+            relativeTo: directoryDescriptor,
+            configuredPath: path,
+            componentPath: visualizationsDirectoryURL.path
+        )
+        Darwin.close(visualizationsDescriptor)
     }
 
     private static func openOrCreateDirectory(

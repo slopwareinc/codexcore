@@ -437,6 +437,7 @@ struct CodexCoreAppShell: View {
                 subagents: model.subagents,
                 subagentCoordinator: model.subagentPresentationCoordinator,
                 workspacePath: model.workspacePath,
+                visualizationRoots: [model.codexHome.visualizationsDirectoryURL],
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,
                 panel: model.workspacePanelState,

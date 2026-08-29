@@ -712,6 +712,18 @@ private extension CodexThreadResourceProjector {
                         continue
                     }
                     emitted = true
+                    if CodexVisualizationDirectiveProjection.isVisualizationHTMLPath(path) {
+                        append(.init(
+                            id: "visualization:\(origin.threadID.rawValue):\(path)",
+                            kind: .visualization,
+                            title: path.lastPathComponent,
+                            detail: path,
+                            status: status,
+                            origin: origin,
+                            metadata: .init(path: path, mimeType: "text/html")
+                        ), true)
+                        continue
+                    }
                     append(.init(
                         id: "edited-file:\(origin.stableID):\(path)",
                         kind: .editedFile,
@@ -820,7 +832,37 @@ private extension CodexThreadResourceProjector {
                 origin: origin
             ), true)
 
-        case .agentMessage, .userMessage, .reasoning, .commandExecution,
+        case .agentMessage:
+            for directive in CodexVisualizationDirectiveProjection.directives(
+                in: string(payload["text"])
+                    ?? string(payload["content"])
+                    ?? string(payload["message"])
+                    ?? ""
+            ) {
+                append(.init(
+                    id: "visualization:\(origin.threadID.rawValue):\(directive.path)",
+                    kind: .visualization,
+                    title: directive.title ?? directive.path.lastPathComponent,
+                    detail: directive.path,
+                    status: status,
+                    origin: origin,
+                    metadata: .init(
+                        path: directive.path,
+                        mimeType: "text/html",
+                        statusDetail: directive.isWide ? "wide" : nil
+                    )
+                ), true)
+            }
+            projectOutputLike(
+                item: item,
+                origin: origin,
+                status: status,
+                append: append,
+                malformedCount: &malformedCount,
+                includeGenericOutput: false
+            )
+
+        case .userMessage, .reasoning, .commandExecution,
              .hookPrompt, .sleep, .contextCompaction, .unknown:
             projectOutputLike(
                 item: item,
@@ -1066,7 +1108,7 @@ private extension CodexThreadResourceProjector {
             let source = path ?? url
             guard source != nil else { return nil }
             return .init(
-                id: "visualization:\(origin.stableID):\(source ?? "")",
+                id: "visualization:\(origin.threadID.rawValue):\(source ?? "")",
                 kind: .visualization,
                 title: title ?? "Visualization",
                 detail: source,

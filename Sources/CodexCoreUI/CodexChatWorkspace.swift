@@ -96,6 +96,7 @@ public struct CodexChatWorkspaceView: View {
     private let subagents: [CodexSubagentState]
     private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspacePath: String
+    private let visualizationRoots: [URL]
     private let chatTitle: String
     private let currentThreadID: String?
     private let rateLimitBannerMessage: String?
@@ -173,6 +174,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @StateObject private var visualizationFrames = CodexVisualizationFrameStore()
 
     /// Creates a workspace and routes the Subagents surface through the
     /// canonical presentation coordinator when one is supplied.
@@ -182,6 +184,7 @@ public struct CodexChatWorkspaceView: View {
         subagents: [CodexSubagentState] = [],
         subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspacePath: String,
+        visualizationRoots: [URL] = [],
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
         panel: CodexWorkspacePanelState = CodexWorkspacePanelState(),
@@ -261,6 +264,7 @@ public struct CodexChatWorkspaceView: View {
         self.subagents = subagents
         self.subagentCoordinator = subagentCoordinator
         self.workspacePath = workspacePath
+        self.visualizationRoots = visualizationRoots
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
         self._panel = ObservedObject(wrappedValue: panel)
@@ -477,6 +481,7 @@ public struct CodexChatWorkspaceView: View {
                 onOpenSubagent: { openSubagentTab($0, from: .transcript) },
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
+                onOpenVisualization: openVisualizationFromTranscript(path:),
                 onEditUserMessage: restoreComposer(from:),
                 onRetryTurn: { message in
                     restoreComposer(from: message.rawText)
@@ -846,12 +851,30 @@ public struct CodexChatWorkspaceView: View {
             if let sideChatID = resource.metadata.sourceID {
                 openPanelTab(sideChatID, from: request.opener)
             }
-        case .generatedImage, .visualization, .artifact, .mcpResource, .mcpApp, .unknown:
+        case .visualization:
+            guard let adapter = CodexVisualizationWorkspaceTabAdapter(
+                resource: resource,
+                workspaceURL: URL(fileURLWithPath: workspacePath),
+                visualizationRoots: visualizationRoots,
+                frameStore: visualizationFrames
+            ) else { return }
+            workspaceTabs.open(adapter, request: request)
+            showAgentPanel()
+        case .generatedImage, .artifact, .mcpResource, .mcpApp, .unknown:
             // These adapters are supplied by later workspace slices. Keep the
             // typed request observable to the host rather than duplicating a
             // preview host here.
             break
         }
+    }
+
+    private func openVisualizationFromTranscript(path: String) {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard let resource = effectiveThreadResourceInventory?.resources.first(where: {
+            guard $0.kind == .visualization, let candidate = $0.metadata.path else { return false }
+            return URL(fileURLWithPath: candidate).standardizedFileURL.path == normalized
+        }) else { return }
+        openThreadResource(resource.workspaceTabRequest(opener: .transcript))
     }
 
     /// Opens the one Subagents workspace tab for a typed child opener. The
@@ -949,7 +972,11 @@ public struct CodexChatWorkspaceView: View {
             "\(state.lastChangedRevision.rawValue):"
                 + state.terminals.map { "\($0.processID):\($0.command)" }.joined(separator: ",")
         } ?? "no-background-terminals"
-        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
+        let visualizationRootIdentity = visualizationRoots
+            .map { $0.standardizedFileURL.path }
+            .sorted()
+            .joined(separator: ",")
+        return "\(workspacePath)|\(visualizationRootIdentity)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -989,6 +1016,12 @@ public struct CodexChatWorkspaceView: View {
         )
         panel.filesSession = fileAdapters.filesSession
         adapters.append(contentsOf: fileAdapters.adapters)
+        adapters.append(contentsOf: CodexVisualizationWorkspaceTabAdapterRegistry.make(
+            snapshot: workspaceTabs.snapshot,
+            workspaceURL: URL(fileURLWithPath: workspacePath),
+            visualizationRoots: visualizationRoots,
+            frameStore: visualizationFrames
+        ))
         workspaceTabs.register(adapters)
     }
 

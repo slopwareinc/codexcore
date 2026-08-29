@@ -170,6 +170,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openThread(CodexThreadReferenceV2)
     case openURL(String)
     case openFile(path: String, line: Int?)
+    case openVisualization(path: String)
     case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
@@ -185,6 +186,7 @@ struct CodexTranscriptDirectiveRender: Sendable, Equatable {
         case gitAction(verb: String, branch: String?, cwd: String?)
         case pullRequest(url: String, branch: String?, isDraft: Bool)
         case codeComment(title: String, body: String, file: String, start: Int?, end: Int?, priority: Int?)
+        case visualization(path: String, title: String?, isWide: Bool)
         case unknown(name: String)
     }
 
@@ -1421,6 +1423,16 @@ private extension CodexTranscriptRenderProjector {
                 cacheHits: &cacheHits, cacheMisses: &cacheMisses
             ) { Self.prepareMarkdown(body, font: theme.bodyFont, color: theme.textSecondary, theme: theme) }
             fixedHeight = nil
+        case "codex-inline-vis":
+            let path = attributes["path"] ?? attributes["file"] ?? ""
+            let title = attributes["title"]?.nilIfBlank
+            let isWide = attributes["mode"] == "wide"
+            render = .init(
+                kind: .visualization(path: path, title: title, isWide: isWide),
+                raw: raw
+            )
+            action = path.isEmpty ? nil : .openVisualization(path: path)
+            label = title ?? "Interactive visualization"
         default:
             render = .init(kind: .unknown(name: directive.name), raw: raw)
             action = nil

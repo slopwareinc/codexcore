@@ -121,6 +121,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onOpenSubagent: (String) -> Void
     var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
     var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
+    var onOpenVisualization: ((String) -> Void)?
     var onEditUserMessage: (String) -> Void
     var onRetryTurn: ((CodexUserMessageV2) -> Void)?
     var onForkChat: (() -> Void)?
@@ -163,6 +164,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenSubagent: onOpenSubagent,
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
+            onOpenVisualization: onOpenVisualization,
             onEditUserMessage: onEditUserMessage,
             onRetryTurn: onRetryTurn,
             onForkChat: onForkChat,
@@ -216,6 +218,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenSubagent: (String) -> Void = { _ in }
         private var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
         private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
+        private var onOpenVisualization: ((String) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onRetryTurn: ((CodexUserMessageV2) -> Void)?
         private var onForkChat: (() -> Void)?
@@ -331,6 +334,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenSubagent: @escaping (String) -> Void,
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
+            onOpenVisualization: ((String) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
             onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
             onForkChat: (() -> Void)?,
@@ -376,6 +380,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onOpenSubagent = onOpenSubagent
             self.onOpenThread = onOpenThread
             self.onOpenReview = onOpenReview
+            self.onOpenVisualization = onOpenVisualization
             self.onEditUserMessage = onEditUserMessage
             self.onRetryTurn = onRetryTurn
             self.onForkChat = onForkChat
@@ -1105,6 +1110,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 let reference = CodexTranscriptFileReference(path: path, line: line)
                 guard let resolved = fileNavigationService.resolve(reference) else { return }
                 fileNavigationService.open(resolved)
+                return
+            case .openVisualization(let path):
+                onOpenVisualization?(path)
                 return
             case .resolveApproval(let requestID, let approve):
                 onResolveApproval(requestID, approve)

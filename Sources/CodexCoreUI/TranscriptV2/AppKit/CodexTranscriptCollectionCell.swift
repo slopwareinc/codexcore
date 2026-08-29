@@ -1268,6 +1268,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .pullRequest(_, let branch, let isDraft):
             return "PR" + (branch.map { " · \($0)" } ?? "") + (isDraft ? " · draft" : "")
         case .codeComment(let title, _, _, _, _, _): return title
+        case .visualization(_, let title, let isWide):
+            return (title ?? "Interactive visualization") + (isWide ? " · wide" : "")
         case .unknown(let name): return "<\(name)>"
         }
     }
@@ -1284,12 +1286,14 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
         case .pullRequest: "arrow.up.right.square"
         case .codeComment: "text.bubble"
+        case .visualization: "chart.xyaxis.line"
         case .unknown: "ellipsis.curlybraces"
         }
     }
 
     private static func directiveTint(_ kind: CodexTranscriptDirectiveRender.Kind, theme: CodexTranscriptAppKitTheme) -> NSColor {
         if case .codeComment(_, _, _, _, _, let priority) = kind, let priority, priority <= 1 { return theme.danger }
+        if case .visualization = kind { return theme.accent }
         if case .unknown = kind { return theme.textTertiary }
         return theme.success
     }
@@ -1298,6 +1302,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         switch kind {
         case .createdThread(_, let pendingID) where pendingID != nil: "Thread pending"
         case .unknown: raw
+        case .visualization(let path, _, _): path
         default: directiveLabel(kind)
         }
     }

@@ -109,7 +109,16 @@ extension CodexCoreAppModel {
     }
 
     var protocolWorkspaceRoots: [CodexSchemaAbsolutePathBuf] {
-        workspaceRoots.map { CodexSchemaAbsolutePathBuf(.string($0)) }
+        protocolRuntimeRoots(workspaceRoots)
+    }
+
+    func protocolRuntimeRoots(_ roots: [String]) -> [CodexSchemaAbsolutePathBuf] {
+        (roots + [codexHome.visualizationsDirectoryURL.path])
+            .reduce(into: [String]()) { result, path in
+                let normalized = CodexProjectSummary.normalizedPath(path)
+                if !result.contains(normalized) { result.append(normalized) }
+            }
+            .map { CodexSchemaAbsolutePathBuf(.string($0)) }
     }
 
     var sidebarSnapshot: CodexSidebarSnapshot {
