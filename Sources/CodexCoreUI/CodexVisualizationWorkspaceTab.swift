@@ -549,12 +549,22 @@ package struct CodexVisualizationWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
 @MainActor
 package enum CodexVisualizationWorkspaceTabAdapterRegistry {
     package static func make(
+        resources: [CodexThreadResource] = [],
         snapshot: CodexWorkspaceTabSnapshot,
         workspaceURL: URL,
         visualizationRoots: [URL],
         frameStore: CodexVisualizationFrameStore
     ) -> [CodexVisualizationWorkspaceTabAdapter] {
-        snapshot.instances.compactMap(\.durableRoute)
+        var adapters = resources.compactMap {
+            CodexVisualizationWorkspaceTabAdapter(
+                resource: $0,
+                workspaceURL: workspaceURL,
+                visualizationRoots: visualizationRoots,
+                frameStore: frameStore
+            )
+        }
+        var resourceKeys = Set(adapters.map { $0.workspaceTabRegistration.resourceKey })
+        let restored = snapshot.instances.compactMap(\.durableRoute)
             .filter { $0.adapterID == CodexVisualizationWorkspaceTabAdapter.adapterID }
             .compactMap {
                 CodexVisualizationWorkspaceTabAdapter(
@@ -564,5 +574,8 @@ package enum CodexVisualizationWorkspaceTabAdapterRegistry {
                     frameStore: frameStore
                 )
             }
+            .filter { resourceKeys.insert($0.workspaceTabRegistration.resourceKey).inserted }
+        adapters.append(contentsOf: restored)
+        return adapters
     }
 }

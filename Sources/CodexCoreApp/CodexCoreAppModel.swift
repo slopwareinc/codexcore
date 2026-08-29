@@ -295,6 +295,7 @@ final class CodexCoreAppModel {
                     return await self.handleThreadTaskToolRequest(request)
                 }
             )
+            try await CodexBuiltInVisualizationSkill.install(in: codex.codexHome)
             self.codex = codex
             await runtimeSession.connect(to: codex)
             promptRuntime.connect(to: codex.session) { [weak self] activity in

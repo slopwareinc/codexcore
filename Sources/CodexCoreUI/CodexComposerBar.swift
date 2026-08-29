@@ -52,6 +52,7 @@ public struct CodexComposerBar: View {
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
     @State private var commandSelectorSelection = CodexComposerPaletteSelection()
+    @State private var allowsPalettePresentation = true
     @State private var isSlashPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
     @State private var isFileDropTargeted = false
@@ -277,19 +278,34 @@ public struct CodexComposerBar: View {
         .background {
             #if canImport(AppKit)
             CodexComposerPaletteKeyMonitor(
-                isEnabled: isAnyPaletteVisible,
+                isEnabled: allowsPalettePresentation && isAnyPaletteVisible,
                 onKeyDown: handlePaletteKey
             )
             #else
             EmptyView()
             #endif
         }
+        #if canImport(AppKit)
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didResignActiveNotification
+        )) { _ in
+            allowsPalettePresentation = false
+            focused = false
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )) { _ in
+            allowsPalettePresentation = true
+        }
+        #endif
     }
 
     @ViewBuilder
     private var paletteOverlay: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if isMCPStatusPalettePresented {
+            if !allowsPalettePresentation {
+                EmptyView()
+            } else if isMCPStatusPalettePresented {
                 CodexComposerMCPStatusPalette(
                     model: mcpStatusPaletteModel,
                     onOpenDetails: onOpenMCPDetails,
@@ -320,7 +336,7 @@ public struct CodexComposerBar: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if mentionQuery != nil, !mentionResults.isEmpty {
+            if allowsPalettePresentation, mentionQuery != nil, !mentionResults.isEmpty {
                 CodexMentionPalette(results: mentionResults, onSelect: selectMention)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))

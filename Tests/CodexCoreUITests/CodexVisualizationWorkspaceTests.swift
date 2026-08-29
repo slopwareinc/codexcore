@@ -104,7 +104,15 @@ struct CodexVisualizationWorkspaceTests {
             frameStore: store
         ))
         let route = try #require(adapter.workspaceTabRegistration.durableRoute)
+        let liveAdapters = CodexVisualizationWorkspaceTabAdapterRegistry.make(
+            resources: [resource],
+            snapshot: CodexWorkspaceTabs().snapshot,
+            workspaceURL: root,
+            visualizationRoots: [root],
+            frameStore: store
+        )
 
+        #expect(liveAdapters.count == 1)
         #expect(CodexVisualizationWorkspaceTabAdapter(
             route: route,
             workspaceURL: root,

@@ -986,7 +986,11 @@ public struct CodexChatWorkspaceView: View {
             .map { $0.standardizedFileURL.path }
             .sorted()
             .joined(separator: ",")
-        return "\(workspacePath)|\(visualizationRootIdentity)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
+        let visualizations = effectiveThreadResourceInventory?
+            .resources(of: .visualization)
+            .map { "\($0.id):\($0.metadata.path ?? ""):\($0.status.rawValue)" }
+            .joined(separator: ",") ?? "no-visualizations"
+        return "\(workspacePath)|\(visualizationRootIdentity)|\(visualizations)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -1027,6 +1031,7 @@ public struct CodexChatWorkspaceView: View {
         panel.filesSession = fileAdapters.filesSession
         adapters.append(contentsOf: fileAdapters.adapters)
         adapters.append(contentsOf: CodexVisualizationWorkspaceTabAdapterRegistry.make(
+            resources: effectiveThreadResourceInventory?.resources(of: .visualization) ?? [],
             snapshot: workspaceTabs.snapshot,
             workspaceURL: URL(fileURLWithPath: workspacePath),
             visualizationRoots: visualizationRoots,
