@@ -54,14 +54,20 @@ public struct CodexThreadStatusEntry: Sendable, Equatable {
     public var status: CodexThreadLiveStatus
     public var hasUnreadWhileInactive: Bool
     public var lastEventAt: Date
+    public var progress: Double?
+    public var statusText: String?
 
     public init(
         status: CodexThreadLiveStatus = .idle,
         hasUnreadWhileInactive: Bool = false,
-        lastEventAt: Date = Date()
+        lastEventAt: Date = Date(),
+        progress: Double? = nil,
+        statusText: String? = nil
     ) {
         self.status = status
         self.hasUnreadWhileInactive = hasUnreadWhileInactive
         self.lastEventAt = lastEventAt
+        self.progress = progress.map { min(max($0, 0), 1) }
+        self.statusText = statusText?.nilIfBlank
     }
 }

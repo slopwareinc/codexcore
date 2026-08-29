@@ -78,6 +78,8 @@ final class CodexCoreAppModel {
     private(set) var threadSections: [CodexSchemaThreadSection] = []
     private(set) var isLoadingThreadSections = false
     private(set) var threadSectionsError: String?
+    private(set) var sidebarActionError: String?
+    private(set) var pendingSidebarMutationIDs: Set<String> = []
     private(set) var hooksCatalog = CodexHooksCatalog()
     private(set) var isLoadingHooks = false
     private(set) var hooksError: String?
@@ -110,6 +112,8 @@ final class CodexCoreAppModel {
     private var turnAttachmentTask: Task<CodexTurnLease?, Never>?
     private var turnAttachmentKey: TurnKey?
     private var connectedSessionBackgroundTasks: [Task<Void, Never>] = []
+    private var sidebarProjectMutationTask: Task<Void, Never>?
+    private var sidebarProjectMutationGeneration: UInt64 = 0
     private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
@@ -351,6 +355,9 @@ final class CodexCoreAppModel {
         cancelSkillsChangedObservation()
         cancelThreadQueueObservation()
         cancelConnectedSessionBackgroundRefreshes()
+        sidebarProjectMutationTask?.cancel()
+        sidebarProjectMutationTask = nil
+        sidebarProjectMutationGeneration &+= 1
         mentionSearchSession.reset()
         loginTask?.cancel()
         loginTask = nil
@@ -980,6 +987,7 @@ final class CodexCoreAppModel {
     private func startConnectedSessionBackgroundRefresh(using codex: Codex) {
         cancelConnectedSessionBackgroundRefreshes()
         connectedSessionBackgroundTasks = [
+            Task { [weak self] in await self?.refreshThreadSections() },
             Task { [weak self] in await self?.refreshStartupCatalogs(using: codex) },
             Task { [weak self] in await self?.refreshPlugins() },
             Task { [weak self] in await self?.refreshRemoteEnvironment(using: codex) },
@@ -1446,17 +1454,32 @@ final class CodexCoreAppModel {
     }
 
     private func refreshRecentChats(using codex: Codex) async {
-        var session = threadListSession
-        _ = await session.refreshRecentChats(
-            using: codex,
-            currentWorkspacePath: workspacePath,
-            errorMessage: CodexErrorFormat.localizedDescription
-        )
-        threadListSession = session
+        guard threadListSession.beginThreadListLoad() else { return }
+        do {
+            let result = try await CodexThreadListSession.fetchRecentChats(
+                using: codex,
+                currentWorkspacePath: workspacePath
+            )
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.applyThreadList(
+                currentRaw: result.currentRaw,
+                allRaw: result.allRaw,
+                currentWorkspacePath: workspacePath
+            )
+            for (index, page) in result.projectPages.enumerated() {
+                threadListSession.applyProjectList(page, reset: index == 0)
+            }
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.applyThreadListFailure(
+                currentWorkspacePath: workspacePath,
+                message: CodexErrorFormat.localizedDescription(error)
+            )
+        }
 
         if !hasStoredExpandedProjectState {
             sidebarNavigationSession.setExpandedProjects(
-                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: session.recentProjects)
+                CodexSidebarNavigationSession.defaultExpandedProjectIDs(projects: threadListSession.recentProjects)
             )
             saveExpandedSidebarProjects()
         }
@@ -1804,26 +1827,88 @@ final class CodexCoreAppModel {
         saveExpandedSidebarProjects()
     }
 
+    func toggleSidebarSection(_ sectionID: String) {
+        sidebarNavigationSession.toggleSection(sectionID)
+    }
+
     func moveSidebarProject(
         _ sourcePath: String,
         relativeTo targetPath: String,
         placement: CodexProjectDropPlacement
     ) {
+        let previousOrder = sidebarNavigationSession.projectOrder
+        let sourceProject = recentProjects.first {
+            $0.workspacePath == CodexProjectSummary.normalizedPath(sourcePath)
+        }
+        let targetProject = recentProjects.first {
+            $0.workspacePath == CodexProjectSummary.normalizedPath(targetPath)
+        }
         guard sidebarNavigationSession.moveProject(
             sourcePath,
             relativeTo: targetPath,
             placement: placement,
             among: recentProjects
         ) else { return }
-        saveSidebarProjectOrder()
+        guard saveSidebarProjectOrder() else {
+            sidebarNavigationSession.setProjectOrder(previousOrder)
+            sidebarActionError = "The project order could not be saved."
+            return
+        }
+        sidebarActionError = nil
+
+        guard let codex,
+              let sourceID = sourceProject?.serverID,
+              let targetID = targetProject?.serverID else { return }
+        sidebarProjectMutationGeneration &+= 1
+        let mutationGeneration = sidebarProjectMutationGeneration
+        let orderedProjects = recentProjects.sorted {
+            let left = sidebarNavigationSession.projectOrder.firstIndex(of: $0.workspacePath) ?? Int.max
+            let right = sidebarNavigationSession.projectOrder.firstIndex(of: $1.workspacePath) ?? Int.max
+            return left < right
+        }
+        let beforeProjectID: String?
+        if placement == .before {
+            beforeProjectID = targetID
+        } else if let targetIndex = orderedProjects.firstIndex(where: { $0.serverID == targetID }) {
+            beforeProjectID = orderedProjects.dropFirst(targetIndex + 1).first(where: { $0.serverID != sourceID })?.serverID
+        } else {
+            beforeProjectID = nil
+        }
+        let previousMutation = sidebarProjectMutationTask
+        sidebarProjectMutationTask = Task { [weak self] in
+            guard let self else { return }
+            await previousMutation?.value
+            guard !Task.isCancelled,
+                  sidebarProjectMutationGeneration == mutationGeneration else { return }
+            do {
+                _ = try await codex.perform(CodexRequest.projectMove(.init(
+                    beforeProjectID: beforeProjectID,
+                    projectID: sourceID
+                )))
+            } catch {
+                guard CodexSidebarMutation.shouldRollback(
+                    operationGeneration: mutationGeneration,
+                    currentGeneration: sidebarProjectMutationGeneration
+                ) else { return }
+                sidebarNavigationSession.setProjectOrder(previousOrder)
+                _ = saveSidebarProjectOrder()
+                sidebarActionError = friendlyError(error)
+            }
+        }
     }
 
     func toggleSidebarProjectPin(_ workspacePath: String) {
+        let previous = sidebarNavigationSession.pinnedProjectIDs
         _ = sidebarNavigationSession.toggleProjectPin(workspacePath)
-        CodexPinnedProjectStorage.savePinnedProjectIDs(
+        guard CodexPinnedProjectStorage.savePinnedProjectIDs(
             sidebarNavigationSession.pinnedProjectIDs,
             to: preferenceStore
-        )
+        ) else {
+            sidebarNavigationSession.setPinnedProjectIDs(previous)
+            sidebarActionError = "The project pin could not be saved."
+            return
+        }
+        sidebarActionError = nil
     }
 
     func updateSidebarProject(
@@ -1844,6 +1929,10 @@ final class CodexCoreAppModel {
             projectSourceFoldersByPrimaryPath,
             to: preferenceStore
         )
+        var listSession = threadListSession
+        listSession.clearServerProjects()
+        listSession.refreshProjects(currentWorkspacePath: workspacePath)
+        threadListSession = listSession
 
         sidebarNavigationSession.replaceProjectPath(oldPrimary, with: newPrimary)
         sidebarNavigationSession.renameProject(newPrimary, displayName: displayName)
@@ -2683,8 +2772,160 @@ final class CodexCoreAppModel {
         setThreadPinned(chat.id, pinned: !pinnedThreadIDs.contains(chat.id))
     }
 
-    func archiveSidebarChat(_ chat: CodexThreadSummary) async {
+    func toggleSidebarThreadSelection(_ threadID: String) {
+        sidebarNavigationSession.toggleThreadSelection(threadID)
+    }
+
+    func selectAllSidebarThreads() {
+        sidebarNavigationSession.selectThreads(allSidebarChats.map(\.id))
+    }
+
+    func clearSidebarThreadSelection() {
+        sidebarNavigationSession.clearThreadSelection()
+    }
+
+    func togglePinnedSelectedSidebarChats() {
+        let selectedIDs = sidebarNavigationSession.selectedThreadIDs
+        guard !selectedIDs.isEmpty else { return }
+        let shouldPin = selectedIDs.contains { !pinnedThreadIDs.contains($0) }
+        for threadID in selectedIDs.sorted() {
+            setThreadPinned(threadID, pinned: shouldPin, announces: false)
+        }
+    }
+
+    func refreshArchivedSidebarChats() async {
+        guard let codex else {
+            threadListSession.failArchivedLoad(message: "Connect to Codex before browsing archived chats.")
+            return
+        }
+        guard threadListSession.beginArchivedLoad(reset: true) else { return }
+        do {
+            let response = try await CodexThreadListSession.fetchArchivedPage(using: codex)
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = threadListSession.applyArchivedPage(response, reset: true)
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.failArchivedLoad(message: CodexErrorFormat.localizedDescription(error))
+        }
+    }
+
+    func loadMoreArchivedSidebarChats() async {
         guard let codex else { return }
+        guard let cursor = threadListSession.beginArchivedPageLoad() else { return }
+        do {
+            let response = try await CodexThreadListSession.fetchArchivedPage(
+                using: codex,
+                cursor: cursor
+            )
+            guard !Task.isCancelled, self.codex === codex else { return }
+            _ = threadListSession.applyArchivedPage(response)
+        } catch {
+            guard !Task.isCancelled, self.codex === codex else { return }
+            threadListSession.cancelArchivedPageLoad(cursor: cursor)
+            threadListSession.failArchivedLoad(message: CodexErrorFormat.localizedDescription(error))
+        }
+    }
+
+    func unarchiveSidebarChat(_ chat: CodexThreadSummary) async {
+        guard let codex else {
+            sidebarActionError = "Connect to Codex before restoring chats."
+            return
+        }
+        guard pendingSidebarMutationIDs.insert(chat.id).inserted else { return }
+        sidebarActionError = nil
+        defer { pendingSidebarMutationIDs.remove(chat.id) }
+        do {
+            _ = try await codex.perform(CodexRequest.threadUnarchive(.init(threadID: chat.id)))
+            var session = threadListSession
+            _ = session.removeArchivedThread(id: chat.id)
+            threadListSession = session
+            await refreshRecentChats(using: codex)
+        } catch {
+            sidebarActionError = friendlyError(error)
+        }
+    }
+
+    func moveSidebarChat(
+        _ chat: CodexThreadSummary,
+        toSectionID sectionID: String?,
+        beforeThreadID: String? = nil
+    ) async {
+        guard let codex else {
+            sidebarActionError = "Connect to Codex before moving chats."
+            return
+        }
+        guard pendingSidebarMutationIDs.insert(chat.id).inserted else { return }
+        sidebarActionError = nil
+        defer { pendingSidebarMutationIDs.remove(chat.id) }
+        do {
+            _ = try await codex.perform(CodexRequest.threadSectionMove(.init(
+                beforeThreadID: beforeThreadID,
+                sectionID: sectionID,
+                threadID: chat.id
+            )))
+            await refreshRecentChats(using: codex)
+        } catch {
+            sidebarActionError = friendlyError(error)
+        }
+    }
+
+    func archiveSelectedSidebarChats() async {
+        guard let codex else {
+            sidebarActionError = "Connect to Codex before archiving chats."
+            return
+        }
+        let selectedIDs = sidebarNavigationSession.selectedThreadIDs
+        guard !selectedIDs.isEmpty else { return }
+        let chats = allSidebarChats.filter { selectedIDs.contains($0.id) }
+        let selectedIDAtStart = currentThreadID ?? sidebarNavigationSession.selectedThreadID
+        let selectionGenerationAtStart = chatSelectionGeneration
+        var archivedIDs: Set<String> = []
+        var failures: [String] = []
+        var failedIDs: Set<String> = []
+        for chat in chats {
+            guard pendingSidebarMutationIDs.insert(chat.id).inserted else { continue }
+            defer { pendingSidebarMutationIDs.remove(chat.id) }
+            do {
+                _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
+                archivedIDs.insert(chat.id)
+                setThreadPinned(chat.id, pinned: false, announces: false)
+                composerSession.discardThreadState(for: chat.id)
+                removeChatFromSidebar(chat.id)
+            } catch {
+                failures.append("\(chat.title): \(friendlyError(error))")
+                failedIDs.insert(chat.id)
+            }
+        }
+        if !failures.isEmpty {
+            sidebarActionError = failures.joined(separator: "\n")
+        }
+        sidebarNavigationSession.clearThreadSelection()
+        if !failedIDs.isEmpty {
+            sidebarNavigationSession.selectThreads(Array(failedIDs).sorted())
+        }
+        let selectedIDNow = currentThreadID ?? sidebarNavigationSession.selectedThreadID
+        if CodexSidebarArchiveSelectionGuard.shouldClearSelection(
+            selectedThreadIDAtStart: selectedIDAtStart,
+            currentSelectedThreadID: selectedIDNow,
+            selectionGenerationAtStart: selectionGenerationAtStart,
+            currentSelectionGeneration: chatSelectionGeneration,
+            archivedThreadIDs: archivedIDs
+        ) {
+            invalidatePendingChatSelection()
+            clearThreadState()
+            sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
+        }
+        await refreshRecentChats(using: codex)
+    }
+
+    func archiveSidebarChat(_ chat: CodexThreadSummary) async {
+        guard let codex else {
+            sidebarActionError = "Connect to Codex before archiving chats."
+            return
+        }
+        guard pendingSidebarMutationIDs.insert(chat.id).inserted else { return }
+        defer { pendingSidebarMutationIDs.remove(chat.id) }
+        sidebarActionError = nil
         let shouldClearSelection = chat.id == currentThreadID || sidebarNavigationSession.selectedThreadID == chat.id
         let archiveGeneration: Int?
         if shouldClearSelection {
@@ -2698,6 +2939,7 @@ final class CodexCoreAppModel {
             setThreadPinned(chat.id, pinned: false, announces: false)
             composerSession.discardThreadState(for: chat.id)
             removeChatFromSidebar(chat.id)
+            sidebarNavigationSession.removeThreadSelections([chat.id])
             forgetProjectlessThread(chat.id)
             if shouldClearSelection, chatSelectionGeneration == archiveGeneration {
                 clearThreadState()
@@ -2712,11 +2954,16 @@ final class CodexCoreAppModel {
             }
             await refreshRecentChats(using: codex)
         } catch {
+            sidebarActionError = friendlyError(error)
         }
     }
 
     func archiveSidebarProjectChats(_ workspacePath: String) async {
-        guard let codex else { return }
+        guard let codex else {
+            sidebarActionError = "Connect to Codex before archiving project chats."
+            return
+        }
+        sidebarActionError = nil
         let normalizedPath = CodexProjectSummary.normalizedPath(workspacePath)
         let project = recentProjects.first { $0.workspacePath == normalizedPath }
         let chats = allSidebarChats.filter {
@@ -2731,15 +2978,21 @@ final class CodexCoreAppModel {
         let selectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
         let archiveGeneration = chatSelectionGeneration
         var archivedIDs: Set<String> = []
+        var failures: [String] = []
         for chat in chats {
+            guard pendingSidebarMutationIDs.insert(chat.id).inserted else { continue }
+            defer { pendingSidebarMutationIDs.remove(chat.id) }
             do {
                 _ = try await codex.perform(CodexRequest.threadArchive(.init(threadID: chat.id)))
                 archivedIDs.insert(chat.id)
                 setThreadPinned(chat.id, pinned: false, announces: false)
                 composerSession.discardThreadState(for: chat.id)
                 removeChatFromSidebar(chat.id)
-            } catch {}
+            } catch {
+                failures.append("\(chat.title): \(friendlyError(error))")
+            }
         }
+        sidebarActionError = failures.isEmpty ? nil : failures.joined(separator: "\n")
 
         let currentSelectedID = currentThreadID ?? sidebarNavigationSession.selectedThreadID
         if CodexSidebarArchiveSelectionGuard.shouldClearSelection(
@@ -3534,6 +3787,11 @@ final class CodexCoreAppModel {
         threadSections = []
         threadSectionsError = nil
         isLoadingThreadSections = false
+        sidebarProjectMutationTask?.cancel()
+        sidebarProjectMutationTask = nil
+        sidebarProjectMutationGeneration &+= 1
+        sidebarActionError = nil
+        pendingSidebarMutationIDs.removeAll()
         hooksCatalog = .init()
         hooksError = nil
         isLoadingHooks = false
@@ -3567,13 +3825,19 @@ final class CodexCoreAppModel {
     }
 
     private func setThreadPinned(_ threadID: String, pinned: Bool, announces: Bool = true) {
+        let previous = pinnedThreadIDs
         if pinned {
             pinnedThreadIDs.removeAll { $0 == threadID }
             pinnedThreadIDs.insert(threadID, at: 0)
         } else {
             pinnedThreadIDs.removeAll { $0 == threadID }
         }
-        CodexPinnedThreadStorage.savePinnedThreadIDs(pinnedThreadIDs, to: preferenceStore)
+        guard CodexPinnedThreadStorage.savePinnedThreadIDs(pinnedThreadIDs, to: preferenceStore) else {
+            pinnedThreadIDs = previous
+            sidebarActionError = "The chat pin could not be saved."
+            return
+        }
+        sidebarActionError = nil
         guard announces else { return }
     }
 
@@ -3582,7 +3846,8 @@ final class CodexCoreAppModel {
         hasStoredExpandedProjectState = true
     }
 
-    private func saveSidebarProjectOrder() {
+    @discardableResult
+    private func saveSidebarProjectOrder() -> Bool {
         CodexProjectOrderStorage.saveProjectOrder(sidebarNavigationSession.projectOrder, to: preferenceStore)
     }
 

@@ -71,10 +71,24 @@ public enum CodexSidebarAccessibility {
         "Archive chat \(title)"
     }
 
+    public static func chatUnarchiveLabel(title: String) -> String {
+        "Restore chat \(title)"
+    }
+
+    public static func chatSelectLabel(title: String) -> String {
+        "Select chat \(title)"
+    }
+
+    public static func chatDeselectLabel(title: String) -> String {
+        "Deselect chat \(title)"
+    }
+
     public static func chatStatusValue(
         status: CodexThreadLiveStatus,
         hasUnreadUpdates: Bool,
-        recencyLabel: String
+        recencyLabel: String,
+        progress: Double? = nil,
+        statusText: String? = nil
     ) -> String {
         var values: [String] = []
         if hasUnreadUpdates {
@@ -89,6 +103,12 @@ public enum CodexSidebarAccessibility {
             if !recencyLabel.isEmpty {
                 values.append(recencyLabel)
             }
+        }
+        if let statusText, !statusText.isEmpty {
+            values.append(statusText)
+        }
+        if let progress {
+            values.append("\(Int(progress * 100)) percent")
         }
         return values.joined(separator: ", ")
     }

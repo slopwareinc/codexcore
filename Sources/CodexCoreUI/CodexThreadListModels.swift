@@ -58,6 +58,50 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.sectionEnteredAt = sectionEnteredAt
     }
 
+    /// Adapts the generated app-server fact into the small summary used by
+    /// presentation projections. This keeps wire fields canonical while
+    /// avoiding a second, hand-maintained thread model in the sidebar.
+    public init(schema: CodexSchemaThread) {
+        let cwd: String?
+        if case .string(let value) = schema.cwd.rawValue {
+            cwd = value
+        } else {
+            cwd = nil
+        }
+        let section = schema.section
+        let status: String? = {
+            guard case .dictionary(let object) = schema.status.rawValue else { return nil }
+            for key in ["type", "status", "state"] {
+                if case .string(let value)? = object[key] { return value }
+            }
+            return nil
+        }()
+        let threadSource: String? = {
+            guard case .string(let value) = schema.threadSource?.rawValue else { return nil }
+            return value
+        }()
+        let sectionAppearance = section?.appearance
+        self.init(
+            id: schema.id,
+            title: schema.name?.nilIfBlank ?? schema.preview.nilIfBlank ?? "Untitled chat",
+            preview: schema.preview,
+            workspacePath: cwd,
+            status: status,
+            modelProvider: schema.modelProvider,
+            threadSource: threadSource,
+            parentThreadID: schema.parentThreadID,
+            isEphemeral: schema.ephemeral,
+            createdAt: TimeInterval(schema.createdAt),
+            updatedAt: TimeInterval(schema.updatedAt),
+            recencyAt: schema.recencyAt.map(TimeInterval.init),
+            sectionID: section?.id,
+            sectionName: section?.name,
+            sectionIcon: sectionAppearance?.icon,
+            sectionColor: sectionAppearance?.color,
+            sectionEnteredAt: schema.sectionEnteredAt.map(TimeInterval.init)
+        )
+    }
+
     public init?(raw value: CodexJSONValue) {
         guard case .dictionary(let object) = value,
               let id = Self.string(in: object, keys: ["id"]) else {
@@ -188,6 +232,9 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     public var chatCount: Int
     public var updatedAt: TimeInterval?
     public var customDisplayName: String?
+    public var serverID: String?
+    public var serverName: String?
+    public var serverPosition: Int?
 
     public var id: String { workspacePath }
 
@@ -196,7 +243,10 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
         sourceFolders: [String] = [],
         chatCount: Int = 0,
         updatedAt: TimeInterval? = nil,
-        customDisplayName: String? = nil
+        customDisplayName: String? = nil,
+        serverID: String? = nil,
+        serverName: String? = nil,
+        serverPosition: Int? = nil
     ) {
         let primary = Self.normalizedPath(workspacePath)
         self.workspacePath = primary
@@ -207,10 +257,33 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
         self.chatCount = chatCount
         self.updatedAt = updatedAt
         self.customDisplayName = customDisplayName?.nilIfBlank
+        self.serverID = serverID?.nilIfBlank
+        self.serverName = serverName?.nilIfBlank
+        self.serverPosition = serverPosition
+    }
+
+    /// Adapts an authoritative project/list response. Local aliases and
+    /// visibility are applied later by the sidebar projection, never written
+    /// back into this server fact.
+    public init(schema: CodexSchemaProject) {
+        let roots = schema.roots.compactMap { root -> String? in
+            guard case .string(let value) = root.path.rawValue else { return nil }
+            return value
+        }
+        let primary = roots.first ?? schema.id
+        self.init(
+            workspacePath: primary,
+            sourceFolders: roots,
+            updatedAt: TimeInterval(schema.updatedAt),
+            serverID: schema.id,
+            serverName: schema.name,
+            serverPosition: schema.position
+        )
     }
 
     public var displayName: String {
         if let customDisplayName { return customDisplayName }
+        if let serverName { return serverName }
         let last = URL(fileURLWithPath: workspacePath).lastPathComponent.nilIfBlank
         return last ?? (workspacePath == "/" ? "/" : workspacePath)
     }
