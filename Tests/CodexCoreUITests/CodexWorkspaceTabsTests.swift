@@ -162,6 +162,7 @@ struct CodexWorkspaceTabsTests {
         let tabs = CodexWorkspaceTabs()
 
         tabs.setOpen(true)
+        tabs.reconcileLegacy([])
 
         #expect(tabs.snapshot.topology.right.isOpen)
         #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
@@ -169,6 +170,17 @@ struct CodexWorkspaceTabsTests {
 
         tabs.setOpen(false)
 
+        #expect(!tabs.snapshot.topology.right.isOpen)
+    }
+
+    @Test func removingTheLastLegacyTabDuringReconciliationClosesThePanel() {
+        let tabs = CodexWorkspaceTabs()
+        tabs.openLegacy("terminal")
+
+        tabs.reconcileLegacy([])
+
+        #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
+        #expect(tabs.snapshot.topology.right.activeTab == nil)
         #expect(!tabs.snapshot.topology.right.isOpen)
     }
 
