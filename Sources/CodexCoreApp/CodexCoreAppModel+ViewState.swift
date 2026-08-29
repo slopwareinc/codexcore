@@ -391,34 +391,6 @@ extension CodexCoreAppModel {
             ))
         }
 
-        for server in mcpServers {
-            for entry in server.resources + server.resourceTemplates {
-                facts.append(.init(
-                    id: "mcp-resource:\(threadID.rawValue):\(server.name):\(entry.name)",
-                    kind: .mcpResource,
-                    title: entry.displayName,
-                    detail: entry.detail,
-                    origin: origin,
-                    metadata: .init(
-                        url: entry.name,
-                        server: server.name
-                    )
-                ))
-            }
-        }
-
-        for app in apps {
-            facts.append(.init(
-                id: "mcp-app:\(threadID.rawValue):\(app.id)",
-                kind: .mcpApp,
-                title: app.displayName,
-                detail: app.detail,
-                status: app.callable ? .available : .failed,
-                origin: origin,
-                metadata: .init(url: app.logoURL, appName: app.id)
-            ))
-        }
-
         var supplementalRevision: UInt64 = 14_695_981_039_346_656_037
         func combine(_ value: String) {
             for byte in value.utf8 {
