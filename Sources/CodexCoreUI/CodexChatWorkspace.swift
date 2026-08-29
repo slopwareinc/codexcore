@@ -689,6 +689,7 @@ public struct CodexChatWorkspaceView: View {
             },
             onOpenPlan: openPlanPanel,
             onOpenReview: openReviewPanel,
+            onOpenBackgroundTerminalDetail: openBackgroundTerminalDetail,
             onSelectTab: { openPanelTab($0, from: .summary) }
         )
     }
@@ -724,7 +725,6 @@ public struct CodexChatWorkspaceView: View {
             onSendSideChatMessage: onSendSideChatMessage,
             onInterruptSideChatMessage: onInterruptSideChatMessage,
             onOpenTerminal: openTerminalTab,
-            onOpenBackgroundTerminal: openBackgroundTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
             onOpenFilePreview: openFilePreviewTab,
@@ -831,7 +831,11 @@ public struct CodexChatWorkspaceView: View {
         let terminals = panel.terminalSessions
             .map { "\($0.id):\($0.command ?? "")" }
             .joined(separator: ",")
-        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(terminals)"
+        let backgroundTerminals = workspaceSummary?.backgroundTerminals.map { state in
+            "\(state.lastChangedRevision.rawValue):"
+                + state.terminals.map { "\($0.processID):\($0.command)" }.joined(separator: ",")
+        } ?? "no-background-terminals"
+        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(terminals)|\(backgroundTerminals)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -846,7 +850,36 @@ public struct CodexChatWorkspaceView: View {
         if let adapter = subagentsAdapter {
             adapters.append(adapter)
         }
+        if let backgroundTerminals = workspaceSummary?.backgroundTerminals {
+            adapters.append(contentsOf: backgroundTerminals.terminals.map { terminal in
+                CodexBackgroundTerminalWorkspaceTabAdapter(
+                    threadID: backgroundTerminals.threadID,
+                    terminal: terminal,
+                    onTerminate: {
+                        backgroundTerminalActions?.terminate(terminal.processID)
+                    }
+                )
+            })
+        }
         workspaceTabs.register(adapters)
+    }
+
+    private func openBackgroundTerminalDetail(_ processID: String) {
+        guard let backgroundTerminals = workspaceSummary?.backgroundTerminals,
+              let terminal = backgroundTerminals.terminals.first(
+            where: { $0.processID == processID }
+        ) else { return }
+        workspaceTabs.open(
+            CodexBackgroundTerminalWorkspaceTabAdapter(
+                threadID: backgroundTerminals.threadID,
+                terminal: terminal,
+                onTerminate: {
+                    backgroundTerminalActions?.terminate(processID)
+                }
+            ),
+            from: .summary
+        )
+        showAgentPanel()
     }
 
     private var subagentsAdapter: CodexSubagentsWorkspaceTabAdapter? {
@@ -900,10 +933,6 @@ public struct CodexChatWorkspaceView: View {
 
     private func openTerminalTab() {
         panel.openTerminal(workspacePath: workspacePath)
-    }
-
-    private func openBackgroundTerminalTab() {
-        _ = panel.openBackgroundTerminal(workspacePath: workspacePath)
     }
 
     private func openBrowserTab() {

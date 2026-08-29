@@ -10,7 +10,6 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
     public let threadID: String?
     public let worktreePath: String
     public let ordinal: Int
-    public let processID: String?
     private let explicitRawValue: String?
 
     public init(
@@ -22,21 +21,6 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
         self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
         self.worktreePath = URL(fileURLWithPath: worktreePath).standardizedFileURL.path
         self.ordinal = max(1, ordinal)
-        self.processID = nil
-        self.explicitRawValue = nil
-    }
-
-    public init(
-        threadID: String? = nil,
-        worktreePath: String,
-        processID: String
-    ) {
-        let trimmedThreadID = threadID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedProcessID = processID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
-        self.worktreePath = URL(fileURLWithPath: worktreePath).standardizedFileURL.path
-        self.ordinal = 0
-        self.processID = trimmedProcessID.isEmpty ? nil : trimmedProcessID
         self.explicitRawValue = nil
     }
 
@@ -44,7 +28,6 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
         self.threadID = nil
         self.worktreePath = worktreePath
         self.ordinal = 1
-        self.processID = nil
         self.explicitRawValue = rawValue
     }
 
@@ -54,7 +37,6 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
     public var rawValue: String {
         if let explicitRawValue { return explicitRawValue }
         let scope = "terminal:\(threadID ?? "unassigned"):\(worktreePath)"
-        if let processID, !processID.isEmpty { return "\(scope):process:\(processID)" }
         return "\(scope):\(ordinal)"
     }
 
@@ -62,46 +44,6 @@ public struct CodexTerminalIdentity: Hashable, Codable, Sendable, Identifiable {
 
     static func explicit(rawValue: String, worktreePath: String) -> Self {
         Self(rawValue: rawValue, worktreePath: worktreePath)
-    }
-}
-
-/// The bounded host-side output retained for background command terminals.
-/// Ghostty owns its native viewport; this buffer is the lightweight diagnostic
-/// and restoration projection and never grows without limit.
-public struct CodexBoundedTerminalOutput: Sendable, Equatable {
-    public let maxBytes: Int
-    private var storage = Data()
-    public private(set) var droppedByteCount = 0
-
-    public init(maxBytes: Int = 256 * 1024) {
-        self.maxBytes = max(0, maxBytes)
-    }
-
-    public var byteCount: Int { storage.count }
-    public var text: String { String(decoding: storage, as: UTF8.self) }
-
-    public mutating func append(_ text: String) {
-        append(Data(text.utf8))
-    }
-
-    public mutating func append(_ data: Data) {
-        guard maxBytes > 0, !data.isEmpty else {
-            droppedByteCount += data.count
-            return
-        }
-
-        if data.count >= maxBytes {
-            droppedByteCount += storage.count + data.count - maxBytes
-            storage = Data(data.suffix(maxBytes))
-            return
-        }
-
-        storage.append(data)
-        if storage.count > maxBytes {
-            let overflow = storage.count - maxBytes
-            droppedByteCount += overflow
-            storage = Data(storage.suffix(maxBytes))
-        }
     }
 }
 
@@ -142,6 +84,12 @@ public enum CodexTerminalTitleFormatter {
 
 @MainActor
 public final class CodexTerminalSession: Identifiable {
+    /// Ghostty's `scrollback-limit` is a byte budget for the native page
+    /// buffer. Keeping the limit on the session configuration makes the bound
+    /// apply to the actual PTY host rather than to an unconnected Swift-side
+    /// transcript copy.
+    public static let defaultScrollbackLimitBytes = 256 * 1024
+
     public let id: String
     public let title: String
     public let initialWorkingDirectory: String
@@ -159,7 +107,7 @@ public final class CodexTerminalSession: Identifiable {
     /// instance across panel-hide and chat-switch keeps the shell alive; only the
     /// view's window attachment recycles.
     let terminalView: TerminalView
-    private var outputBuffer: CodexBoundedTerminalOutput
+    public let scrollbackLimitBytes: Int
 
     public init(
         id: String = "terminal:\(UUID().uuidString)",
@@ -169,7 +117,7 @@ public final class CodexTerminalSession: Identifiable {
         command: String? = nil,
         identity: CodexTerminalIdentity? = nil,
         isBackground: Bool = false,
-        maxOutputBytes: Int = CodexBoundedTerminalOutput().maxBytes
+        scrollbackLimitBytes: Int = CodexTerminalSession.defaultScrollbackLimitBytes
     ) {
         let resolvedIdentity = identity
             ?? .explicit(rawValue: id, worktreePath: workingDirectory)
@@ -177,13 +125,13 @@ public final class CodexTerminalSession: Identifiable {
         self.id = resolvedIdentity.rawValue
         self.command = command
         self.isBackground = isBackground
+        self.scrollbackLimitBytes = max(0, scrollbackLimitBytes)
         let fallbackTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.title = CodexTerminalTitleFormatter.title(
             for: command,
             fallback: fallbackTitle?.isEmpty == false ? fallbackTitle! : "Terminal"
         )
         self.initialWorkingDirectory = workingDirectory
-        self.outputBuffer = CodexBoundedTerminalOutput(maxBytes: maxOutputBytes)
         self.state = TerminalViewState(
             terminalConfiguration: TerminalConfiguration { builder in
                 builder.withBackgroundOpacity(0)
@@ -191,6 +139,10 @@ public final class CodexTerminalSession: Identifiable {
                 builder.withWindowPaddingY(8)
                 builder.withCursorStyle(.block)
                 builder.withCursorStyleBlink(true)
+                builder.withCustom(
+                    "scrollback-limit",
+                    String(max(0, scrollbackLimitBytes))
+                )
             }
         )
         self.state.configuration = TerminalSurfaceOptions(
@@ -215,7 +167,7 @@ public final class CodexTerminalSession: Identifiable {
         command: String? = nil,
         fontSize: Float = 13,
         isBackground: Bool = false,
-        maxOutputBytes: Int = CodexBoundedTerminalOutput().maxBytes
+        scrollbackLimitBytes: Int = CodexTerminalSession.defaultScrollbackLimitBytes
     ) {
         self.init(
             title: title,
@@ -228,25 +180,12 @@ public final class CodexTerminalSession: Identifiable {
                 ordinal: ordinal
             ),
             isBackground: isBackground,
-            maxOutputBytes: maxOutputBytes
+            scrollbackLimitBytes: scrollbackLimitBytes
         )
     }
 
     /// Stable native-host identity used by mounted-panel tests and diagnostics.
     public var terminalHostIdentity: ObjectIdentifier { ObjectIdentifier(terminalView) }
-
-    public var output: String { outputBuffer.text }
-    public var outputByteCount: Int { outputBuffer.byteCount }
-    public var maxOutputBytes: Int { outputBuffer.maxBytes }
-    public var droppedOutputByteCount: Int { outputBuffer.droppedByteCount }
-
-    public func appendOutput(_ text: String) {
-        outputBuffer.append(text)
-    }
-
-    public func appendOutput(_ data: Data) {
-        outputBuffer.append(data)
-    }
 
     /// Updates native display work without touching the retained PTY. Ghostty
     /// stops its display link while hidden; the same session-owned view is
@@ -274,9 +213,9 @@ public struct CodexTerminalToolView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var terminalState: TerminalViewState
     private let session: CodexTerminalSession
-    /// Whether this terminal is the one currently shown. Deck terminals for other
-    /// chats stay mounted but inactive; ghostty occludes them so they don't render
-    /// until shown again, and only the active one takes keyboard focus.
+    /// Whether this terminal is the one currently shown. Sessions belonging to
+    /// other retained chats keep their native hosts alive but inactive; Ghostty
+    /// occludes them until shown again, and only the active one takes focus.
     private let isActive: Bool
 
     public init(session: CodexTerminalSession, isActive: Bool = true) {
@@ -387,6 +326,14 @@ public enum CodexTerminalPathFormatter {
 
 @MainActor
 package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    package struct RoutePayload: Codable, Sendable {
+        package let threadID: String?
+        package let worktreePath: String
+        package let ordinal: Int
+        package let command: String?
+        package let isBackground: Bool
+    }
+
     package let session: CodexTerminalSession
     package let placement: CodexWorkspaceTabPlacement
     private let onClose: @MainActor () -> Void
@@ -429,22 +376,104 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         }
     }
 
+    /// Reconstructs a local PTY host from a durable route when the tab is
+    /// activated. The panel state keeps this factory lazy so hidden restored
+    /// tabs do not launch shells during initialization.
+    package static func restoredLocalSession(
+        from route: CodexWorkspaceTabRoute
+    ) -> CodexTerminalSession? {
+        guard let payload = routePayload(from: route) else { return nil }
+        return CodexTerminalSession(
+            workingDirectory: payload.worktreePath,
+            command: payload.command,
+            identity: CodexTerminalIdentity(
+                threadID: payload.threadID,
+                worktreePath: payload.worktreePath,
+                ordinal: payload.ordinal
+            ),
+            isBackground: payload.isBackground
+        )
+    }
+
+    package static func routePayload(
+        from route: CodexWorkspaceTabRoute
+    ) -> RoutePayload? {
+        guard route.adapterID == "codex.terminal" else { return nil }
+        return try? JSONDecoder().decode(RoutePayload.self, from: route.payload)
+    }
+
     private static func routePayload(for session: CodexTerminalSession) -> Data {
-        struct Payload: Codable {
-            let threadID: String?
-            let worktreePath: String
-            let ordinal: Int
-            let processID: String?
-            let command: String?
-            let isBackground: Bool
-        }
-        return (try? JSONEncoder().encode(Payload(
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(RoutePayload(
             threadID: session.identity.threadID,
             worktreePath: session.identity.worktreePath,
             ordinal: session.identity.ordinal,
-            processID: session.identity.processID,
             command: session.command,
             isBackground: session.isBackground
         ))) ?? Data()
+    }
+}
+
+/// Registration-only adapter for a restored terminal route. Its content
+/// factory creates the native session only after the workspace activates the
+/// tab, keeping hidden routes cheap and preventing surprise shell launches.
+@MainActor
+package struct CodexLazyTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
+    private let payload: CodexTerminalWorkspaceTabAdapter.RoutePayload
+    private let placement: CodexWorkspaceTabPlacement
+    private let materialize: @MainActor () -> CodexTerminalSession?
+    private let onClose: @MainActor () -> Void
+    private let onReopen: @MainActor () -> Void
+
+    package init(
+        payload: CodexTerminalWorkspaceTabAdapter.RoutePayload,
+        placement: CodexWorkspaceTabPlacement,
+        materialize: @escaping @MainActor () -> CodexTerminalSession?,
+        onClose: @escaping @MainActor () -> Void,
+        onReopen: @escaping @MainActor () -> Void
+    ) {
+        self.payload = payload
+        self.placement = placement
+        self.materialize = materialize
+        self.onClose = onClose
+        self.onReopen = onReopen
+    }
+
+    package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
+        let identity = CodexTerminalIdentity(
+            threadID: payload.threadID,
+            worktreePath: payload.worktreePath,
+            ordinal: payload.ordinal
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let route = CodexWorkspaceTabRoute(
+            adapterID: "codex.terminal",
+            version: 1,
+            resourceID: identity.rawValue,
+            payload: (try? encoder.encode(payload)) ?? Data()
+        )
+        return CodexWorkspaceTabRegistration(
+            resourceKey: "codex.terminal:\(identity.rawValue)",
+            title: CodexTerminalTitleFormatter.title(for: payload.command),
+            systemImage: "terminal",
+            lifetime: .pinned,
+            durableRoute: route,
+            routeReplacementKey: "codex.terminal:\(identity.rawValue)",
+            preferredPlacement: placement,
+            onClose: onClose,
+            onReopen: { _ in onReopen() },
+            onVisibilityChanged: { visible in
+                guard let session = materialize() else { return }
+                session.setSurfaceVisible(visible)
+                if visible { session.restoreFocus() }
+            }
+        ) { _ in
+            guard let session = materialize() else {
+                return AnyView(Text("This terminal is unavailable."))
+            }
+            return AnyView(CodexTerminalToolView(session: session, isActive: false))
+        }
     }
 }

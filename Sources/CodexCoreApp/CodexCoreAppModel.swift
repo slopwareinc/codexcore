@@ -3402,22 +3402,22 @@ final class CodexCoreAppModel {
     /// Refreshes server-owned background terminals for the selected thread.
     /// The protocol operation updates canonical state; UI reads the resulting
     /// snapshot rather than retaining a second process ledger.
-    func refreshBackgroundTerminals() async {
-        guard let codex, let currentThreadID else { return }
-        _ = try? await codex.listBackgroundTerminals(threadID: ThreadID(currentThreadID))
+    func refreshBackgroundTerminals(threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
+        _ = try? await codex.listBackgroundTerminals(threadID: ThreadID(threadID))
     }
 
-    func terminateBackgroundTerminal(processID: String) async {
-        guard let codex, let currentThreadID else { return }
+    func terminateBackgroundTerminal(processID: String, threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
         _ = try? await codex.terminateBackgroundTerminal(
-            threadID: ThreadID(currentThreadID),
+            threadID: ThreadID(threadID),
             processID: processID
         )
     }
 
-    func cleanBackgroundTerminals() async {
-        guard let codex, let currentThreadID else { return }
-        try? await codex.cleanBackgroundTerminals(threadID: ThreadID(currentThreadID))
+    func cleanBackgroundTerminals(threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
+        try? await codex.cleanBackgroundTerminals(threadID: ThreadID(threadID))
     }
 
     private var statusSummaryContext: CodexChatStatusSummaryContext {

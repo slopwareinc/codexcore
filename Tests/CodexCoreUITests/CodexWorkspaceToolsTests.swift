@@ -84,13 +84,14 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testBackgroundTerminalDoesNotStealFocusButIsRetainedInBottomPanel() throws {
+    func testUnfocusedTerminalDoesNotStealFocusButIsRetainedInBottomPanel() throws {
         let panel = CodexWorkspacePanelState(threadID: "thread-235")
         let foregroundID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
         let foregroundTab = try XCTUnwrap(panel.terminalTabID(for: foregroundID))
-        let backgroundID = panel.openBackgroundTerminal(
+        let backgroundID = panel.openTerminal(
             workspacePath: "/tmp",
-            command: "swift build"
+            command: "swift build",
+            focus: false
         )
         let backgroundTab = try XCTUnwrap(panel.terminalTabID(for: backgroundID))
 
@@ -161,36 +162,143 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoredTerminalRouteReusesTheSameWorkspaceTabWhenTheHostIsRecreated() throws {
+    func testRestoredTerminalRouteRegistersAndRecreatesItsHostAutomatically() throws {
         let source = CodexWorkspacePanelState(threadID: "thread-235")
         let terminalID = source.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let secondTerminalID = source.openTerminal(workspacePath: "/tmp", command: "swift build")
         let originalTabID = try XCTUnwrap(source.terminalTabID(for: terminalID))
+        let secondTabID = try XCTUnwrap(source.terminalTabID(for: secondTerminalID))
         let originalContentID = try XCTUnwrap(source.workspaceTabs.snapshot.instance(id: originalTabID)?.contentID)
 
         let restored = CodexWorkspacePanelState(
             threadID: "thread-235",
             restorationState: source.workspaceTabRestorationState
         )
-        let reopenedTerminalID = restored.openTerminal(workspacePath: "/tmp", command: "swift test")
+        XCTAssertTrue(restored.terminalSessions.isEmpty)
+        restored.workspaceTabs.register(restored.terminalWorkspaceTabAdapters)
+        restored.workspaceTabs.activate(originalTabID)
+        XCTAssertTrue(restored.terminalSessions.isEmpty)
+        XCTAssertNotNil(restored.workspaceTabs.content(for: originalTabID))
+        let reopenedTerminalID = try XCTUnwrap(restored.terminalSessions.first?.id)
         let reopenedTabID = try XCTUnwrap(restored.terminalTabID(for: reopenedTerminalID))
+        XCTAssertEqual(restored.terminalSessions.count, 1)
+        XCTAssertNil(restored.terminalSessions.first { $0.id == secondTerminalID })
+        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, reopenedTabID)
+        restored.workspaceTabs.activate(secondTabID)
+        XCTAssertNotNil(restored.workspaceTabs.content(for: secondTabID))
+        XCTAssertEqual(restored.terminalSessions.count, 2)
 
         XCTAssertEqual(reopenedTabID, originalTabID)
         XCTAssertEqual(
             restored.workspaceTabs.snapshot.instance(id: reopenedTabID)?.contentID,
             originalContentID
         )
-        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, reopenedTabID)
+        XCTAssertEqual(restored.workspaceTabs.snapshot.topology.bottom.activeTabID, secondTabID)
     }
 
     @MainActor
-    func testBackgroundOutputRemainsStrictlyBoundedAndKeepsNewestBytes() {
-        var output = CodexBoundedTerminalOutput(maxBytes: 8)
-        output.append("1234")
-        output.append("567890")
+    func testTerminalSessionAppliesGhosttyScrollbackLimitAtTheHostSeam() {
+        let session = CodexTerminalSession(
+            workingDirectory: "/tmp",
+            command: "swift test",
+            scrollbackLimitBytes: 8 * 1024
+        )
 
-        XCTAssertEqual(output.byteCount, 8)
-        XCTAssertEqual(output.text, "34567890")
-        XCTAssertEqual(output.droppedByteCount, 2)
+        XCTAssertEqual(session.scrollbackLimitBytes, 8 * 1024)
+        XCTAssertTrue(
+            session.state.terminalConfiguration.rendered
+                .contains("scrollback-limit = 8192")
+        )
+        XCTAssertTrue(session.state.renderedConfig.contains("scrollback-limit = 8192"))
+    }
+
+    @MainActor
+    func testBackgroundTerminalDetailsUseCanonicalProcessIdentityAndSupportedAction() throws {
+        let terminal = CanonicalBackgroundTerminal(
+            processID: "server-process-1",
+            command: "npm run dev",
+            cwd: .string("/tmp"),
+            itemID: "item-1"
+        )
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: terminal,
+            onTerminate: {}
+        )
+        let registration = adapter.workspaceTabRegistration
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(
+            adapter,
+            from: .summary
+        )
+
+        XCTAssertEqual(registration.resourceKey, "codex.background-terminal:thread-235:server-process-1")
+        XCTAssertEqual(tabs.snapshot.instance(id: tabID)?.title, "npm run dev")
+        XCTAssertNil(tabs.snapshot.instance(id: tabID)?.durableRoute)
+        XCTAssertNotNil(tabs.content(for: tabID))
+
+        tabs.register([
+            CodexBackgroundTerminalWorkspaceTabAdapter(
+                threadID: ThreadID("thread-235"),
+                terminal: CanonicalBackgroundTerminal(
+                    processID: "server-process-1",
+                    command: "npm run dev -- --host",
+                    cwd: .string("/tmp"),
+                    itemID: "item-2"
+                ),
+                onTerminate: {}
+            )
+        ])
+
+        XCTAssertTrue(tabs.isAvailable(tabID))
+        XCTAssertEqual(tabs.snapshot.instance(id: tabID)?.title, "npm run dev -- --host")
+    }
+
+    @MainActor
+    func testExpiredBackgroundTerminalDetailRouteFailsClosedWhenFactsDisappear() throws {
+        let terminal = CanonicalBackgroundTerminal(
+            processID: "expired-process",
+            command: "npm run dev",
+            cwd: .string("/tmp"),
+            itemID: "item-1"
+        )
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: terminal,
+            onTerminate: {}
+        )
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(adapter, from: .summary)
+
+        tabs.register([])
+
+        XCTAssertFalse(tabs.isAvailable(tabID))
+        XCTAssertFalse(tabs.snapshot.instance(id: tabID)?.isMaterialized ?? true)
+        XCTAssertNil(tabs.content(for: tabID))
+    }
+
+    @MainActor
+    func testClosingBackgroundTerminalDetailDoesNotTerminateUntilExplicitAction() throws {
+        var terminated = false
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
+            threadID: ThreadID("thread-235"),
+            terminal: CanonicalBackgroundTerminal(
+                processID: "process-1",
+                command: "npm run dev",
+                cwd: .string("/tmp"),
+                itemID: "item-1"
+            ),
+            onTerminate: { terminated = true }
+        )
+        let registration = adapter.workspaceTabRegistration
+        let tabs = CodexWorkspaceTabs()
+        let tabID = tabs.open(adapter, from: .summary)
+
+        tabs.close(tabID)
+
+        XCTAssertNil(registration.onClose)
+        XCTAssertFalse(terminated)
+        XCTAssertEqual(tabs.undoClose(), tabID)
     }
 
     @MainActor

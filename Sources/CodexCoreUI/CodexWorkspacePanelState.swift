@@ -21,6 +21,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     private var nextTerminalNumber = 1
     private var nextBrowserNumber = 1
     private var terminalTabIDs: [String: CodexWorkspaceTabID] = [:]
+    private var restoredTerminalPayloads: [CodexWorkspaceTabID: CodexTerminalWorkspaceTabAdapter.RoutePayload] = [:]
 
     public init(
         panelWidth: CGFloat = 400,
@@ -32,6 +33,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
             ?? CodexWorkspaceTabs()
         let trimmedThreadID = threadID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.threadID = trimmedThreadID?.isEmpty == true ? nil : trimmedThreadID
+        indexRestoredTerminalRoutes()
     }
 
     public var workspaceTabRestorationState: CodexWorkspaceTabRestorationState {
@@ -42,6 +44,8 @@ public final class CodexWorkspacePanelState: ObservableObject {
         _ restorationState: CodexWorkspaceTabRestorationState
     ) {
         workspaceTabs.apply(restoration: restorationState)
+        restoredTerminalPayloads.removeAll()
+        indexRestoredTerminalRoutes()
     }
 
     public var isAgentPanelOpen: Bool {
@@ -105,33 +109,30 @@ public final class CodexWorkspacePanelState: ObservableObject {
         return session.id
     }
 
-    @discardableResult
-    public func openBackgroundTerminal(
-        workspacePath: String,
-        threadID: String? = nil,
-        command: String? = nil,
-        placement: CodexWorkspaceTabPlacement = .bottom
-    ) -> String {
-        openTerminal(
-            workspacePath: workspacePath,
-            threadID: threadID,
-            command: command,
-            placement: placement,
-            focus: false
-        )
-    }
-
     public func terminalTabID(for terminalID: String) -> CodexWorkspaceTabID? {
         terminalTabIDs[terminalID]
     }
 
     package var terminalWorkspaceTabAdapters: [any CodexWorkspaceTabAdapter] {
-        terminalSessions.map { session in
+        let live = terminalSessions.map { session in
             let placement = terminalTabIDs[session.id]
                 .flatMap { workspaceTabs.placement(of: $0) }
                 ?? .bottom
             return terminalAdapter(for: session, placement: placement)
         }
+        let lazy = restoredTerminalPayloads.sorted {
+            $0.key.rawValue.uuidString < $1.key.rawValue.uuidString
+        }.compactMap { tabID, payload -> CodexLazyTerminalWorkspaceTabAdapter? in
+            guard !terminalSessions.contains(where: { $0.id == restoredTerminalID(payload) }) else { return nil }
+            return CodexLazyTerminalWorkspaceTabAdapter(
+                payload: payload,
+                placement: workspaceTabs.placement(of: tabID) ?? .bottom,
+                materialize: { [weak self] in self?.materializeRestoredTerminal(tabID: tabID, payload: payload) },
+                onClose: { [weak self] in self?.removeRestoredTerminal(tabID: tabID) },
+                onReopen: { [weak self] in self?.restoreRestoredTerminal(tabID: tabID, payload: payload) }
+            )
+        }
+        return live + lazy
     }
 
     public func closeTerminal(id: String) {
@@ -145,6 +146,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
     private func removeTerminalSession(id: String) {
         terminalSessions.removeAll { $0.id == id }
         terminalTabIDs.removeValue(forKey: id)
+        restoredTerminalPayloads = restoredTerminalPayloads.filter { restoredTerminalID($0.value) != id }
     }
 
     private func terminalAdapter(
@@ -164,6 +166,60 @@ public final class CodexWorkspacePanelState: ObservableObject {
                 self.terminalTabIDs[session.id] = tabID
             }
         )
+    }
+
+    private func indexRestoredTerminalRoutes() {
+        for instance in workspaceTabs.snapshot.instances {
+            guard let route = instance.durableRoute,
+                  let payload = CodexTerminalWorkspaceTabAdapter.routePayload(from: route)
+            else { continue }
+            restoredTerminalPayloads[instance.id] = payload
+            nextTerminalNumber = max(nextTerminalNumber, payload.ordinal + 1)
+        }
+    }
+
+    private func restoredTerminalID(
+        _ payload: CodexTerminalWorkspaceTabAdapter.RoutePayload
+    ) -> String {
+        CodexTerminalIdentity(
+            threadID: payload.threadID,
+            worktreePath: payload.worktreePath,
+            ordinal: payload.ordinal
+        ).rawValue
+    }
+
+    private func materializeRestoredTerminal(
+        tabID: CodexWorkspaceTabID,
+        payload: CodexTerminalWorkspaceTabAdapter.RoutePayload
+    ) -> CodexTerminalSession? {
+        let id = restoredTerminalID(payload)
+        if let existing = terminalSessions.first(where: { $0.id == id }) {
+            terminalTabIDs[id] = tabID
+            return existing
+        }
+        guard let session = CodexTerminalWorkspaceTabAdapter.restoredLocalSession(
+            from: CodexWorkspaceTabRoute(
+                adapterID: "codex.terminal",
+                version: 1,
+                resourceID: id,
+                payload: (try? JSONEncoder().encode(payload)) ?? Data()
+            )
+        ) else { return nil }
+        terminalSessions.append(session)
+        terminalTabIDs[id] = tabID
+        return session
+    }
+
+    private func removeRestoredTerminal(tabID: CodexWorkspaceTabID) {
+        guard let payload = restoredTerminalPayloads.removeValue(forKey: tabID) else { return }
+        removeTerminalSession(id: restoredTerminalID(payload))
+    }
+
+    private func restoreRestoredTerminal(
+        tabID: CodexWorkspaceTabID,
+        payload: CodexTerminalWorkspaceTabAdapter.RoutePayload
+    ) {
+        restoredTerminalPayloads[tabID] = payload
     }
 
     @discardableResult
@@ -232,6 +288,7 @@ public final class CodexWorkspacePanelState: ObservableObject {
         filesSession = nil
         filePreviewSessions.removeAll()
         terminalTabIDs.removeAll()
+        restoredTerminalPayloads.removeAll()
         workspaceTabs.removeAll()
     }
 }

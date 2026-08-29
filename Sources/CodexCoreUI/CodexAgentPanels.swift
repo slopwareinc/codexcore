@@ -31,6 +31,7 @@ public struct CodexFloatingSummaryPanel: View {
     private let onSelectTab: (String) -> Void
     private let onOpenPlan: () -> Void
     private let onOpenReview: () -> Void
+    private let onOpenBackgroundTerminalDetail: (String) -> Void
 
     public init(
         sideChat: CodexSideChatState?,
@@ -43,6 +44,7 @@ public struct CodexFloatingSummaryPanel: View {
         onEnvironmentHandoffCompletion: @escaping @MainActor @Sendable (CodexWorktreeHandoffCompletion) -> Void = { _ in },
         onOpenPlan: @escaping () -> Void = {},
         onOpenReview: @escaping () -> Void = {},
+        onOpenBackgroundTerminalDetail: @escaping (String) -> Void = { _ in },
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
@@ -55,6 +57,7 @@ public struct CodexFloatingSummaryPanel: View {
         self.onEnvironmentHandoffCompletion = onEnvironmentHandoffCompletion
         self.onOpenPlan = onOpenPlan
         self.onOpenReview = onOpenReview
+        self.onOpenBackgroundTerminalDetail = onOpenBackgroundTerminalDetail
         self.onSelectTab = onSelectTab
     }
 
@@ -175,6 +178,7 @@ public struct CodexFloatingSummaryPanel: View {
                         ForEach(backgroundTerminals.terminals) { terminal in
                             SummaryBackgroundTerminalRow(
                                 terminal: terminal,
+                                onOpen: { onOpenBackgroundTerminalDetail(terminal.processID) },
                                 onTerminate: {
                                     backgroundTerminalActions.terminate(terminal.processID)
                                 }
@@ -892,7 +896,12 @@ private struct SummaryBackgroundTerminalRow: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let terminal: CanonicalBackgroundTerminal
+    let onOpen: () -> Void
     let onTerminate: () -> Void
+
+    private var title: String {
+        CodexTerminalTitleFormatter.title(for: terminal.command)
+    }
 
     private var detail: String {
         var values: [String] = []
@@ -906,39 +915,48 @@ private struct SummaryBackgroundTerminalRow: View {
     }
 
     var body: some View {
-        Menu {
-            Button("Terminate") { onTerminate() }
-                .keyboardShortcut(.delete, modifiers: [.command, .option])
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "terminal")
-                    .font(theme.fonts.actionIcon)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .frame(width: 24, height: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(CodexTerminalTitleFormatter.title(for: terminal.command))
-                        .font(theme.fonts.body)
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(detail)
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Button(action: onOpen) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "terminal")
+                        .font(theme.fonts.actionIcon)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: 24, height: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(theme.fonts.body)
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(detail)
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("View background process details")
+            .accessibilityLabel("View \(title) details")
+            Spacer(minLength: 0)
+            Menu {
+                Button("Terminate") { onTerminate() }
+                    .keyboardShortcut(.delete, modifiers: [.command, .option])
+            } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(theme.fonts.chipLabel)
                     .foregroundStyle(theme.colors.textTertiary)
             }
-            .frame(minHeight: 36)
-            .padding(.horizontal, 4)
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help("Background process actions")
+            .accessibilityLabel("Actions for \(title)")
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .frame(minHeight: 36)
+        .padding(.horizontal, 4)
         .summaryRowInteraction(isInteractive: true)
         .help("Process \(terminal.processID) · \(terminal.cwd.displayString)")
     }
@@ -981,7 +999,6 @@ public struct CodexAgentSidePanel: View {
     private let onSendSideChatMessage: () -> Void
     private let onInterruptSideChatMessage: () -> Void
     private let onOpenTerminal: () -> Void
-    private let onOpenBackgroundTerminal: () -> Void
     private let onOpenBrowser: () -> Void
     private let onOpenFiles: () -> Void
     private let onOpenFilePreview: (URL) -> Void
@@ -1009,7 +1026,6 @@ public struct CodexAgentSidePanel: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
-        onOpenBackgroundTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
         onOpenFilePreview: @escaping (URL) -> Void = { _ in },
@@ -1038,7 +1054,6 @@ public struct CodexAgentSidePanel: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
-        self.onOpenBackgroundTerminal = onOpenBackgroundTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
         self.onOpenFilePreview = onOpenFilePreview
@@ -1066,7 +1081,6 @@ public struct CodexAgentSidePanel: View {
         onSendSideChatMessage: @escaping () -> Void = {},
         onInterruptSideChatMessage: @escaping () -> Void = {},
         onOpenTerminal: @escaping () -> Void = {},
-        onOpenBackgroundTerminal: @escaping () -> Void = {},
         onOpenBrowser: @escaping () -> Void = {},
         onOpenFiles: @escaping () -> Void = {},
         onOpenFilePreview: @escaping (URL) -> Void = { _ in },
@@ -1095,7 +1109,6 @@ public struct CodexAgentSidePanel: View {
         self.onSendSideChatMessage = onSendSideChatMessage
         self.onInterruptSideChatMessage = onInterruptSideChatMessage
         self.onOpenTerminal = onOpenTerminal
-        self.onOpenBackgroundTerminal = onOpenBackgroundTerminal
         self.onOpenBrowser = onOpenBrowser
         self.onOpenFiles = onOpenFiles
         self.onOpenFilePreview = onOpenFilePreview
@@ -1372,12 +1385,6 @@ public struct CodexAgentSidePanel: View {
                             Label(option.title, systemImage: option.systemImage)
                         }
                         .disabled(!option.isEnabled)
-                    }
-                    Divider()
-                    Button {
-                        onOpenBackgroundTerminal()
-                    } label: {
-                        Label("Open Terminal in Background", systemImage: "terminal.fill")
                     }
                 } label: {
                     Image(systemName: "plus")
