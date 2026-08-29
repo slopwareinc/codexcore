@@ -197,7 +197,10 @@ struct CodexPresentationStoreTests {
             ),
             change: change(revision: 4, fields: .turnStatus)
         )
-        try await Task.sleep(for: .milliseconds(80))
+        try await eventually(timeout: .seconds(1)) {
+            store.activeCanonicalPresentation?.sourceRevision == StateRevision(4)
+                && store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Done"
+        }
 
         #expect(store.activeCanonicalPresentation?.sourceRevision == StateRevision(4))
         #expect(store.activePresentation?.transcript.turns.first?.finalAnswer?.text == "Done")
