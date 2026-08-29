@@ -52,6 +52,7 @@ public struct CodexProjectSidebar: View {
     let onToggleSection: (String) -> Void
     let onToggleThreadSelection: (String) -> Void
     let onSelectAllThreads: () -> Void
+    let onTogglePinnedSelectedChats: () -> Void
     let onClearThreadSelection: () -> Void
     let onArchiveSelectedChats: () -> Void
     let onLoadArchivedChats: () -> Void
@@ -86,6 +87,7 @@ public struct CodexProjectSidebar: View {
         onToggleSection: @escaping (String) -> Void = { _ in },
         onToggleThreadSelection: @escaping (String) -> Void = { _ in },
         onSelectAllThreads: @escaping () -> Void = {},
+        onTogglePinnedSelectedChats: @escaping () -> Void = {},
         onClearThreadSelection: @escaping () -> Void = {},
         onArchiveSelectedChats: @escaping () -> Void = {},
         onLoadArchivedChats: @escaping () -> Void = {},
@@ -119,6 +121,7 @@ public struct CodexProjectSidebar: View {
         self.onToggleSection = onToggleSection
         self.onToggleThreadSelection = onToggleThreadSelection
         self.onSelectAllThreads = onSelectAllThreads
+        self.onTogglePinnedSelectedChats = onTogglePinnedSelectedChats
         self.onClearThreadSelection = onClearThreadSelection
         self.onArchiveSelectedChats = onArchiveSelectedChats
         self.onLoadArchivedChats = onLoadArchivedChats
@@ -136,7 +139,7 @@ public struct CodexProjectSidebar: View {
             ScrollView(showsIndicators: true) {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 16) {
                     routeRows
-                    if let actionErrorMessage = snapshot.actionErrorMessage, !snapshot.isCollapsed {
+            if let actionErrorMessage = snapshot.actionErrorMessage, !snapshot.isCollapsed {
                         Text(actionErrorMessage)
                             .font(theme.fonts.sidebar.emptyState.font)
                             .foregroundStyle(theme.colors.danger)
@@ -350,6 +353,15 @@ public struct CodexProjectSidebar: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("a", modifiers: [.command])
                 .accessibilityLabel("Select all chats")
+            Button {
+                onTogglePinnedSelectedChats()
+            } label: {
+                Image(systemName: "pin")
+                    .font(theme.fonts.sidebar.chatActionIcon.font)
+            }
+            .buttonStyle(.plain)
+            .help("Pin or unpin selected chats")
+            .accessibilityLabel("Pin or unpin selected chats")
             Button {
                 onArchiveSelectedChats()
             } label: {

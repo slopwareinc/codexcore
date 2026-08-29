@@ -2757,6 +2757,15 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.clearThreadSelection()
     }
 
+    func togglePinnedSelectedSidebarChats() {
+        let selectedIDs = sidebarNavigationSession.selectedThreadIDs
+        guard !selectedIDs.isEmpty else { return }
+        let shouldPin = selectedIDs.contains { !pinnedThreadIDs.contains($0) }
+        for threadID in selectedIDs.sorted() {
+            setThreadPinned(threadID, pinned: shouldPin, announces: false)
+        }
+    }
+
     func refreshArchivedSidebarChats() async {
         guard let codex else {
             var session = threadListSession

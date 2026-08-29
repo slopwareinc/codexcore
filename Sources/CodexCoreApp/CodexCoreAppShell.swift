@@ -242,6 +242,7 @@ struct CodexCoreAppShell: View {
             onToggleSection: { model.toggleSidebarSection($0) },
             onToggleThreadSelection: { model.toggleSidebarThreadSelection($0) },
             onSelectAllThreads: { model.selectAllSidebarThreads() },
+            onTogglePinnedSelectedChats: { model.togglePinnedSelectedSidebarChats() },
             onClearThreadSelection: { model.clearSidebarThreadSelection() },
             onArchiveSelectedChats: { Task { await model.archiveSelectedSidebarChats() } },
             onLoadArchivedChats: { Task { await model.refreshArchivedSidebarChats() } },
