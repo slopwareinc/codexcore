@@ -113,6 +113,21 @@ private struct CodexWorkRowViewV2: View {
                 }
             }
             .padding(.leading, 18)
+        } else if case .mcpToolCall(let value) = row, !value.contentBlocks.isEmpty {
+            VStack(alignment: .leading, spacing: 7) {
+                if let detail = CodexMCPContentPresentationV2.toolDetail(
+                    arguments: value.arguments,
+                    blocks: []
+                ) {
+                    Text(detail)
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textTertiary)
+                }
+                ForEach(Array(value.contentBlocks.enumerated()), id: \.offset) { _, block in
+                    CodexMCPContentBlockViewV2(block: block)
+                }
+            }
+            .padding(.leading, 18)
         } else if let detail = expandedDetail {
             Text(ANSITerminalStyle.makeAttributedString(from: ANSIParser().parse(detail)))
                 .font(theme.fonts.code)
@@ -186,8 +201,10 @@ private struct CodexWorkRowViewV2: View {
         switch row {
         case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
         case .mcpToolCall(let v):
-            let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return CodexMCPContentPresentationV2.toolDetail(
+                arguments: v.arguments,
+                blocks: v.contentBlocks
+            )
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames
@@ -196,6 +213,13 @@ private struct CodexWorkRowViewV2: View {
             }.joined(separator: "\n\n")
             let parts = [value.action == .sentInput ? value.instructions?.nilIfEmpty : nil, replies.nilIfEmpty].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .webSearch(let value):
+            let results = value.results.prefix(12).map { result in
+                [result.title, result.url, result.snippet]
+                    .compactMap { $0?.nilIfEmpty }
+                    .joined(separator: "\n")
+            }
+            return results.isEmpty ? nil : results.joined(separator: "\n\n")
         default: return nil
         }
     }

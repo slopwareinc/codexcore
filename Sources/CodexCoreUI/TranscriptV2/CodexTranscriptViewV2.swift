@@ -67,6 +67,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)?
     private let onEditUserMessage: (String) -> Void
     private let onRetryTurn: ((CodexUserMessageV2) -> Void)?
+    private let onRetryHistory: (() -> Void)?
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
     private let agentDisplayNameByThreadID: [String: String]
@@ -92,6 +93,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
+        onRetryHistory: (() -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
         agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
@@ -115,6 +117,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
         self.onRetryTurn = onRetryTurn
+        self.onRetryHistory = onRetryHistory
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
@@ -143,6 +146,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
+        onRetryHistory: (() -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
         agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
@@ -166,6 +170,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
         self.onRetryTurn = onRetryTurn
+        self.onRetryHistory = onRetryHistory
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
@@ -200,6 +205,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 onOpenReview: resolvedOpenReview,
                 onEditUserMessage: onEditUserMessage,
                 onRetryTurn: onRetryTurn,
+                onRetryHistory: onRetryHistory,
                 onForkChat: onForkChat,
                 onResolveApproval: onResolveApproval,
                 retryRevision: projectionRetryRevision,

@@ -123,6 +123,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
     var onEditUserMessage: (String) -> Void
     var onRetryTurn: ((CodexUserMessageV2) -> Void)?
+    var onRetryHistory: (() -> Void)?
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     var retryRevision: Int
@@ -165,6 +166,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenReview: onOpenReview,
             onEditUserMessage: onEditUserMessage,
             onRetryTurn: onRetryTurn,
+            onRetryHistory: onRetryHistory,
             onForkChat: onForkChat,
             onResolveApproval: onResolveApproval,
             retryRevision: retryRevision,
@@ -218,6 +220,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
         private var onRetryTurn: ((CodexUserMessageV2) -> Void)?
+        private var onRetryHistory: (() -> Void)?
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
         private var onProjectionError: (String?) -> Void = { _ in }
@@ -262,6 +265,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             var requestRevision: UInt64
             var expandedWorkTurnIDs: Set<String>
             var expandedRowIDs: Set<String>
+            var expandedCardIDs: Set<String>
+            var focusedItemID: String?
             var selectedDiffFileIndexByRowID: [String: Int]
             var agentDisplayNameByThreadID: [String: String]
             var agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
@@ -333,6 +338,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
             onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
+            onRetryHistory: (() -> Void)? = nil,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
             retryRevision: Int = 0,
@@ -352,6 +358,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 presentation.isPinnedToBottom = currentPresentation.isPinnedToBottom
                 presentation.expandedWorkTurnIDs = currentPresentation.expandedWorkTurnIDs
                 presentation.expandedRowIDs = currentPresentation.expandedRowIDs
+                presentation.expandedCardIDs = currentPresentation.expandedCardIDs
+                presentation.focusedItemID = currentPresentation.focusedItemID
                 presentation.selectedDiffFileIndexByRowID =
                     currentPresentation.selectedDiffFileIndexByRowID
             }
@@ -378,6 +386,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onOpenReview = onOpenReview
             self.onEditUserMessage = onEditUserMessage
             self.onRetryTurn = onRetryTurn
+            self.onRetryHistory = onRetryHistory
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
             self.onProjectionError = onProjectionError
@@ -407,6 +416,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     requestRevision: $0.requestSourceRevision,
                     expandedWorkTurnIDs: presentation.expandedWorkTurnIDs,
                     expandedRowIDs: presentation.expandedRowIDs,
+                    expandedCardIDs: presentation.expandedCardIDs,
+                    focusedItemID: presentation.focusedItemID,
                     selectedDiffFileIndexByRowID: presentation.selectedDiffFileIndexByRowID,
                     agentDisplayNameByThreadID: presentation.agentDisplayNameByThreadID,
                     agentDisplayStatusByThreadID: presentation.agentDisplayStatusByThreadID,
@@ -426,6 +437,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                       previousCanonicalIdentity.threadID == identity.threadID,
                       previousCanonicalIdentity.expandedWorkTurnIDs == identity.expandedWorkTurnIDs,
                       previousCanonicalIdentity.expandedRowIDs == identity.expandedRowIDs,
+                      previousCanonicalIdentity.expandedCardIDs == identity.expandedCardIDs,
+                      previousCanonicalIdentity.focusedItemID == identity.focusedItemID,
                       previousCanonicalIdentity.selectedDiffFileIndexByRowID
                         == identity.selectedDiffFileIndexByRowID,
                       previousCanonicalIdentity.agentDisplayNameByThreadID
@@ -1070,6 +1083,27 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     turnID: turnID,
                     threadID: ThreadID(presentation.threadID)
                 )
+            case .toggleCard(let cardID):
+                captureScrollAnchor()
+                let expanded = !presentation.expandedCardIDs.contains(cardID)
+                if expanded { presentation.expandedCardIDs.insert(cardID) }
+                else { presentation.expandedCardIDs.remove(cardID) }
+                presentationStore?.setCardExpanded(
+                    expanded,
+                    cardID: cardID,
+                    threadID: ThreadID(presentation.threadID)
+                )
+            case .focusItem(let itemID):
+                presentation.focusedItemID = itemID
+                presentationStore?.focusTranscriptItem(
+                    itemID,
+                    threadID: ThreadID(presentation.threadID)
+                )
+            case .toggleBookmark(let turnID):
+                _ = presentationStore?.toggleBookmark(
+                    turnID: turnID,
+                    threadID: ThreadID(presentation.threadID)
+                )
             case .toggleRow(let rowID):
                 captureScrollAnchor()
                 let expanded = !presentation.expandedRowIDs.contains(rowID)
@@ -1108,6 +1142,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 return
             case .resolveApproval(let requestID, let approve):
                 onResolveApproval(requestID, approve)
+                return
+            case .retryTurn(let turnID):
+                guard let message = presentation.transcript.turns.first(where: { $0.id == turnID })?.userMessage else { return }
+                onRetryTurn?(message)
+                return
+            case .retryHistory(let threadID):
+                _ = threadID
+                onRetryHistory?()
                 return
             }
             currentPresentation = presentation

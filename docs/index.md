@@ -22,6 +22,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 
 - [Embedding guide](ui/embedding.md)
 - [Activity presentation](ui/live-activity.md)
+- [Transcript renderer and recovery](ui/transcript-renderer-recovery.md)
 - [Custom tool cards](ui/custom-tool-cards.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)
 - [Design tokens and Liquid Glass](ui/design-tokens.md)
