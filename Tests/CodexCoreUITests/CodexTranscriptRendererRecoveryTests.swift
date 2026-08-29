@@ -390,4 +390,21 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(chips.copyText?.contains("docs/README.md:12-14") == true)
         #expect(chips.accessibilityLabel.contains("Memory citations"))
     }
+
+    @Test func sessionRecoveryAdapterKeepsReconnectAndHistoryRetryTyped() {
+        let reconnect = CodexTranscriptRecoveryAdapter.notice(
+            for: .reconnecting(afterConnectionEpoch: 4, attempt: 3),
+            threadID: "thread"
+        )
+        #expect(reconnect?.kind == .reconnecting(attempt: 3))
+        #expect(reconnect?.message == "Reconnecting to Codex (attempt 3)")
+
+        let history = CodexTranscriptRecoveryAdapter.notice(
+            for: .historyReconciliationFailed(threadID: "thread", message: String(repeating: "x", count: 500)),
+            threadID: "thread"
+        )
+        #expect(history?.kind == .historyRetry)
+        #expect(history?.canRetry == true)
+        #expect(history?.message.count ?? 0 < 300)
+    }
 }

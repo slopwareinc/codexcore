@@ -298,6 +298,9 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
+    /// Renderer-independent typed node selected by the render registry. Legacy
+    /// fields remain for compatibility with the existing AppKit cell adapter.
+    var renderNode: CodexTranscriptRenderNodeV2?
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
@@ -522,6 +525,7 @@ actor CodexTranscriptRenderProjector {
     private var cachedProjectionSignature: ProjectionCacheSignature?
     private var cachedSectionsByTurnID: [String: CachedTurnSection] = [:]
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
+    private let rendererRegistry = CodexTranscriptRendererRegistry.default
 
     func project(
         presentation: CodexThreadUIPresentation,
@@ -625,6 +629,7 @@ actor CodexTranscriptRenderProjector {
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
+                    renderNode: draft.renderNode,
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
@@ -760,6 +765,7 @@ actor CodexTranscriptRenderProjector {
                             id: "\(sectionID):group:\(group.id):summary",
                             fingerprint: "group-summary:\(String(describing: summaryRender))",
                             workRow: summaryRender,
+                            renderNode: rendererRegistry.node(for: .workGroup(group)),
                             action: .toggleRow(rowID: group.id),
                             accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
@@ -819,6 +825,7 @@ actor CodexTranscriptRenderProjector {
                                 id: "\(sectionID):row:\(rowID)",
                                 fingerprint: "row:\(String(describing: rowRender))",
                                 workRow: rowRender,
+                                renderNode: Self.renderNode(for: row),
                                 action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
                                     ?? (hasDetail ? .toggleRow(rowID: rowID) : nil),
                                 copyText: detail,
@@ -1008,6 +1015,7 @@ actor CodexTranscriptRenderProjector {
                             fingerprint: "structured-card:\(String(describing: card))",
                             textRole: .notice,
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            renderNode: .structuredCard(card),
                             copyText: summary,
                             accessibilityLabel: "\(card.title), structured card",
                             maxWidthKind: .card
@@ -1023,6 +1031,7 @@ actor CodexTranscriptRenderProjector {
                             fingerprint: "approval-review:\(String(describing: review))",
                             textRole: .notice,
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            renderNode: .approvalReview(review),
                             copyText: summary,
                             accessibilityLabel: "\(review.title), \(review.statusLabel)",
                             maxWidthKind: .card
@@ -1038,6 +1047,7 @@ actor CodexTranscriptRenderProjector {
                             fingerprint: "hook:\(String(describing: hook))",
                             textRole: .notice,
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            renderNode: .hookActivity(hook),
                             copyText: summary,
                             accessibilityLabel: "\(hook.label), hook \(hook.status)",
                             maxWidthKind: .card
@@ -1049,6 +1059,7 @@ actor CodexTranscriptRenderProjector {
                             fingerprint: "recovery:\(String(describing: recovery))",
                             textRole: .notice,
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            renderNode: .recovery(recovery),
                             copyText: summary,
                             accessibilityLabel: summary,
                             maxWidthKind: .card
@@ -1286,6 +1297,7 @@ private extension CodexTranscriptRenderProjector {
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
+        var renderNode: CodexTranscriptRenderNodeV2?
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
@@ -1313,6 +1325,7 @@ private extension CodexTranscriptRenderProjector {
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
+            renderNode: CodexTranscriptRenderNodeV2? = nil,
             directive: CodexTranscriptDirectiveRender? = nil,
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
@@ -1340,6 +1353,7 @@ private extension CodexTranscriptRenderProjector {
             self.code = code
             self.footer = footer
             self.productTool = productTool
+            self.renderNode = renderNode
             self.directive = directive
             self.approval = approval
             self.action = action
@@ -2469,6 +2483,12 @@ private extension CodexTranscriptRenderProjector {
         case .collabAgent: .agent
         case .other: .other
         }
+    }
+
+    static func renderNode(for row: CodexWorkRowV2) -> CodexTranscriptRenderNodeV2? {
+        guard case .mcpToolCall(let value) = row,
+              !value.contentBlocks.isEmpty else { return nil }
+        return .mcpContent(value.contentBlocks)
     }
 
     static func workIsExpanded(_ turn: CodexTurnV2, presentation: CodexThreadUIPresentation) -> Bool {

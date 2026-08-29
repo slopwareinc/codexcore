@@ -5,6 +5,7 @@ import Foundation
 public enum CodexTranscriptRenderNodeV2: Sendable, Equatable {
     case structuredCard(CodexStructuredTranscriptCardV2)
     case mcpContent([CodexMCPContentBlockV2])
+    case productTool(CodexProductToolCallV2)
     case approvalReview(CodexApprovalReviewCardV2)
     case hookActivity(CodexHookActivityV2)
     case recovery(CodexTranscriptRecoveryNoticeV2)
@@ -14,6 +15,7 @@ public enum CodexTranscriptRenderNodeV2: Sendable, Equatable {
         switch self {
         case .structuredCard(let card): card.id
         case .mcpContent: "mcp-content"
+        case .productTool(let call): call.id
         case .approvalReview(let review): review.id
         case .hookActivity(let hook): hook.id
         case .recovery(let notice): notice.id
@@ -68,6 +70,10 @@ public struct CodexTranscriptRendererRegistry: Sendable {
             }.flatMap { $0 }
             return blocks.isEmpty ? nil : .mcpContent(blocks)
         },
+        .init(identifier: "product-tool") { entry in
+            guard case .productToolCall(let call) = entry else { return nil }
+            return .productTool(call)
+        },
         .init(identifier: "approval-review") { entry in
             guard case .approvalReview(let review) = entry else { return nil }
             return .approvalReview(review)
@@ -86,4 +92,3 @@ public struct CodexTranscriptRendererRegistry: Sendable {
         },
     ]
 }
-
