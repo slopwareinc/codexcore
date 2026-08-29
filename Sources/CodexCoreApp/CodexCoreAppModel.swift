@@ -1031,6 +1031,14 @@ final class CodexCoreAppModel {
     func setGitBranchForTesting(_ branch: String?) {
         gitBranch = branch
     }
+
+    func applySelectedThreadSnapshotForTesting(
+        threadID: String,
+        snapshot: CodexSessionStateSnapshot
+    ) {
+        selectedThreadID = threadID
+        applySelectedThreadSnapshot(snapshot)
+    }
     #endif
 
     private func refreshGitBranch() {
