@@ -464,7 +464,13 @@ public final class CodexWorkspaceTabs: ObservableObject {
         var existing = Set(panel.orderedTabs.compactMap(\.legacyID))
         for id in ids where existing.insert(id).inserted { panel.orderedTabs.append(.legacy(id)) }
         if let active = panel.activeTab, !panel.orderedTabs.contains(active) { panel.activeTab = panel.orderedTabs.last }
-        if panel.orderedTabs.isEmpty { panel.activeTab = nil; panel.isOpen = false }
+        if panel.orderedTabs.isEmpty {
+            panel.activeTab = nil
+            // `CodexAgentSidePanel.onAppear` reconciles an empty legacy list.
+            // Preserve an already-open empty launcher, but still close when
+            // reconciliation actually removed the last legacy tab.
+            panel.isOpen = previous.orderedTabs.isEmpty ? previous.isOpen : false
+        }
         if panel != previous { snapshot.topology.right = panel }
     }
 
