@@ -401,6 +401,36 @@ public struct CodexStructuredTranscriptCardV2: Identifiable, Sendable, Equatable
         self.steps = steps
         self.status = status
     }
+
+    public static func todo(
+        id: String,
+        title: String = "Todo",
+        steps: [CodexStructuredTranscriptCardStepV2],
+        explanation: String? = nil,
+        status: CodexStructuredTranscriptCardStatusV2 = .pending
+    ) -> Self {
+        .init(id: id, kind: .todo, title: title, explanation: explanation, steps: steps, status: status)
+    }
+
+    public static func proposedPlan(
+        id: String,
+        title: String = "Plan",
+        steps: [CodexStructuredTranscriptCardStepV2],
+        explanation: String? = nil,
+        status: CodexStructuredTranscriptCardStatusV2 = .pending
+    ) -> Self {
+        .init(id: id, kind: .proposedPlan, title: title, explanation: explanation, steps: steps, status: status)
+    }
+
+    public static func planImplementation(
+        id: String,
+        title: String = "Implementation",
+        steps: [CodexStructuredTranscriptCardStepV2],
+        explanation: String? = nil,
+        status: CodexStructuredTranscriptCardStatusV2 = .inProgress
+    ) -> Self {
+        .init(id: id, kind: .planImplementation, title: title, explanation: explanation, steps: steps, status: status)
+    }
 }
 
 /// Short aliases keep the public surface discoverable for hosts that prefer
@@ -408,6 +438,7 @@ public struct CodexStructuredTranscriptCardV2: Identifiable, Sendable, Equatable
 public typealias CodexTodoCardV2 = CodexStructuredTranscriptCardV2
 public typealias CodexProposedPlanCardV2 = CodexStructuredTranscriptCardV2
 public typealias CodexPlanImplementationCardV2 = CodexStructuredTranscriptCardV2
+public typealias CodexTodoItemV2 = CodexStructuredTranscriptCardStepV2
 
 public enum CodexApprovalReviewStatusV2: Sendable, Equatable {
     case inProgress
@@ -442,6 +473,20 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
         self.targetItemID = targetItemID
     }
 
+    public init(
+        id: String,
+        review: CodexSchemaGuardianApprovalReview,
+        targetItemID: String? = nil
+    ) {
+        self.init(
+            id: id,
+            status: Self.status(review.status),
+            rationale: review.rationale,
+            riskLevel: review.riskLevel?.rawValue,
+            targetItemID: targetItemID
+        )
+    }
+
     public var statusLabel: String {
         switch status {
         case .inProgress: "Reviewing"
@@ -450,6 +495,17 @@ public struct CodexApprovalReviewCardV2: Identifiable, Sendable, Equatable {
         case .timedOut: "Timed out"
         case .aborted: "Review stopped"
         case .unknown: "Review status unavailable"
+        }
+    }
+
+    private static func status(_ value: CodexSchemaGuardianApprovalReviewStatus) -> CodexApprovalReviewStatusV2 {
+        switch value {
+        case .inProgress: .inProgress
+        case .approved: .approved
+        case .denied: .denied
+        case .timedOut: .timedOut
+        case .aborted: .aborted
+        case .unrecognized(let raw): .unknown(raw)
         }
     }
 }

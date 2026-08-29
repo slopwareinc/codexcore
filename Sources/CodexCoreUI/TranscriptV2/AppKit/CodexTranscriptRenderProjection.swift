@@ -1209,6 +1209,22 @@ actor CodexTranscriptRenderProjector {
                         maxWidthKind: .card
                     ))
                 }
+                for recovery in turn.recoveryNotices {
+                    let summary = recovery.message
+                    append(ItemDraft(
+                        id: "\(sectionID):recovery:\(recovery.id)",
+                        fingerprint: "recovery:\(String(describing: recovery))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .recovery(recovery),
+                        action: recovery.canRetry && turn.userMessage != nil
+                            ? .retryTurn(turnID: turn.id)
+                            : nil,
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
             }
 
             if let turnDiff {

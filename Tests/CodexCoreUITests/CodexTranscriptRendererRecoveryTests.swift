@@ -647,6 +647,23 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(bounded.contains("content truncated"))
     }
 
+    @Test func writerConflictAndRollbackExtensionsAreRetryableNotSilent() {
+        let turn = CanonicalTurn(
+            key: .init(threadID: "thread", turnID: "turn"),
+            extensions: [
+                "writerConflict": .dictionary(["message": .string("revision changed")]),
+                "rollback": .dictionary(["message": .string("server rejected the cut")])
+            ]
+        )
+        let recoveries = CodexTranscriptEventRegistry().events(for: turn).compactMap { event -> CodexTranscriptRecoveryNoticeV2? in
+            guard case .recovery(let notice) = event else { return nil }
+            return notice
+        }
+        #expect(recoveries.map { $0.kind } == [.rollback, .writerConflict])
+        #expect(recoveries.allSatisfy { $0.canRetry })
+        #expect(recoveries.map { $0.message }.joined(separator: " ").contains("revision changed"))
+    }
+
     @Test func webSearchResultsRemainTypedAndBounded() throws {
         let item = CanonicalItem(
             key: .init(threadID: "thread", turnID: "turn", itemID: "search"),
