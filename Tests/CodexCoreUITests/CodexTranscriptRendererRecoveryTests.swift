@@ -82,7 +82,10 @@ struct CodexTranscriptRendererRecoveryTests {
                     .dictionary(["type": .string("mention"), "name": .string("Docs"), "path": .string("/tmp/docs")])
                 ]),
                 "additionalContext": .dictionary([
-                    "workspace": .string("trusted workspace")
+                    "workspace": .dictionary([
+                        "kind": .string("application"),
+                        "value": .string("trusted workspace")
+                    ])
                 ])
             ],
             authority: .completed
@@ -126,7 +129,7 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(citations.first?.sourceThreadIDs == ["memory-thread"])
     }
 
-    @Test func canonicalProjectionCarriesCardsCitationsAndMCPBlocks() throws {
+    @Test @MainActor func canonicalProjectionCarriesCardsCitationsAndMCPBlocks() async throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"
         let items: [CanonicalItem] = [
@@ -207,6 +210,24 @@ struct CodexTranscriptRendererRecoveryTests {
             return value
         }.first
         #expect(mcp?.contentBlocks == [CodexMCPContentBlockV2.text("found")])
+
+        let appKit = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(
+                threadID: threadID.rawValue,
+                transcript: .init(turns: [projected]),
+                expandedWorkTurnIDs: [turnID.rawValue]
+            ),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        #expect(appKit.itemsByID.values.contains { item in
+            if case .structuredCard = item.renderNode { return true }
+            return false
+        })
+        #expect(appKit.itemsByID.values.contains { item in
+            if case .mcpContent = item.renderNode { return true }
+            return false
+        })
     }
 
     @Test func typedRecoveryEventsExplainOverloadAndStreamFailuresWithoutRawErrors() {
@@ -291,7 +312,7 @@ struct CodexTranscriptRendererRecoveryTests {
             Issue.record("Expected hook activity")
             return
         }
-        #expect(hook.label == "preToolUse · command")
+        #expect(hook.label == "Pre Tool Use · Command")
         #expect(hook.entries == ["checked"])
     }
 
@@ -329,6 +350,58 @@ struct CodexTranscriptRendererRecoveryTests {
             if case .approvalReview = entry { return true }
             return false
         })
+    }
+
+    @Test func completedApprovalReviewRemainsVisibleWhenWorkIsCollapsed() async throws {
+        let review = CodexApprovalReviewCardV2(
+            id: "review",
+            title: "Approval denied",
+            status: .denied,
+            rationale: "Policy rejected the command"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            narrative: [.approvalReview(review)],
+            approvalReviews: [review],
+            status: .done(durationMs: 10)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.id.rawValue.contains(":approval-review:") })
+        #expect(item.preparedText?.attributedString.string.contains("Approval denied") == true)
+        let expectedNode: CodexTranscriptRenderNodeV2 = .approvalReview(review)
+        #expect(item.renderNode == expectedNode)
+    }
+
+    @Test func threadMetadataProducesTypedModelForkAndEnvironmentNotices() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        let thread = CanonicalThread(
+            id: threadID,
+            metadata: .init(
+                forkedFromID: "source-thread",
+                modelProvider: "openai",
+                parentThreadID: "remote-parent",
+                extensions: [:]
+            ),
+            status: .idle,
+            turnOrder: [turnID],
+            history: .init(mode: .legacy, turnsCoverage: .full),
+            connectedEnvironmentIDs: ["worktree"],
+            settings: ["personality": .string("pragmatic")],
+        )
+        let turn = CanonicalTurn(key: .init(threadID: threadID, turnID: turnID), status: .completed)
+        let events = CodexTranscriptEventRegistry().events(for: turn, thread: thread)
+        let notices = events.compactMap { event -> CodexTurnNoticeV2? in
+            guard case .notice(let notice) = event else { return nil }
+            return notice
+        }
+        #expect(notices.map { $0.id } == ["thread-forked-from", "thread-parent", "thread-model-provider", "thread-environment", "thread-personality"])
+        #expect(notices.map { $0.message }.contains("Personality: pragmatic"))
+        #expect(notices.map { $0.message }.contains("Worktree environment connected"))
     }
 
     @Test func markdownProjectionUsesTypedMathAndMermaidBlocks() {
@@ -479,6 +552,52 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(CodexTranscriptNavigationProjection.outputBadges(for: localPresentation).first?.text == "Generated artifact")
     }
 
+    @Test func renderProjectionIncludesNavigationBadgesWithStableIDs() async throws {
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(id: "turn", status: .done(durationMs: 1))]),
+            bookmarkedTurnIDs: ["turn"],
+            outputBadgesByTurnID: ["turn": "Saved artifact"]
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        #expect(snapshot.orderedItemIDs.contains { $0.rawValue.hasSuffix(":bookmark") })
+        let badge = try #require(snapshot.itemsByID.values.first { $0.id.rawValue.hasSuffix(":output-badge") })
+        #expect(badge.workRow?.label == "Saved artifact")
+        #expect(badge.accessibilityLabel == "Output badge: Saved artifact")
+    }
+
+    @Test func recoverableTurnNoticeOffersRetryWithoutReplayingTheMutation() async throws {
+        let recovery = CodexTranscriptRecoveryNoticeV2(
+            id: "stream-failure",
+            kind: .streamFailure,
+            message: "Connection lost",
+            canRetry: true
+        )
+        let user = CodexUserMessageV2(id: "user", text: "Try again", rawText: "Try again")
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                userMessage: user,
+                narrative: [.recovery(recovery)],
+                recoveryNotices: [recovery],
+                status: .failed(message: "Connection lost")
+            )])
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: presentation,
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.id.rawValue.contains(":recovery:") })
+        #expect(item.action == .retryTurn(turnID: "turn"))
+        #expect(item.retryUserMessage == nil)
+    }
+
     @Test func voiceOverLifecycleAnnouncesStreamingTransitionsOnce() {
         var lifecycle = CodexTranscriptVoiceOverLifecycle()
         let started = CodexTranscriptV2(turns: [.init(
@@ -498,5 +617,70 @@ struct CodexTranscriptRendererRecoveryTests {
 
         let completed = CodexTranscriptV2(turns: [.init(id: "turn", status: .done(durationMs: 1))])
         #expect(lifecycle.update(previous: progress, current: completed).map(\.kind) == [.completed])
+    }
+
+    @Test func malformedTypedPayloadsFailClosedWithoutRawFallbacks() {
+        let malformedPlan = CanonicalItem(
+            key: .init(threadID: "thread", turnID: "turn", itemID: "plan"),
+            kind: .plan,
+            payload: ["steps": .array([.dictionary(["status": .string("inProgress")])])],
+            authority: .completed
+        )
+        #expect(CodexTranscriptEventRegistry().event(for: malformedPlan, completed: true) == nil)
+
+        let malformedMCP = CodexJSONValue.dictionary([
+            "type": .string("resource"),
+            "resource": .dictionary(["mimeType": .string("text/plain")])
+        ])
+        #expect(CodexMCPContentBlockAdapter.decode(malformedMCP) == nil)
+
+        let oversized = String(repeating: "x", count: CodexMCPContentBlockAdapter.maximumTextBytes + 20)
+        let block = CodexMCPContentBlockAdapter.decode(.dictionary([
+            "type": .string("text"),
+            "text": .string(oversized)
+        ]))
+        guard case .text(let bounded)? = block else {
+            Issue.record("Expected bounded typed text")
+            return
+        }
+        #expect(bounded.utf8.count <= CodexMCPContentBlockAdapter.maximumTextBytes + 32)
+        #expect(bounded.contains("content truncated"))
+    }
+
+    @Test func webSearchResultsRemainTypedAndBounded() throws {
+        let item = CanonicalItem(
+            key: .init(threadID: "thread", turnID: "turn", itemID: "search"),
+            kind: .webSearch,
+            payload: [
+                "query": .string("Swift 6"),
+                "results": .array([
+                    .dictionary([
+                        "id": .string("result-1"),
+                        "title": .string("Swift documentation"),
+                        "url": .string("https://swift.org"),
+                        "snippet": .string("Language guide")
+                    ]),
+                    .dictionary(["url": .string("https://invalid.example")])
+                ])
+            ],
+            authority: .completed
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: .init(1),
+            threadOrder: ["thread"],
+            threads: ["thread": .init(id: "thread", turnOrder: ["turn"], history: .init(mode: .legacy, turnsCoverage: .full))],
+            turns: [.init(threadID: "thread", turnID: "turn"): .init(key: .init(threadID: "thread", turnID: "turn"), status: .completed, itemOrder: ["search"], itemsCoverage: .full)],
+            items: [item.key: item]
+        )
+        let turn = try #require(CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: "thread").presentation.transcript.turns.first)
+        let row = try #require(turn.narrative.compactMap { entry -> CodexWebSearchRowV2? in
+            guard case .workGroup(let group) = entry else { return nil }
+            return group.rows.compactMap { row in
+                guard case .webSearch(let value) = row else { return nil }
+                return value
+            }.first
+        }.first)
+        #expect(row.results.count == 1)
+        #expect(row.results.first?.title == "Swift documentation")
     }
 }

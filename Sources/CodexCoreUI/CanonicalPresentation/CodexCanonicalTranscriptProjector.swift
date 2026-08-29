@@ -136,6 +136,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             guard let projected = try projectTurn(
                 turnID: turnID,
                 canonical: turn,
+                thread: snapshot.threads[threadID],
                 items: items,
                 intents: visibleIntentByTurn[turnID] ?? [],
                 previous: old?.turnsByID[turnID],
@@ -191,6 +192,7 @@ private extension CodexCanonicalTranscriptProjector {
     func projectTurn(
         turnID: TurnID,
         canonical: CanonicalTurn?,
+        thread: CanonicalThread?,
         items: [CanonicalItem],
         intents: [SubmissionIntent],
         previous: CodexTurnV2?,
@@ -439,7 +441,7 @@ private extension CodexCanonicalTranscriptProjector {
         }
 
         if let canonical {
-            for event in eventRegistry.events(for: canonical) {
+            for event in eventRegistry.events(for: canonical, thread: thread) {
                 switch event {
                 case .approvalReview(let review): appendApprovalReview(review, to: &turn)
                 case .hookActivity(let hook): appendHookActivity(hook, to: &turn)
@@ -610,9 +612,15 @@ private extension CodexCanonicalTranscriptProjector {
 
     func inputText(_ input: [CodexJSONValue]) -> String {
         input.compactMap { value -> String? in
-            if case .string(let text) = value { return text }
-            guard let object = value.object else { return nil }
-            return object.string("text") ?? object.string("content")
+            switch CodexInput(jsonValue: value) {
+            case .text(let text, _): return text
+            case .raw(let raw):
+                if case .string(let text) = raw { return text }
+                guard let object = raw.objectValue else { return nil }
+                return object.string("text") ?? object.string("content")
+            case .image, .localImage, .audio, .localAudio, .skill, .mention:
+                return nil
+            }
         }.joined()
     }
 
@@ -915,7 +923,19 @@ private extension CodexCanonicalTranscriptProjector {
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else { return [] }
-            return [.webSearch(.init(id: id, query: query, status: state))]
+            let results = (item.payload.array("results") ?? []).enumerated().compactMap { index, value -> CodexWebSearchResultV2? in
+                guard let object = value.object,
+                      let title = object.string("title")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !title.isEmpty
+                else { return nil }
+                return .init(
+                    id: object.string("id") ?? "\(id):result:\(index)",
+                    title: title,
+                    url: object.string("url"),
+                    snippet: object.string("snippet") ?? object.string("description")
+                )
+            }
+            return [.webSearch(.init(id: id, query: query, status: state, results: results))]
         case .collabAgentToolCall:
             return collabToolRows(item, fallbackState: state).map(CodexWorkRowV2.collabAgent)
         case .subAgentActivity:

@@ -482,8 +482,21 @@ public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
     }
 
     public var label: String {
-        let event = eventName.isEmpty ? "Hook" : eventName
-        return handler.isEmpty ? event : event + " · " + handler
+        let event = eventName.isEmpty ? "Hook" : Self.humanize(eventName)
+        let handlerLabel = handler.isEmpty ? "" : Self.humanize(handler)
+        return handlerLabel.isEmpty ? event : event + " · " + handlerLabel
+    }
+
+    private static func humanize(_ value: String) -> String {
+        let separated = value
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        var result = ""
+        for character in separated {
+            if character.isUppercase, !result.isEmpty, result.last != " " { result.append(" ") }
+            result.append(character)
+        }
+        return result.prefix(1).uppercased() + result.dropFirst()
     }
 }
 
@@ -591,6 +604,13 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var readOnlyHint: Bool?
     public var contentBlocks: [CodexMCPContentBlockV2]
 
+    public var widgets: [CodexMCPWidgetV2] {
+        contentBlocks.compactMap { block in
+            guard case .widget(let id, let uri, let payload) = block else { return nil }
+            return .init(id: id ?? uri ?? "widget", uri: uri, payload: payload)
+        }
+    }
+
     public init(
         id: String,
         appName: String,
@@ -652,9 +672,55 @@ public enum CodexMCPContentBlockV2: Sendable, Equatable {
         case .structured, .widget: return nil
         }
     }
+
+    public var isInteractive: Bool {
+        if case .widget = self { return true }
+        return false
+    }
+}
+
+public typealias CodexMCPContentBlock = CodexMCPContentBlockV2
+
+public struct CodexMCPWidgetV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var uri: String?
+    public var payload: [String: CodexJSONValue]
+
+    public init(id: String, uri: String? = nil, payload: [String: CodexJSONValue] = [:]) {
+        self.id = id
+        self.uri = uri
+        self.payload = payload
+    }
 }
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2
+    public var results: [CodexWebSearchResultV2]
+
+    public init(
+        id: String,
+        query: String,
+        status: CodexWorkItemStatusV2,
+        results: [CodexWebSearchResultV2] = []
+    ) {
+        self.id = id
+        self.query = query
+        self.status = status
+        self.results = results
+    }
+}
+
+public struct CodexWebSearchResultV2: Identifiable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var url: String?
+    public var snippet: String?
+
+    public init(id: String, title: String, url: String? = nil, snippet: String? = nil) {
+        self.id = id
+        self.title = title
+        self.url = url
+        self.snippet = snippet
+    }
 }
  public enum CodexCollabActionV2: Sendable, Equatable {
     case created, sentInput, waited, closed
@@ -793,9 +859,31 @@ public struct CodexInlineActivityV2: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum CodexTurnNoticeKindV2: Sendable, Equatable {
+    case generic
+    case modelReroute
+    case personality
+    case fork
+    case worktree
+    case remoteTask
+    case review
+    case hook
+}
+
 public struct CodexTurnNoticeV2: Identifiable, Sendable, Equatable {
-    public var id: String; public var message: String
-    public init(id: String, message: String) { self.id = id; self.message = message }
+    public var id: String
+    public var message: String
+    public var kind: CodexTurnNoticeKindV2
+
+    public init(
+        id: String,
+        message: String,
+        kind: CodexTurnNoticeKindV2 = .generic
+    ) {
+        self.id = id
+        self.message = message
+        self.kind = kind
+    }
 }
 
 /// The semantic activity category used to summarize and render a work row.

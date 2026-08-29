@@ -1114,6 +1114,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             case .resolveApproval(let requestID, let approve):
                 onResolveApproval(requestID, approve)
                 return
+            case .retryTurn(let turnID):
+                guard let message = presentation.transcript.turns.first(where: { $0.id == turnID })?.userMessage else { return }
+                onRetryTurn?(message)
+                return
             }
             currentPresentation = presentation
             requestProjection(width: max(container?.scrollView.contentSize.width ?? lastProjectedWidth, 320))

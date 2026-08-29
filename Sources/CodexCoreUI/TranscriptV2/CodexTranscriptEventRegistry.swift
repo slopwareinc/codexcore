@@ -74,6 +74,60 @@ public struct CodexTranscriptEventRegistry: Sendable {
         return events
     }
 
+    public func events(
+        for turn: CanonicalTurn,
+        thread: CanonicalThread?
+    ) -> [CodexTranscriptEvent] {
+        var events = events(for: turn)
+        guard let thread else { return events }
+        if let source = thread.metadata.forkedFromID?.rawValue {
+            events.append(.notice(.init(
+                id: "thread-forked-from",
+                message: "Forked from chat \(Self.shortID(source))",
+                kind: .fork
+            )))
+        }
+        if let parent = thread.metadata.parentThreadID?.rawValue {
+            events.append(.notice(.init(
+                id: "thread-parent",
+                message: "Remote task from chat \(Self.shortID(parent))",
+                kind: .remoteTask
+            )))
+        }
+        if let provider = thread.metadata.modelProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !provider.isEmpty {
+            events.append(.notice(.init(id: "thread-model-provider", message: "Model provider: \(provider)", kind: .modelReroute)))
+        }
+        if !thread.connectedEnvironmentIDs.isEmpty {
+            events.append(.notice(.init(
+                id: "thread-environment",
+                message: "Worktree environment connected",
+                kind: .worktree
+            )))
+        }
+        if let settings = thread.settings,
+           let personality = settings.string("personality")?.codexTranscriptNonEmpty {
+            events.append(.notice(.init(id: "thread-personality", message: "Personality: \(personality)", kind: .personality)))
+        }
+        if thread.history.isStaleAfterReconnect {
+            events.append(.recovery(.init(
+                id: "history-reconnect",
+                kind: .historyRetry,
+                message: "History is being restored after reconnect",
+                canRetry: true
+            )))
+        }
+        if thread.consistency == .uncertain {
+            events.append(.recovery(.init(
+                id: "thread-recovery",
+                kind: .historyRetry,
+                message: "Thread state is being reconciled",
+                canRetry: true
+            )))
+        }
+        return events
+    }
+
     public static let defaultAdapters: [CodexTranscriptEventAdapter] = [
         .init(kind: .plan) { input in
             Self.planEvent(from: input.item.payload, completed: input.completed, itemID: input.item.key.itemID.rawValue)
@@ -108,7 +162,7 @@ private extension CodexTranscriptEventRegistry {
             ?? payload.string("text")
             ?? payload.string("objective")
         let steps = parseSteps(
-            payload.array("steps") ?? payload.array("plan") ?? [],
+            payload.array("steps") ?? payload.array("plan") ?? payload.array("items") ?? [],
             itemID: itemID
         )
         guard title?.isEmpty == false || !steps.isEmpty else { return nil }
@@ -177,14 +231,17 @@ private extension CodexTranscriptEventRegistry {
         if let content = payload.array("content") {
             attachments = content.enumerated().compactMap { index, value in
                 let input = CodexInput(jsonValue: value)
-                return attachment(input: input, index: index)
+                return attachment(input: input, raw: value, index: index)
             }
         }
         var context: [CodexUserContextV2] = []
         if let object = payload.object("additionalContext") ?? payload.object("context") {
             context = object.keys.sorted().compactMap { key in
-                guard let value = object[key]?.stringValue?.codexTranscriptBounded else { return nil }
-                let rawKind = object[key]?.object?.string("kind") ?? key
+                let entry = object[key]
+                let entryObject = entry?.object
+                let value = (entryObject?.string("value") ?? entry?.stringValue)?.codexTranscriptBounded
+                guard let value else { return nil }
+                let rawKind = entryObject?.string("kind") ?? key
                 let kind: CodexUserContextV2.Kind = switch rawKind.lowercased() {
                 case "application", "app": .application
                 case "untrusted": .untrusted
@@ -197,7 +254,11 @@ private extension CodexTranscriptEventRegistry {
         return .userContext(attachments: attachments, context: context)
     }
 
-    static func attachment(input: CodexInput, index: Int) -> CodexUserAttachmentV2? {
+    static func attachment(
+        input: CodexInput,
+        raw: CodexJSONValue,
+        index: Int
+    ) -> CodexUserAttachmentV2? {
         switch input {
         case .text:
             return nil
@@ -214,18 +275,52 @@ private extension CodexTranscriptEventRegistry {
         case .mention(let name, let path):
             return .init(id: "mention:\(path)", kind: .mention, label: name, value: path)
         case .raw:
-            return nil
+            return rawAttachment(raw, index: index)
         }
     }
 
+    static func rawAttachment(_ raw: CodexJSONValue, index: Int) -> CodexUserAttachmentV2? {
+        guard case .dictionary(let object) = raw,
+              let rawType = object.string("type")?.lowercased()
+        else { return nil }
+        let value = object.string("url")
+            ?? object.string("path")
+            ?? object.string("file_id")
+            ?? object.string("fileId")
+        guard let value, !value.isEmpty else { return nil }
+        let kind: CodexUserAttachmentV2.Kind
+        let label: String
+        switch rawType {
+        case "image_url", "input_image":
+            kind = .image; label = object.string("name") ?? "Image"
+        case "audio_url", "input_audio", "audio":
+            kind = .audio; label = object.string("name") ?? "Audio"
+        case "file", "file_url", "input_file":
+            kind = .file; label = object.string("name") ?? URL(fileURLWithPath: value).lastPathComponent
+        case "skill":
+            kind = .skill; label = object.string("name") ?? "Skill"
+        case "mention":
+            kind = .mention; label = object.string("name") ?? "Mention"
+        default:
+            return nil
+        }
+        return .init(
+            id: "\(rawType):\(index):\(value)",
+            kind: kind,
+            label: label,
+            value: value,
+            detail: object.string("detail")
+        )
+    }
+
     static func memoryEvent(from payload: [String: CodexJSONValue]) -> CodexTranscriptEvent? {
-        guard let object = payload.object("memoryCitation") else { return nil }
-        let sourceThreads = object.array("threadIds")?.compactMap(\.stringValue) ?? []
+        guard let object = payload.object("memoryCitation") ?? payload.object("memory_citation") else { return nil }
+        let sourceThreads = (object.array("threadIds") ?? object.array("thread_ids"))?.compactMap(\.stringValue) ?? []
         let entries = object.array("entries")?.compactMap { value -> CodexMemoryCitationV2? in
             guard case .dictionary(let entry) = value,
                   let path = entry.string("path")?.codexTranscriptNonEmpty,
-                  let start = entry.int("lineStart"),
-                  let end = entry.int("lineEnd"),
+                  let start = entry.int("lineStart") ?? entry.int("line_start"),
+                  let end = entry.int("lineEnd") ?? entry.int("line_end"),
                   let note = entry.string("note")?.codexTranscriptBounded
             else { return nil }
             return .init(
@@ -254,6 +349,16 @@ private extension CodexTranscriptEventRegistry {
     }
 
     static func event(forExtensionKey key: String, value: CodexJSONValue) -> CodexTranscriptEvent? {
+        if key == "autoApprovalReview:strictReviewRequired", let object = value.object {
+            return .approvalReview(.init(
+                id: key,
+                title: "Additional approval review required",
+                status: .inProgress,
+                rationale: object.string("reason") ?? object.string("message"),
+                riskLevel: object.string("riskLevel"),
+                targetItemID: object.string("itemId")
+            ))
+        }
         if key.hasPrefix("autoApprovalReview:"),
            let object = value.object {
             let review = object.object("review") ?? object
@@ -298,28 +403,28 @@ private extension CodexTranscriptEventRegistry {
         if key == "model/rerouted", let object = value.object {
             let from = object.string("fromModel") ?? "previous model"
             let to = object.string("toModel") ?? "another model"
-            return .notice(.init(id: key, message: "Model changed from \(from) to \(to)"))
+            return .notice(.init(id: key, message: "Model changed from \(from) to \(to)", kind: .modelReroute))
         }
         if key == "model/safetyBuffering/updated", let object = value.object,
            object.bool("showBufferingUi") == true {
-            return .notice(.init(id: key, message: "Model is buffering the response"))
+            return .notice(.init(id: key, message: "Model is buffering the response", kind: .modelReroute))
         }
         if key == "personality", let personality = value.stringValue?.codexTranscriptNonEmpty {
-            return .notice(.init(id: key, message: "Personality: \(personality)"))
+            return .notice(.init(id: key, message: "Personality: \(personality)", kind: .personality))
         }
         if key == "forkedFromId", let source = value.stringValue?.codexTranscriptNonEmpty {
-            return .notice(.init(id: key, message: "Forked from chat \(shortID(source))"))
+            return .notice(.init(id: key, message: "Forked from chat \(shortID(source))", kind: .fork))
         }
         if key == "worktree", let object = value.object {
             let name = object.string("name") ?? object.string("path")
-            return name.map { .notice(.init(id: key, message: "Working in \($0)")) }
+            return name.map { .notice(.init(id: key, message: "Working in \($0)", kind: .worktree)) }
         }
         if key == "remoteTask", let object = value.object {
             let state = object.string("status") ?? "connected"
-            return .notice(.init(id: key, message: "Remote task \(state)"))
+            return .notice(.init(id: key, message: "Remote task \(state)", kind: .remoteTask))
         }
         if key == "remoteTask", let state = value.stringValue?.codexTranscriptNonEmpty {
-            return .notice(.init(id: key, message: "Remote task \(state)"))
+            return .notice(.init(id: key, message: "Remote task \(state)", kind: .remoteTask))
         }
         if key == "historyRetry", value == .bool(true) {
             return .recovery(.init(id: key, kind: .historyRetry, message: "Retrying history", canRetry: true))
@@ -331,7 +436,24 @@ private extension CodexTranscriptEventRegistry {
         if key == "lastErrorWillRetry", value == .bool(true) {
             return .recovery(.init(id: key, kind: .turnRetry, message: "Retrying this turn", canRetry: true))
         }
-        if key == "writerConflict" { return .recovery(.init(id: key, kind: .writerConflict, message: "Another writer changed this thread", canRetry: true)) }
+        if key == "writerConflict" {
+            let detail = (value.object?.string("message") ?? value.stringValue)?.codexTranscriptBounded
+            return .recovery(.init(
+                id: key,
+                kind: .writerConflict,
+                message: detail.map { "Another writer changed this thread: \($0)" } ?? "Another writer changed this thread",
+                canRetry: true
+            ))
+        }
+        if key == "threadRollback" || key == "rollback" {
+            let detail = (value.object?.string("message") ?? value.stringValue)?.codexTranscriptBounded
+            return .recovery(.init(
+                id: key,
+                kind: .rollback,
+                message: detail.map { "Rollback: \($0)" } ?? "Rollback applied",
+                canRetry: detail != nil
+            ))
+        }
         return nil
     }
 
@@ -405,7 +527,7 @@ private extension CodexTranscriptEventRegistry {
         switch value?.lowercased() {
         case "running", "inprogress", "in_progress": .inProgress
         case "completed", "complete", "done": .completed
-        case "failed", "error": .failed
+        case "failed", "error", "blocked", "stopped": .failed
         case "declined": .declined
         case .some(let value): .unknown(value)
         case nil: .completed
@@ -506,7 +628,7 @@ public enum CodexTranscriptRecoveryAdapter {
                 message: "History could not be restored: \(bounded(message))",
                 canRetry: true
             )
-        case .connectionLost(_, let message):
+        case .connectionLost(_, let message), .connectionFailed(let message):
             return .init(
                 id: "stream-failure\(scope)",
                 kind: .streamFailure,
@@ -521,7 +643,7 @@ public enum CodexTranscriptRecoveryAdapter {
                 canRetry: true
             )
         case .unsupportedThreadOperation, .notReady, .closed,
-             .connectionFailed, .protocolViolation, .codexHomePreparationFailed,
+             .protocolViolation, .codexHomePreparationFailed,
              .codexHomeMismatch, .handshakeBufferOverflow, .requestIdentifierExhausted,
              .unknownServerRequest, .anonymousLoginAlreadyInProgress,
              .loginCancellationNotFound, .loginCancellationDidNotCancel:

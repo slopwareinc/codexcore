@@ -173,6 +173,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openFile(path: String, line: Int?)
     case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
+    case retryTurn(turnID: String)
 }
 
 struct CodexTranscriptApprovalRender: Sendable, Equatable {
@@ -669,6 +670,51 @@ actor CodexTranscriptRenderProjector {
                 ) { append(draft) }
             }
 
+            if presentation.bookmarkedTurnIDs.contains(turn.id) {
+                let bookmark = CodexTranscriptWorkRowRender(
+                    kind: .other,
+                    label: "Bookmarked turn",
+                    status: .completed,
+                    systemImage: "bookmark.fill",
+                    style: .inlineActivity,
+                    durationMs: nil,
+                    isExpanded: false,
+                    hasDetail: false,
+                    isSubagentLink: false
+                )
+                append(ItemDraft(
+                    id: "\(sectionID):bookmark",
+                    fingerprint: "bookmark:\(turn.id)",
+                    workRow: bookmark,
+                    action: .toggleBookmark(turnID: turn.id),
+                    accessibilityLabel: "Bookmarked turn",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptColumnMetrics.workRowHeight
+                ))
+            }
+            if let badge = presentation.outputBadgesByTurnID[turn.id],
+               !badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let output = CodexTranscriptWorkRowRender(
+                    kind: .other,
+                    label: String(badge.prefix(120)),
+                    status: .completed,
+                    systemImage: "checkmark.seal",
+                    style: .inlineActivity,
+                    durationMs: nil,
+                    isExpanded: false,
+                    hasDetail: false,
+                    isSubagentLink: false
+                )
+                append(ItemDraft(
+                    id: "\(sectionID):output-badge",
+                    fingerprint: "output-badge:\(badge)",
+                    workRow: output,
+                    accessibilityLabel: "Output badge: \(badge)",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptColumnMetrics.workRowHeight
+                ))
+            }
+
             let showsWork = turn.presentationStyle == .realtimeVoice
                 ? false
                 : Self.shouldRenderWork(turn)
@@ -1050,7 +1096,7 @@ actor CodexTranscriptRenderProjector {
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
                             renderNode: .hookActivity(hook),
                             copyText: summary,
-                            accessibilityLabel: "\(hook.label), hook \(hook.status)",
+                            accessibilityLabel: "\(hook.label), hook \(Self.statusTitle(hook.status))",
                             maxWidthKind: .card
                         ))
                     case .recovery(let recovery):
@@ -1061,6 +1107,9 @@ actor CodexTranscriptRenderProjector {
                             textRole: .notice,
                             preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
                             renderNode: .recovery(recovery),
+                            action: recovery.canRetry && turn.userMessage != nil
+                                ? .retryTurn(turnID: turn.id)
+                                : nil,
                             copyText: summary,
                             accessibilityLabel: summary,
                             maxWidthKind: .card
@@ -1097,6 +1146,68 @@ actor CodexTranscriptRenderProjector {
                         cacheHits: &preparedTextCacheHits,
                         cacheMisses: &preparedTextCacheMisses
                     ) { append(draft) }
+                }
+            }
+
+            // Failed turns keep recovery affordances visible even while their
+            // historical work disclosure is collapsed.
+            if !workExpanded, case .failed = turn.status {
+                for recovery in turn.recoveryNotices {
+                    let summary = recovery.message
+                    append(ItemDraft(
+                        id: "\(sectionID):recovery:\(recovery.id)",
+                        fingerprint: "recovery:\(String(describing: recovery))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .recovery(recovery),
+                        action: recovery.canRetry && turn.userMessage != nil
+                            ? .retryTurn(turnID: turn.id)
+                            : nil,
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+            }
+            if !workExpanded, case .done = turn.status {
+                for card in turn.structuredCards {
+                    let summary = card.title
+                    append(ItemDraft(
+                        id: "\(sectionID):structured-card:\(card.id)",
+                        fingerprint: "structured-card:\(String(describing: card))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                        renderNode: .structuredCard(card),
+                        copyText: summary,
+                        accessibilityLabel: "\(summary), structured card",
+                        maxWidthKind: .card
+                    ))
+                }
+                for review in turn.approvalReviews {
+                    let summary = "\(review.title): \(review.statusLabel)"
+                    append(ItemDraft(
+                        id: "\(sectionID):approval-review:\(review.id)",
+                        fingerprint: "approval-review:\(String(describing: review))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .approvalReview(review),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+                for hook in turn.hookActivities {
+                    let summary = "\(hook.label): \(Self.statusTitle(hook.status))"
+                    append(ItemDraft(
+                        id: "\(sectionID):hook:\(hook.id)",
+                        fingerprint: "hook:\(String(describing: hook))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                        renderNode: .hookActivity(hook),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
                 }
             }
 
@@ -1952,6 +2063,28 @@ private extension CodexTranscriptRenderProjector {
                 bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
             ))
         }
+        if !user.context.isEmpty {
+            let chips = user.context.map { context in
+                CodexTranscriptAgentChipRender(
+                    id: "\(user.id):context:\(context.id)",
+                    label: context.kind == .untrusted ? "Untrusted context" : "Context",
+                    status: .done,
+                    threadID: nil,
+                    taskSummary: context.value,
+                    latestUpdate: context.id,
+                    attachmentKind: nil
+                )
+            }
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):context",
+                fingerprint: "context:\(user.context)",
+                agentChips: chips,
+                accessibilityLabel: "Additional context attached",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
         if !visibleUserText.isEmpty {
             drafts.append(ItemDraft(
                 id: "\(sectionID):user:\(user.id)",
@@ -2576,6 +2709,16 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    static func statusTitle(_ status: CodexWorkItemStatusV2) -> String {
+        switch status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unavailable"
+        }
+    }
+
     static func duration(for row: CodexWorkRowV2) -> Int? {
         switch row {
         case .command(let value): value.durationMs
@@ -2607,6 +2750,13 @@ private extension CodexTranscriptRenderProjector {
             }.joined(separator: "\n\n")
             let parts = [value.action == .sentInput ? value.instructions?.codexAppKitNilIfEmpty : nil, replies.codexAppKitNilIfEmpty].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .webSearch(let value):
+            let results = value.results.prefix(12).map { result in
+                [result.title, result.url, result.snippet]
+                    .compactMap { $0?.codexAppKitNilIfEmpty }
+                    .joined(separator: "\n")
+            }
+            return results.isEmpty ? nil : results.joined(separator: "\n\n")
         default: return nil
         }
     }

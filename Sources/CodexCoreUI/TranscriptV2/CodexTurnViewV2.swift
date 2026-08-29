@@ -36,7 +36,15 @@ public struct CodexTurnViewV2: View {
                         onCancel: { isEditingUserMessage = false }
                     )
                 } else {
-                    CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
+                    CodexUserMessageBubbleV2(
+                        message: user,
+                        presentedAt: presentedAt,
+                        onOpenThread: onOpenThread,
+                        onEdit: onEditMessage == nil ? nil : {
+                            editingText = user.rawText
+                            isEditingUserMessage = true
+                        }
+                    )
                 }
             }
 
@@ -142,6 +150,19 @@ struct CodexUserMessageBubbleV2: View {
     let message: CodexUserMessageV2
     let presentedAt: Date
     let onOpenThread: (CodexThreadReferenceV2) -> Void
+    let onEdit: (() -> Void)?
+
+    init(
+        message: CodexUserMessageV2,
+        presentedAt: Date,
+        onOpenThread: @escaping (CodexThreadReferenceV2) -> Void,
+        onEdit: (() -> Void)? = nil
+    ) {
+        self.message = message
+        self.presentedAt = presentedAt
+        self.onOpenThread = onOpenThread
+        self.onEdit = onEdit
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 5) {
@@ -155,7 +176,10 @@ struct CodexUserMessageBubbleV2: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text(message.displayText)
+            Text(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (!message.referencedFiles.isEmpty || !message.attachments.isEmpty)
+                ? "Attached files"
+                : message.text)
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textPrimary)
                 .textSelection(.enabled)
@@ -167,11 +191,30 @@ struct CodexUserMessageBubbleV2: View {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
                         .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
                 }
+            if !message.referencedFiles.isEmpty || !message.attachments.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(message.referencedFiles) { file in
+                        Label(file.displayName, systemImage: file.isImage ? "photo" : "doc")
+                    }
+                    ForEach(message.attachments) { attachment in
+                        Label(attachment.label, systemImage: attachment.kind == .image ? "photo" : "paperclip")
+                    }
+                }
+                .font(theme.fonts.micro)
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Attached input: \((message.referencedFiles.map(\.displayName) + message.attachments.map(\.label)).joined(separator: ", "))")
+            }
             Text(presentedAt.formatted(date: .omitted, time: .shortened))
                 .font(theme.fonts.micro)
                 .foregroundStyle(theme.colors.textTertiary)
                 .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .contextMenu {
+            if let onEdit {
+                Button("Edit message", action: onEdit)
+            }
+        }
     }
 }
