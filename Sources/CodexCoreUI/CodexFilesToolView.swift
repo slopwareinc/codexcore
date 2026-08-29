@@ -212,6 +212,7 @@ public final class CodexFilesSession: ObservableObject, Identifiable {
     @Published public private(set) var rootNode: CodexFileTreeNode
 
     private let loader: CodexFileTreeLoader
+    let childrenLoader: @Sendable (URL) async -> [CodexFileTreeEntry]
 
     public init(
         id: String = "files:\(UUID().uuidString)",
@@ -223,8 +224,29 @@ public final class CodexFilesSession: ObservableObject, Identifiable {
         self.title = title
         self.rootURL = rootURL.standardizedFileURL
         self.loader = loader
+        self.childrenLoader = { url in
+            await CodexFileTreeLoader.childrenAsync(of: url)
+        }
         self.refreshIdentity = UUID()
         self.rootNode = loader.rootNode(for: rootURL)
+    }
+
+    /// Internal injection seam for mounted lifecycle tests and hosts that
+    /// provide a cooperative remote filesystem. Production callers use the
+    /// bounded local loader above.
+    init(
+        id: String = "files:\(UUID().uuidString)",
+        title: String = "Files",
+        rootURL: URL,
+        childrenLoader: @escaping @Sendable (URL) async -> [CodexFileTreeEntry]
+    ) {
+        self.id = id
+        self.title = title
+        self.rootURL = rootURL.standardizedFileURL
+        self.loader = CodexFileTreeLoader()
+        self.childrenLoader = childrenLoader
+        self.refreshIdentity = UUID()
+        self.rootNode = self.loader.rootNode(for: rootURL)
     }
 
     public func refresh() {
@@ -260,7 +282,8 @@ public struct CodexFilesToolView: View {
         CodexFilesOutlineView(
             rootNode: session.rootNode,
             selectedURL: $session.selectedURL,
-            refreshIdentity: session.refreshIdentity
+            refreshIdentity: session.refreshIdentity,
+            childrenLoader: session.childrenLoader
         )
         .background(theme.colors.surfaceSunken.opacity(0.8))
         .accessibilityLabel("Files")
@@ -313,9 +336,15 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
     let rootNode: CodexFileTreeNode
     @Binding var selectedURL: URL?
     let refreshIdentity: UUID
+    let childrenLoader: @Sendable (URL) async -> [CodexFileTreeEntry]
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(selectedURL: $selectedURL, rootNode: rootNode, refreshIdentity: refreshIdentity)
+        Coordinator(
+            selectedURL: $selectedURL,
+            rootNode: rootNode,
+            refreshIdentity: refreshIdentity,
+            childrenLoader: childrenLoader
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -359,6 +388,11 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
         context.coordinator.selectVisibleURL(selectedURL, in: outlineView)
     }
 
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.cancelPendingLoads()
+        coordinator.outlineView = nil
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         static let columnIdentifier = NSUserInterfaceItemIdentifier("CodexFilesColumn")
@@ -368,14 +402,27 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
         var rootNode: CodexFileTreeNode
         var refreshIdentity: UUID
         weak var outlineView: NSOutlineView?
+        private let childrenLoader: @Sendable (URL) async -> [CodexFileTreeEntry]
         private var isUpdatingSelection = false
         private var childLoadTasks: [URL: Task<Void, Never>] = [:]
         private var pendingExpansions: Set<URL> = []
 
-        init(selectedURL: Binding<URL?>, rootNode: CodexFileTreeNode, refreshIdentity: UUID) {
+        init(
+            selectedURL: Binding<URL?>,
+            rootNode: CodexFileTreeNode,
+            refreshIdentity: UUID,
+            childrenLoader: @escaping @Sendable (URL) async -> [CodexFileTreeEntry]
+        ) {
             self.selectedURL = selectedURL
             self.rootNode = rootNode
             self.refreshIdentity = refreshIdentity
+            self.childrenLoader = childrenLoader
+        }
+
+        deinit {
+            for task in childLoadTasks.values {
+                task.cancel()
+            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -454,10 +501,13 @@ private struct CodexFilesOutlineView: NSViewRepresentable {
             }
             guard childLoadTasks[node.id] == nil else { return }
             let expectedRefreshIdentity = refreshIdentity
-            childLoadTasks[node.id] = Task { [weak self, node] in
-                let entries = await CodexFileTreeLoader.childrenAsync(of: node.url)
+            let loadChildren = childrenLoader
+            childLoadTasks[node.id] = Task { [weak self, node, weak outlineView] in
+                let entries = await loadChildren(node.url)
                 guard !Task.isCancelled else { return }
-                guard let self, self.refreshIdentity == expectedRefreshIdentity else { return }
+                guard let self,
+                      self.refreshIdentity == expectedRefreshIdentity,
+                      let outlineView else { return }
                 node.setLoadedChildren(entries.map {
                     CodexFileTreeNode(url: $0.url, name: $0.name, kind: $0.kind)
                 })

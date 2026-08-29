@@ -1,6 +1,8 @@
+import AppKit
 import Foundation
 import GhosttyTerminal
 import CodexCore
+import SwiftUI
 import XCTest
 @testable import CodexCoreUI
 
@@ -364,6 +366,54 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertTrue(entries.isEmpty, "a superseded outline load must not publish partial children")
     }
 
+    @MainActor
+    func testMountedFilesDismantleCancelsPendingEnumerationAndDropsStaleChildren() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        let staleURL = workspace.appendingPathComponent("stale.swift")
+        let probe = FileTreeLoadProbe()
+        let session = CodexFilesSession(rootURL: workspace, childrenLoader: { url in
+            await probe.started(url)
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                await probe.cancelled(url)
+                return [CodexFileTreeEntry(url: staleURL, name: "stale.swift", kind: .file)]
+            }
+            await probe.finished(url)
+            return []
+        })
+        let model = FilesDismantleHarnessModel()
+        let hosting = NSHostingView(rootView: FilesDismantleHarness(model: model, session: session))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 640)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        pumpMainRunLoop()
+        let outline = try XCTUnwrap(firstFileOutline(in: hosting))
+        _ = outline.dataSource?.outlineView?(outline, numberOfChildrenOfItem: nil)
+        pumpMainRunLoop()
+
+        let started = await probe.waitForStart(workspace)
+        XCTAssertTrue(started)
+
+        model.isVisible = false
+        hosting.layoutSubtreeIfNeeded()
+        pumpMainRunLoop()
+
+        let cancelled = await probe.waitForCancellation(workspace)
+        XCTAssertTrue(cancelled)
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(session.rootNode.areChildrenLoaded, "cancelled enumeration must not publish stale children")
+    }
+
     func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {
         let workspace = try makeTemporaryWorkspace()
         let target = workspace.appendingPathComponent("target")
@@ -472,5 +522,65 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    @MainActor
+    private func pumpMainRunLoop() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    @MainActor
+    private func firstFileOutline(in view: NSView) -> NSOutlineView? {
+        if let outline = view as? NSOutlineView { return outline }
+        for child in view.subviews {
+            if let outline = firstFileOutline(in: child) { return outline }
+        }
+        return nil
+    }
+}
+
+@MainActor
+private final class FilesDismantleHarnessModel: ObservableObject {
+    @Published var isVisible = true
+}
+
+private struct FilesDismantleHarness: View {
+    @ObservedObject var model: FilesDismantleHarnessModel
+    let session: CodexFilesSession
+
+    var body: some View {
+        Group {
+            if model.isVisible {
+                CodexFilesToolView(session: session)
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
+private actor FileTreeLoadProbe {
+    private var startedPaths: Set<String> = []
+    private var cancelledPaths: Set<String> = []
+    private var finishedPaths: Set<String> = []
+
+    func started(_ url: URL) { startedPaths.insert(url.path) }
+    func cancelled(_ url: URL) { cancelledPaths.insert(url.path) }
+    func finished(_ url: URL) { finishedPaths.insert(url.path) }
+
+    func waitForStart(_ url: URL) async -> Bool {
+        await wait { startedPaths.contains(url.path) }
+    }
+
+    func waitForCancellation(_ url: URL) async -> Bool {
+        await wait { cancelledPaths.contains(url.path) }
+    }
+
+    private func wait(_ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if predicate() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return predicate()
     }
 }
