@@ -92,7 +92,20 @@ struct CodexWorkspaceTabRenderTests {
                 )
             )
         )
-        var available: [any CodexWorkspaceTabAdapter] = [plan, review]
+        let files = CodexFilesWorkspaceTabAdapter(workspaceURL: URL(fileURLWithPath: "/tmp"))
+        let preview = CodexFilePreviewWorkspaceTabAdapter(
+            fileURL: URL(fileURLWithPath: "/tmp/Workspace.swift")
+        )
+        let replacementPreview = CodexFilePreviewWorkspaceTabAdapter(
+            fileURL: URL(fileURLWithPath: "/tmp/Replacement.swift")
+        )
+        var available: [any CodexWorkspaceTabAdapter] = [
+            plan,
+            review,
+            files,
+            preview,
+            replacementPreview,
+        ]
         let planID = tabs.open(plan, from: .summary)
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(30))
@@ -103,10 +116,17 @@ struct CodexWorkspaceTabRenderTests {
             transcriptHost.readDiagnosticsForTesting?().render.projectionCount
         )
 
-        // The panel is already open and width-stable. Opening the second tab,
-        // activation, and adapter availability changes must now be transcript-neutral.
+        // The panel is already open and width-stable. Files and preview tabs
+        // join the same topology; opening, activation, pinning, replacement,
+        // close, and adapter availability changes must remain transcript-neutral.
         let reviewID = tabs.open(review, from: .summary)
         let originalReview = try #require(tabs.snapshot.instance(id: reviewID))
+        let filesID = tabs.open(files, from: .commandMenu)
+        let previewID = tabs.open(preview, from: .transcript)
+        let previewContentID = try #require(tabs.snapshot.instance(id: previewID)?.contentID)
+        tabs.interact(previewID)
+        let replacementID = tabs.open(replacementPreview, from: .transcript)
+        tabs.close(replacementID)
 
         for index in 0..<100 {
             if index == 50 {
@@ -119,10 +139,12 @@ struct CodexWorkspaceTabRenderTests {
                         )
                     )
                 )
-                available = [plan, refreshedReview]
+                available = [plan, refreshedReview, files, preview, replacementPreview]
             }
             tabs.register(index.isMultiple(of: 4) ? [] : available)
-            tabs.activate(index.isMultiple(of: 2) ? planID : reviewID)
+            let handles: [CodexWorkspaceTabID] = [planID, reviewID, filesID, previewID]
+            tabs.activate(handles[index % handles.count])
+            if index.isMultiple(of: 7) { tabs.interact(previewID) }
             hosting.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(1))
             if index.isMultiple(of: 10) { await Task.yield() }
@@ -131,6 +153,7 @@ struct CodexWorkspaceTabRenderTests {
         await reconciledHost.waitForProjectionForTesting?()
 
         #expect(reconciledHost === transcriptHost)
+        #expect(tabs.snapshot.instance(id: previewID)?.contentID == previewContentID)
         #expect(tabs.snapshot.instance(id: reviewID)?.contentID == originalReview.contentID)
         #expect(tabs.snapshot.instance(id: reviewID)?.durableRoute == originalReview.durableRoute)
         #expect(tabs.registeredContentRevision(for: reviewID) == 8)
@@ -138,6 +161,65 @@ struct CodexWorkspaceTabRenderTests {
             reconciledHost.readDiagnosticsForTesting?().render.projectionCount
                 == projectionCount
         )
+    }
+
+    @Test func hiddenFilePreviewEditorsAreNotMountedOrParsed() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-file-tab-render-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "let first = 1\n".write(
+            to: root.appendingPathComponent("First.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "let second = 2\n".write(
+            to: root.appendingPathComponent("Second.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tabs = CodexWorkspaceTabs()
+        let first = tabs.open(
+            CodexFilePreviewWorkspaceTabAdapter(
+                fileURL: root.appendingPathComponent("First.swift")
+            ),
+            from: .transcript
+        )
+        tabs.interact(first)
+        let second = tabs.open(
+            CodexFilePreviewWorkspaceTabAdapter(
+                fileURL: root.appendingPathComponent("Second.swift")
+            ),
+            from: .transcript
+        )
+
+        let hosting = NSHostingView(rootView: CodexAgentSidePanel(
+            tabs: [],
+            workspaceTabs: tabs,
+            showsCloseButton: false,
+            onClose: {}
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 640)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        let initialEditorCount = await waitForTextViews(in: hosting, window: window)
+
+        #expect(tabs.snapshot.topology.right.activeTabID == second)
+        #expect(tabs.snapshot.instance(id: first)?.contentID != tabs.snapshot.instance(id: second)?.contentID)
+        #expect(initialEditorCount == 1)
+
+        tabs.activate(first)
+        hosting.layoutSubtreeIfNeeded()
+        #expect(await waitForTextViews(in: hosting, window: window) == 1)
     }
 }
 
@@ -226,4 +308,24 @@ private func transcriptDescendant(
         if let match = transcriptDescendant(in: child) { return match }
     }
     return nil
+}
+
+@MainActor
+private func countTextViews(in root: NSView) -> Int {
+    let own = root is NSTextView ? 1 : 0
+    return own + root.subviews.reduce(into: 0) { count, child in
+        count += countTextViews(in: child)
+    }
+}
+
+@MainActor
+private func waitForTextViews(in root: NSView, window: NSWindow) async -> Int {
+    for _ in 0..<100 {
+        _ = window
+        root.layoutSubtreeIfNeeded()
+        let count = countTextViews(in: root)
+        if count > 0 { return count }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return countTextViews(in: root)
 }

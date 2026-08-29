@@ -46,6 +46,15 @@ package enum CodexWorkspaceTabLifetime: String, Codable, Sendable {
     case pinned
 }
 
+/// Controls whether an adapter keeps its view host alive when another tab is
+/// selected. Lightweight document previews opt into `.activeOnly` so hidden
+/// editors never lay out or parse; retained process-backed adapters keep the
+/// default `.retained` policy.
+package enum CodexWorkspaceTabRetentionPolicy: String, Codable, Sendable {
+    case retained
+    case activeOnly
+}
+
 public struct CodexWorkspaceTabRoute: Hashable, Codable, Sendable {
     public let adapterID: String
     public let version: Int
@@ -87,7 +96,9 @@ public struct CodexWorkspaceTabInstanceSnapshot: Identifiable, Codable, Sendable
     public fileprivate(set) var openMetadata: CodexWorkspaceTabOpenMetadata
     public fileprivate(set) var state: CodexWorkspaceTabState
     public fileprivate(set) var isMaterialized: Bool
-    fileprivate var resourceKey: String
+    /// Adapter-owned stable resource identity used for re-opening an existing
+    /// tab. It is presentation metadata, not canonical protocol state.
+    public fileprivate(set) var resourceKey: String
     fileprivate var restorableRoute: CodexWorkspaceTabRoute?
     fileprivate var routeReplacementKey: String?
 }
@@ -144,26 +155,46 @@ package protocol CodexWorkspaceTabAdapter {
     var workspaceTabRegistration: CodexWorkspaceTabRegistration { get }
 }
 
+/// Interaction remains a workspace-tab rule even though adapters keep the
+/// package's original Binding-based content closure. `content(for:)` injects
+/// this hook around each materialized adapter view.
+private struct CodexWorkspaceTabInteractionKey: EnvironmentKey {
+    static let defaultValue: @MainActor () -> Void = {}
+}
+
+extension EnvironmentValues {
+    package var codexWorkspaceTabInteraction: @MainActor () -> Void {
+        get { self[CodexWorkspaceTabInteractionKey.self] }
+        set { self[CodexWorkspaceTabInteractionKey.self] = newValue }
+    }
+}
+
 package struct CodexWorkspaceTabRegistration {
     package let resourceKey: String
     package let title: String
     package let systemImage: String
     package let lifetime: CodexWorkspaceTabLifetime
+    package let retentionPolicy: CodexWorkspaceTabRetentionPolicy
+    package let pinsOnInteraction: Bool
     package let durableRoute: CodexWorkspaceTabRoute?
     package let initialState: CodexWorkspaceTabState
     package let reopenState: CodexWorkspaceTabState?
+    package let onClose: @MainActor () -> Void
+    package let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     package let routeReplacementKey: String?
     package let contentRevision: UInt64
-    package let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
 
     init(
         resourceKey: String,
         title: String,
         systemImage: String,
         lifetime: CodexWorkspaceTabLifetime = .pinned,
+        retentionPolicy: CodexWorkspaceTabRetentionPolicy = .retained,
+        pinsOnInteraction: Bool = false,
         durableRoute: CodexWorkspaceTabRoute? = nil,
         initialState: CodexWorkspaceTabState = .init(),
         reopenState: CodexWorkspaceTabState? = nil,
+        onClose: @escaping @MainActor () -> Void = {},
         routeReplacementKey: String? = nil,
         contentRevision: UInt64 = 0,
         makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
@@ -172,9 +203,12 @@ package struct CodexWorkspaceTabRegistration {
         self.title = title
         self.systemImage = systemImage
         self.lifetime = lifetime
+        self.retentionPolicy = retentionPolicy
+        self.pinsOnInteraction = pinsOnInteraction
         self.durableRoute = durableRoute
         self.initialState = initialState
         self.reopenState = reopenState
+        self.onClose = onClose
         self.routeReplacementKey = routeReplacementKey
         self.contentRevision = contentRevision
         self.makeContent = makeContent
@@ -214,6 +248,11 @@ public final class CodexWorkspaceTabs: ObservableObject {
     }
 
     public var lastClosedRoute: CodexWorkspaceTabRoute? { closed?.tab.durableRoute }
+
+    public var hasOpenWorkspaceTabs: Bool {
+        !snapshot.topology.right.orderedTabs.isEmpty
+            || !snapshot.topology.bottom.orderedTabs.isEmpty
+    }
 
     public var restorationState: CodexWorkspaceTabRestorationState {
         let tabs = snapshot.instances.compactMap { tab -> CodexWorkspaceTabInstanceSnapshot? in
@@ -317,11 +356,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         var panel = snapshot.topology[closed.placement]
         panel.orderedTabs.insert(.workspace(closed.tab.id), at: min(closed.tabIndex, panel.orderedTabs.count))
         snapshot.topology[closed.placement] = panel
-        return reopen(
-            instanceIndex,
-            registration: registration,
-            opener: opener
-        )
+        return reopen(instanceIndex, registration: registration, opener: opener)
     }
 
     private func reopen(
@@ -407,29 +442,50 @@ public final class CodexWorkspaceTabs: ObservableObject {
     package func content(for id: CodexWorkspaceTabID) -> AnyView? {
         guard let index = index(of: id), snapshot.instances[index].isMaterialized,
               let registration = registrations[id] else { return nil }
-        return registration.makeContent(Binding(
+        let state = Binding(
             get: { [weak self] in self?.snapshot.instance(id: id)?.state ?? .init() },
             set: { [weak self] in self?.updateState($0, for: id) }
+        )
+        return AnyView(registration.makeContent(state).environment(
+            \.codexWorkspaceTabInteraction,
+            { [weak self] in self?.interact(id) }
         ))
     }
 
     package func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }
+
     package func registeredContentRevision(for id: CodexWorkspaceTabID) -> UInt64? {
         registrations[id]?.contentRevision
+    }
+
+    /// Reports user interaction with a tab's content. Preview tabs pin on first
+    /// interaction; adapters can opt the same rule into another lifetime when
+    /// needed. Callers never duplicate preview lifecycle rules.
+    public func interact(_ id: CodexWorkspaceTabID) {
+        guard let registration = registrations[id],
+              registration.lifetime == .preview || registration.pinsOnInteraction else { return }
+        pin(id)
+    }
+
+    /// Whether the adapter explicitly retains its host while hidden.
+    func retainsContentWhenHidden(_ id: CodexWorkspaceTabID) -> Bool {
+        registrations[id]?.retentionPolicy == .retained
     }
 
     public func close(_ id: CodexWorkspaceTabID) {
         let handle = CodexWorkspaceTabHandle.workspace(id)
         guard let placement = placement(of: handle), let instanceIndex = index(of: id),
               let tabIndex = snapshot.topology[placement].orderedTabs.firstIndex(of: handle) else { return }
+        let registration = registrations.removeValue(forKey: id)
         closed = .init(
             tab: snapshot.instances.remove(at: instanceIndex),
-            registration: registrations.removeValue(forKey: id),
+            registration: registration,
             placement: placement,
             tabIndex: tabIndex,
             instanceIndex: instanceIndex
         )
         remove(handle, from: placement)
+        registration?.onClose()
     }
 
     @discardableResult
