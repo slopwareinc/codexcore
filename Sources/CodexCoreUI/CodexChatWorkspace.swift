@@ -1088,9 +1088,7 @@ public struct CodexChatHeader: View {
         // the window. Scoped to the control row so the scrim tail below stays
         // pass-through to the transcript.
         .contentShape(Rectangle())
-        // Keep the titlebar surface draggable without letting the parent
-        // gesture participate in child Button/Menu hit testing.
-        .gesture(WindowDragGesture(), including: .gesture)
+        .gesture(WindowDragGesture())
         .allowsWindowActivationEvents(true)
         }
     }
