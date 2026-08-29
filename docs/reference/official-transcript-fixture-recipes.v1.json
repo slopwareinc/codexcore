@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0.0",
+  "sanitization": {
+    "identifiers": "Use fixture-thread, fixture-turn, and fixture-item-* only.",
+    "paths": "Use /workspace/FixtureProject and relative fixture files.",
+    "content": "Use invented text and generated 1x1 media; never replay a real transcript.",
+    "network": "Use invalid.example and mcp://fixture resources only."
+  },
+  "recipes": [
+    {"id":"todo-progress","recordIDs":["todo-list"],"steps":["emit three synthetic tasks","complete one while streaming","complete all","toggle collapsed and expanded"],"assert":["one stable card identity","count and accessibility summary update"]},
+    {"id":"proposed-plan","recordIDs":["proposed-plan"],"steps":["stream a two-step synthetic plan","complete it","invoke implementation action with fake handler"],"assert":["raw item is not duplicated","completed disclosure state persists"]},
+    {"id":"plan-implementation","recordIDs":["plan-implementation"],"steps":["emit request","transition running to completed","repeat with failure"],"assert":["one reconciled row","failure retains recovery"]},
+    {"id":"mcp-typed-content","recordIDs":["mcp-typed-content"],"steps":["emit text, generated 1x1 image, silent generated audio, resource_link, embedded_resource, and unknown blocks","repeat malformed annotations"],"assert":["typed adapters preserve order","unknown/malformed blocks use safe fallback"]},
+    {"id":"mcp-app","recordIDs":["mcp-app-widget"],"steps":["mount inert synthetic app","delay ready","fail load","hide and reveal"],"assert":["loading/error are visible","hidden host performs no layout","retention bound holds"]},
+    {"id":"auto-review","recordIDs":["automatic-approval-review"],"steps":["start reviews","complete approved, denied high-risk, timedOut, and aborted"],"assert":["denial and timeout persist","approved/aborted aggregate","risk warning is labeled"]},
+    {"id":"strict-review","recordIDs":["strict-review-and-interruption"],"steps":["emit strict-review requirement","end turn after repeated synthetic denials"],"assert":["durable notice survives resume","recovery action preserves request"]},
+    {"id":"reconnect-overload","recordIDs":["reconnecting-and-overload"],"steps":["disconnect before acknowledged read","show attempts 1 through 3","emit 429 countdown","recover","repeat exhausted"],"assert":["polite phase announcements","no mutation replay","terminal retry appears only when exhausted"]},
+    {"id":"history-turn-recovery","recordIDs":["history-and-turn-recovery"],"steps":["fail older-page load","retry page","overlap live item","fail current turn and retry"],"assert":["richer live item is preserved","no duplicate item or submission"]},
+    {"id":"writer-rollback","recordIDs":["writer-conflict-and-rollback"],"steps":["mark mutation outcome uncertain","reconnect without replay","apply successful rollback","repeat failed rollback"],"assert":["uncertainty persists until verified","only successful rollback evicts stale detail"]},
+    {"id":"model-events","recordIDs":["model-reroute-personality"],"steps":["emit model change, ordinary reroute, risk reroute, and personality change"],"assert":["events retain order","risk explanation is keyboard accessible"]},
+    {"id":"durable-events","recordIDs":["fork-worktree-remote-hook"],"steps":["emit fork, worktree start/success/failure, remote task, hook start/output/completion"],"assert":["navigation targets fixture IDs","hook output remains lazy and bounded"]},
+    {"id":"context-provenance","recordIDs":["attachments-context-provenance"],"steps":["attach synthetic text/image and context","emit memory/source annotations","emit generated output","force missing preview"],"assert":["raw edit context round-trips","missing preview degrades safely","no absolute personal path"]},
+    {"id":"bookmark-inline-edit","recordIDs":["bookmarks-badges-inline-edit"],"steps":["bookmark three items","navigate with Alt+Arrow","edit synthetic message","fail save then succeed"],"assert":["focus follows bookmark navigation","failed edit restores original","successful edit reconciles once"]},
+    {"id":"rich-renderers","recordIDs":["math-mermaid-visualization"],"steps":["render simple synthetic formula, Mermaid graph, and visualization reference","inject parse errors","hide hosts"],"assert":["text fallback exists","reduced motion respected","hidden hosts do no work"]},
+    {"id":"streaming-accessibility","recordIDs":["streaming-accessibility-focus"],"steps":["stream 100 token deltas across semantic phases","open and dismiss actions menu","interrupt and recover"],"assert":["phase announcements are coalesced","focus and scroll anchor restore","no token-level VoiceOver storm"]}
+  ]
+}
