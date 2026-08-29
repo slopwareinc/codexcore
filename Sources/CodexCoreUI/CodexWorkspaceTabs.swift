@@ -36,10 +36,63 @@ public enum CodexWorkspaceTabPlacement: String, Codable, Sendable {
 
 public enum CodexWorkspaceTabOpener: String, Codable, Sendable {
     case summary
+    case newTab
     case transcript
     case commandMenu
     case restoration
     case background
+}
+
+/// A typed request to open one projected thread resource in the workspace.
+///
+/// Requests carry only the stable resource identity and the presentation
+/// source/placement. They never embed canonical payloads or view instances;
+/// the workspace resolves the current adapter when the request is handled.
+public struct CodexWorkspaceTabRequest: Codable, Hashable, Sendable, Equatable, Identifiable {
+    public let resourceID: String
+    public let resourceKind: CodexThreadResourceKind
+    public let origin: CodexThreadResourceOrigin
+    public let opener: CodexWorkspaceTabOpener
+    public let placement: CodexWorkspaceTabPlacement?
+
+    public var id: String { resourceID }
+
+    public init(
+        resourceID: String,
+        resourceKind: CodexThreadResourceKind,
+        origin: CodexThreadResourceOrigin,
+        opener: CodexWorkspaceTabOpener = .summary,
+        placement: CodexWorkspaceTabPlacement? = nil
+    ) {
+        self.resourceID = resourceID
+        self.resourceKind = resourceKind
+        self.origin = origin
+        self.opener = opener
+        self.placement = placement
+    }
+
+    public init(
+        resource: CodexThreadResource,
+        opener: CodexWorkspaceTabOpener = .summary,
+        placement: CodexWorkspaceTabPlacement? = nil
+    ) {
+        self.init(
+            resourceID: resource.id,
+            resourceKind: resource.kind,
+            origin: resource.origin,
+            opener: opener,
+            placement: placement
+        )
+    }
+}
+
+public extension CodexThreadResource {
+    func workspaceTabRequest(
+        opener: CodexWorkspaceTabOpener = .summary,
+        placement: CodexWorkspaceTabPlacement? = nil
+    ) -> CodexWorkspaceTabRequest {
+        .init(resource: self, opener: opener, placement: placement)
+    }
 }
 
 package enum CodexWorkspaceTabLifetime: String, Codable, Sendable {
@@ -316,6 +369,23 @@ public final class CodexWorkspaceTabs: ObservableObject {
         from opener: CodexWorkspaceTabOpener
     ) -> CodexWorkspaceTabID {
         open(adapter, from: opener, placement: nil, focus: true)
+    }
+
+    /// Opens an adapter for a typed resource request. The request is the only
+    /// presentation action crossing Summary/New Tab; adapters still own their
+    /// route payload and host lifetime.
+    @discardableResult
+    package func open(
+        _ adapter: any CodexWorkspaceTabAdapter,
+        request: CodexWorkspaceTabRequest,
+        focus: Bool = true
+    ) -> CodexWorkspaceTabID {
+        open(
+            adapter,
+            from: request.opener,
+            placement: request.placement,
+            focus: focus
+        )
     }
 
     /// Opens a resource in the requested panel. When `focus` is false the tab

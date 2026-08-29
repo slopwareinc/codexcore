@@ -123,6 +123,7 @@ final class CodexCoreAppModel {
     private var processActivityTokens: [String: NSObjectProtocol] = [:]
     private var announcedNotificationPromptIDs: Set<CodexServerRequestKey> = []
     private(set) var selectedThreadSessionSnapshot: CodexSessionStateSnapshot?
+    var threadResourceProjectionCache = CodexThreadResourceProjectionCache()
     private(set) var canonicalThreadIndexSnapshot: CanonicalThreadIndexSnapshot?
     private(set) var canonicalThreadStatusEntries: [String: CodexThreadStatusEntry] = [:]
     private var unreadState: CodexThreadUnreadState

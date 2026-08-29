@@ -23,6 +23,8 @@ public struct CodexFloatingSummaryPanel: View {
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
     private let subagentCoordinator: CodexSubagentPresentationCoordinator?
+    private let threadResourceInventory: CodexThreadResourceInventory?
+    private let onOpenResource: ((CodexWorkspaceTabRequest) -> Void)?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
     private let backgroundTerminalActions: CodexBackgroundTerminalActions?
@@ -37,6 +39,7 @@ public struct CodexFloatingSummaryPanel: View {
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
         subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
+        threadResourceInventory: CodexThreadResourceInventory? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
         backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
@@ -45,11 +48,14 @@ public struct CodexFloatingSummaryPanel: View {
         onOpenPlan: @escaping () -> Void = {},
         onOpenReview: @escaping () -> Void = {},
         onOpenBackgroundTerminalDetail: @escaping (String) -> Void = { _ in },
+        onOpenResource: ((CodexWorkspaceTabRequest) -> Void)? = nil,
         onSelectTab: @escaping (String) -> Void
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
         self.subagentCoordinator = subagentCoordinator
+        self.threadResourceInventory = threadResourceInventory
+        self.onOpenResource = onOpenResource
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
         self.backgroundTerminalActions = backgroundTerminalActions
@@ -63,17 +69,37 @@ public struct CodexFloatingSummaryPanel: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if let plan = workspaceSummary?.plan {
-                SummarySection(title: "Plan") {
-                    SummaryRow(
-                        title: plan.explanation?.nilIfBlank ?? "View plan",
-                        systemImage: "list.bullet.rectangle",
-                        trailing: AnyView(SummaryPlanProgress(label: plan.progressLabel))
-                    ) {
-                        onOpenPlan()
+            CodexThreadResourceSummaryView(
+                inventory: summaryInventory,
+                onOpen: openResource,
+                excludedKinds: [.backgroundTerminal]
+            )
+
+            SummaryDivider()
+
+            if let backgroundTerminalActions,
+               let backgroundResources = summaryInventory?.resources(of: .backgroundTerminal),
+               !backgroundResources.isEmpty {
+                SummarySection(
+                    title: "Background processes",
+                    actions: AnyView(
+                        Group {
+                            Button("Refresh") { backgroundTerminalActions.refresh() }
+                            Button("Clean all") { backgroundTerminalActions.clean() }
+                        }
+                    )
+                ) {
+                    ForEach(backgroundResources) { resource in
+                        CodexThreadResourceRow(
+                            resource: resource,
+                            onOpen: openResource,
+                            secondaryAction: resource.metadata.processID.map { processID in
+                                { backgroundTerminalActions.terminate(processID) }
+                            },
+                            secondaryActionLabel: "Terminate background process"
+                        )
                     }
                 }
-
                 SummaryDivider()
             }
 
@@ -82,21 +108,6 @@ public struct CodexFloatingSummaryPanel: View {
                     title: "Environment",
                     actions: AnyView(environmentSectionActions(workspaceSummary))
                 ) {
-                    if let gitReviewSession {
-                        SummaryRow(
-                            title: "Changes",
-                            systemImage: "plus.forwardslash.minus",
-                            trailing: AnyView(
-                                SummaryDiffStats(
-                                    added: gitReviewSession.commitStats.addedLines,
-                                    removed: gitReviewSession.commitStats.removedLines
-                                )
-                            )
-                        ) {
-                            onOpenReview()
-                        }
-                    }
-
                     // The workspace summary can lag a project switch, so fall
                     // back to the branch the review snapshot already resolved.
                     // "HEAD" is the snapshot's placeholder for "no branch
@@ -122,30 +133,6 @@ public struct CodexFloatingSummaryPanel: View {
                     )
                     .id(workspaceSummary.workspacePath)
 
-                    if branchName != nil {
-                        if gitReviewSession != nil {
-                            SummaryRow(title: "Commit or push", systemImage: "icloud.and.arrow.up") {
-                                onOpenReview()
-                            }
-                            SummaryRow(title: "Create pull request", systemImage: "arrow.triangle.pull") {
-                                onOpenReview()
-                            }
-                        } else {
-                            // Disabled controls say why, the way the official
-                            // panel's tooltips do, instead of going quiet.
-                            SummaryRow(
-                                title: "Commit or push",
-                                systemImage: "icloud.and.arrow.up",
-                                disabledReason: "Review is unavailable for this chat"
-                            )
-                            SummaryRow(
-                                title: "Create pull request",
-                                systemImage: "arrow.triangle.pull",
-                                disabledReason: "Review is unavailable for this chat"
-                            )
-                        }
-                    }
-
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "folder")
                             .frame(width: 22)
@@ -159,83 +146,54 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            if let backgroundTerminals = workspaceSummary?.backgroundTerminals,
-               let backgroundTerminalActions {
-                SummaryDivider()
-                SummarySection(
-                    title: "Background processes",
-                    actions: AnyView(
-                        Group {
-                            Button("Refresh") { backgroundTerminalActions.refresh() }
-                            Button("Clean all") { backgroundTerminalActions.clean() }
-                                .disabled(backgroundTerminals.terminals.isEmpty)
-                        }
-                    )
-                ) {
-                    if backgroundTerminals.terminals.isEmpty {
-                        SummaryEmptyRow(title: "No background processes")
-                    } else {
-                        ForEach(backgroundTerminals.terminals) { terminal in
-                            SummaryBackgroundTerminalRow(
-                                terminal: terminal,
-                                onOpen: { onOpenBackgroundTerminalDetail(terminal.processID) },
-                                onTerminate: {
-                                    backgroundTerminalActions.terminate(terminal.processID)
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            if let sideChat {
-                SummaryDivider()
-                SummarySection(title: "Side chats") {
-                    SummaryRow(title: sideChat.title, systemImage: "rectangle.split.2x1") {
-                        onSelectTab(sideChat.id)
-                    }
-                }
-            }
-
-            if let subagentCoordinator {
-                LiveSubagentsSummarySection(
-                    coordinator: subagentCoordinator,
-                    onSelectTab: onSelectTab
-                )
-            } else {
-                StaticSubagentsSummarySection(
-                    subagents: subagents,
-                    onSelectTab: onSelectTab
-                )
-            }
-
-            SummaryDivider()
-            SummarySection(title: "Outputs") {
-                SummaryEmptyRow(title: "No artifacts yet")
-            }
-
-            SummaryDivider()
-            SummarySection(title: "Sources") {
-                if let sourceFiles = workspaceSummary?.sourceFiles, !sourceFiles.isEmpty {
-                    ForEach(sourceFiles.suffix(3)) { source in
-                        SummarySourceRow(source: source)
-                    }
-                    if sourceFiles.count > 3 {
-                        SummaryRow(
-                            title: "View all",
-                            systemImage: "point.3.connected.trianglepath.dotted"
-                        )
-                    }
-                } else {
-                    SummaryEmptyRow(title: "No sources yet")
-                }
-            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
+    }
+
+    private var summaryInventory: CodexThreadResourceInventory? {
+        threadResourceInventory
+            ?? CodexThreadResourceFallbackInventory.make(
+                threadID: ThreadID("workspace"),
+                workspaceSummary: workspaceSummary,
+                subagents: subagents,
+                sideChat: sideChat,
+                review: gitReviewSession
+            )
+    }
+
+    private func openResource(_ request: CodexWorkspaceTabRequest) {
+        if let onOpenResource {
+            onOpenResource(request)
+            return
+        }
+        // Keep the legacy callback source-compatible for hosts that have not
+        // adopted the typed seam yet. New callers always receive the request.
+        guard let resource = summaryInventory?.resource(id: request.resourceID) else {
+            onSelectTab(request.resourceID)
+            return
+        }
+        switch resource.kind {
+        case .plan:
+            onOpenPlan()
+        case .review:
+            onOpenReview()
+        case .backgroundTerminal:
+            if let processID = resource.metadata.processID {
+                onOpenBackgroundTerminalDetail(processID)
+            }
+        case .subagent, .sideChat:
+            if let childID = resource.metadata.childThreadID {
+                onSelectTab(childID.rawValue)
+            } else if resource.kind == .sideChat {
+                onSelectTab(resource.id)
+            }
+        default:
+            onSelectTab(request.resourceID)
+        }
     }
 
     /// Section-header actions for Environment. Only what this app can actually
@@ -250,6 +208,18 @@ public struct CodexFloatingSummaryPanel: View {
             }
             Divider()
         }
+        if summary.gitBranch?.nilIfBlank != nil || gitReviewSession?.snapshot.branchName.nilIfBlank != nil {
+            if gitReviewSession != nil {
+                Button("Commit or push") { onOpenReview() }
+                Button("Create pull request") { onOpenReview() }
+            } else {
+                Button("Commit or push") {}
+                    .disabled(true)
+                Button("Create pull request") {}
+                    .disabled(true)
+            }
+            Divider()
+        }
         Button("Reveal in Finder") {
             NSWorkspace.shared.selectFile(
                 nil,
@@ -259,49 +229,6 @@ public struct CodexFloatingSummaryPanel: View {
         Button("Copy path") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(summary.workspacePath, forType: .string)
-        }
-    }
-}
-
-@MainActor
-private struct LiveSubagentsSummarySection: View {
-    @Bindable private var coordinator: CodexSubagentPresentationCoordinator
-    let onSelectTab: (String) -> Void
-
-    init(
-        coordinator: CodexSubagentPresentationCoordinator,
-        onSelectTab: @escaping (String) -> Void
-    ) {
-        self.coordinator = coordinator
-        self.onSelectTab = onSelectTab
-    }
-
-    var body: some View {
-        StaticSubagentsSummarySection(
-            subagents: coordinator.panelSubagents,
-            onSelectTab: onSelectTab
-        )
-    }
-}
-
-private struct StaticSubagentsSummarySection: View {
-    let subagents: [CodexSubagentState]
-    let onSelectTab: (String) -> Void
-
-    var body: some View {
-        let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
-        if !visibleAgents.isEmpty {
-            SummaryDivider()
-            SummarySection(title: "Subagents") {
-                ForEach(visibleAgents) { subagent in
-                    SummaryRow(
-                        title: subagent.floatingSummaryTitle,
-                        systemImage: subagent.floatingSummarySystemImage
-                    ) {
-                        onSelectTab(subagent.id)
-                    }
-                }
-            }
         }
     }
 }
@@ -381,594 +308,6 @@ private struct SummarySection<Content: View>: View {
     }
 }
 
-/// The shared chrome for every summary row, so buttons, menus, and popover
-/// triggers all read as one control family.
-private struct SummaryRowLabel: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let title: String
-    let systemImage: String
-    var trailing: AnyView?
-    var trailingSystemImage: String?
-    var isDimmed = false
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(theme.fonts.actionIcon)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 24, height: 24)
-            Text(title)
-                .font(theme.fonts.body)
-                .foregroundStyle(theme.colors.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
-            if let trailing {
-                trailing
-            } else if let trailingSystemImage {
-                Image(systemName: trailingSystemImage)
-                    .font(theme.fonts.chipLabel)
-                    .foregroundStyle(theme.colors.textTertiary)
-            }
-        }
-        .opacity(isDimmed ? 0.5 : 1)
-        .frame(height: 36)
-        .padding(.horizontal, 4)
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-    }
-}
-
-/// Hover emphasis and the pointing-hand cursor, applied only where something
-/// actually opens.
-private struct SummaryRowInteraction: ViewModifier {
-    @Environment(\.codexAgentTheme) private var theme
-    @State private var isHovered = false
-    let isInteractive: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                isHovered && isInteractive
-                    ? theme.colors.surfaceElevated.opacity(0.42)
-                    : .clear,
-                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-            )
-            .onHover { hovering in
-                isHovered = hovering
-                guard isInteractive else { return }
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-    }
-}
-
-private extension View {
-    func summaryRowInteraction(isInteractive: Bool) -> some View {
-        modifier(SummaryRowInteraction(isInteractive: isInteractive))
-    }
-}
-
-private struct SummaryRow: View {
-    let title: String
-    let systemImage: String
-    let trailing: AnyView?
-    let trailingSystemImage: String?
-    /// When present the row renders dimmed and explains itself on hover rather
-    /// than looking available.
-    let disabledReason: String?
-    let action: (() -> Void)?
-
-    init(
-        title: String,
-        systemImage: String,
-        trailing: AnyView? = nil,
-        trailingSystemImage: String? = nil,
-        disabledReason: String? = nil,
-        action: (() -> Void)? = nil
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.trailing = trailing
-        self.trailingSystemImage = trailingSystemImage
-        self.disabledReason = disabledReason
-        self.action = action
-    }
-
-    init(
-        title: String,
-        systemImage: String,
-        trailing: AnyView? = nil,
-        trailingSystemImage: String? = nil,
-        disabledReason: String? = nil,
-        action: @escaping () -> Void
-    ) {
-        self.init(
-            title: title,
-            systemImage: systemImage,
-            trailing: trailing,
-            trailingSystemImage: trailingSystemImage,
-            disabledReason: disabledReason,
-            action: Optional(action)
-        )
-    }
-
-    var body: some View {
-        let isInteractive = action != nil && disabledReason == nil
-        let row = Group {
-            if let action, disabledReason == nil {
-                Button(action: action) { rowContent }
-                    .buttonStyle(.plain)
-            } else {
-                rowContent
-            }
-        }
-        .summaryRowInteraction(isInteractive: isInteractive)
-        if let disabledReason {
-            row.help(disabledReason)
-        } else {
-            row
-        }
-    }
-
-    private var rowContent: some View {
-        SummaryRowLabel(
-            title: title,
-            systemImage: systemImage,
-            trailing: trailing,
-            trailingSystemImage: trailingSystemImage,
-            isDimmed: disabledReason != nil
-        )
-    }
-}
-
-/// Workspace row: names the environment this chat runs in and opens the
-/// actions that apply to the checkout itself.
-private struct SummaryWorkspaceRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let summary: CodexWorkspaceSummaryContext
-    let onOpenReview: (() -> Void)?
-
-    private var isWorktree: Bool {
-        summary.environmentModeTitle == "Worktree"
-    }
-
-    var body: some View {
-        Menu {
-            Section(summary.workspacePath) {
-                Button("Reveal in Finder") {
-                    NSWorkspace.shared.selectFile(
-                        nil,
-                        inFileViewerRootedAtPath: summary.workspacePath
-                    )
-                }
-                Button("Copy path") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(summary.workspacePath, forType: .string)
-                }
-            }
-            if let onOpenReview {
-                Divider()
-                Button("Open Review", action: onOpenReview)
-            }
-        } label: {
-            SummaryRowLabel(
-                title: summary.environmentModeTitle,
-                systemImage: isWorktree ? "square.stack.3d.up" : "laptopcomputer",
-                trailingSystemImage: "chevron.down"
-            )
-            .frame(maxWidth: .infinity)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .summaryRowInteraction(isInteractive: true)
-        .help(summary.workspacePath)
-        .accessibilityLabel("Environment: \(summary.environmentModeTitle)")
-    }
-}
-
-/// Branch row: a live switcher, not a label. Mirrors the official panel's
-/// branch control — searchable branches, the current one marked, an inline
-/// create-and-checkout, and an explicit reason when switching is unavailable.
-private struct SummaryBranchRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-    @State private var session: CodexSummaryBranchSession
-    @State private var isPresented = false
-    @FocusState private var searchFocused: Bool
-
-    private let branchName: String?
-    private let onCompareBranch: (() -> Void)?
-
-    init(
-        branchName: String?,
-        workspacePath: String,
-        onCompareBranch: (() -> Void)?
-    ) {
-        self.branchName = branchName
-        self.onCompareBranch = onCompareBranch
-        _session = State(initialValue: CodexSummaryBranchSession(
-            workspaceURL: URL(fileURLWithPath: workspacePath)
-        ))
-    }
-
-    private var title: String {
-        session.currentBranchName ?? branchName ?? "Create branch"
-    }
-
-    private var hasBranch: Bool {
-        session.currentBranchName != nil || branchName != nil
-    }
-
-    var body: some View {
-        Button {
-            isPresented = true
-        } label: {
-            SummaryRowLabel(
-                title: title,
-                systemImage: hasBranch ? "arrow.triangle.branch" : "plus",
-                trailing: session.isBusy
-                    ? AnyView(ProgressView().controlSize(.mini))
-                    : nil,
-                trailingSystemImage: "chevron.down"
-            )
-        }
-        .buttonStyle(.plain)
-        .summaryRowInteraction(isInteractive: true)
-        .accessibilityLabel(hasBranch ? "Branch: \(title)" : "Create branch")
-        .accessibilityHint("Switch or create a branch")
-        .popover(isPresented: $isPresented, arrowEdge: .leading) {
-            branchPicker
-        }
-        // Git work starts when the control opens, never while rendering.
-        .onChange(of: isPresented) { _, presented in
-            if presented {
-                session.refresh()
-                searchFocused = true
-            } else {
-                session.cancelLoad()
-            }
-        }
-    }
-
-    private var branchPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Switch branch")
-                    .font(theme.fonts.body.weight(.semibold))
-                Spacer(minLength: 8)
-                if session.loadState == .loading {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(theme.fonts.micro)
-                    .foregroundStyle(theme.colors.textTertiary)
-                TextField("Search branches", text: $session.filter)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-            }
-            .font(theme.fonts.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                theme.colors.surfaceSunken,
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-            )
-
-            if let reason = session.switchDisabledReason {
-                noticeRow(reason, systemImage: "exclamationmark.triangle", tint: theme.colors.warning)
-            }
-            if let error = session.operationError {
-                noticeRow(error, systemImage: "xmark.octagon", tint: theme.colors.danger)
-            }
-
-            switch session.loadState {
-            case .failed(let message):
-                noticeRow(message, systemImage: "xmark.octagon", tint: theme.colors.danger)
-                Button("Retry") { session.refresh() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            case .idle, .loading:
-                if session.picker == nil {
-                    Text("Loading branches…")
-                        .font(theme.fonts.caption)
-                        .foregroundStyle(theme.colors.textTertiary)
-                } else {
-                    branchList
-                }
-            case .ready:
-                branchList
-            }
-
-            Divider()
-            createBranchField
-
-            if let onCompareBranch {
-                Divider()
-                Button("Compare branch in Review") {
-                    isPresented = false
-                    onCompareBranch()
-                }
-                .buttonStyle(.plain)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.accentText)
-            }
-            if let current = session.currentBranchName {
-                Button("Copy branch name") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(current, forType: .string)
-                }
-                .buttonStyle(.plain)
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.accentText)
-            }
-        }
-        .padding(14)
-        .frame(width: 300)
-        .accessibilityIdentifier("codex.summary.branch-picker")
-    }
-
-    @ViewBuilder
-    private var branchList: some View {
-        let options = session.matchingOptions
-        if options.isEmpty {
-            Text(session.filter.isEmpty ? "No branches found" : "No branches match")
-                .font(theme.fonts.caption)
-                .foregroundStyle(theme.colors.textTertiary)
-        } else {
-            Text("Local branches")
-                .font(theme.fonts.micro)
-                .foregroundStyle(theme.colors.textTertiary)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(options, id: \.branchName) { option in
-                        branchButton(option)
-                    }
-                }
-            }
-            .frame(maxHeight: 210)
-        }
-    }
-
-    private func branchButton(_ option: CodexGitBranchPickerOption) -> some View {
-        // Switching away from a dirty tree is refused by the repository, so the
-        // control says why up front instead of failing on click.
-        let isDisabled = option.isCurrent || !session.canSwitchBranches || session.isBusy
-        return Button {
-            isPresented = false
-            session.checkout(option.branchName)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(theme.fonts.micro)
-                    .opacity(option.isCurrent ? 1 : 0)
-                Text(option.branchName)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                if option.isCurrent {
-                    Text("current")
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                } else if option.dirtyFileCount > 0 {
-                    Text("\(option.dirtyFileCount)")
-                        .font(theme.fonts.micro)
-                        .foregroundStyle(theme.colors.textTertiary)
-                }
-            }
-            .font(theme.fonts.caption)
-            .padding(.horizontal, 6)
-            .frame(height: 26)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled && !option.isCurrent ? 0.5 : 1)
-        .help(
-            option.isCurrent
-                ? "Current branch"
-                : (session.switchDisabledReason ?? "Switch to \(option.branchName)")
-        )
-    }
-
-    private var createBranchField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("new-branch", text: $session.newBranchName)
-                .textFieldStyle(.roundedBorder)
-                .font(theme.fonts.caption)
-                .onSubmit(create)
-            if let problem = session.newBranchNameProblem {
-                Text(problem)
-                    .font(theme.fonts.micro)
-                    .foregroundStyle(theme.colors.warning)
-            }
-            Button("Create and checkout") { create() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!session.canCreateBranch)
-                .help(session.switchDisabledReason ?? "Create a branch from the current HEAD")
-        }
-    }
-
-    private func create() {
-        guard session.canCreateBranch else { return }
-        isPresented = false
-        session.createAndCheckout()
-    }
-
-    private func noticeRow(
-        _ message: String,
-        systemImage: String,
-        tint: Color
-    ) -> some View {
-        Label(message, systemImage: systemImage)
-            .font(theme.fonts.micro)
-            .foregroundStyle(tint)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-private struct SummaryDiffStats: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let added: Int
-    let removed: Int
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text("+\(added)")
-                .foregroundStyle(theme.colors.success)
-            Text("-\(removed)")
-                .foregroundStyle(theme.colors.danger)
-        }
-        .font(theme.fonts.code)
-    }
-}
-
-private struct SummaryPlanProgress: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let label: String
-
-    var body: some View {
-        Text(label)
-            .font(theme.fonts.code)
-            .foregroundStyle(theme.colors.textTertiary)
-    }
-}
-
-private struct SummaryEmptyRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(theme.fonts.caption)
-            .foregroundStyle(theme.colors.textTertiary)
-            .frame(height: 30)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 38)
-    }
-}
-
-private struct SummarySourceRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let source: CodexReferencedFile
-
-    var body: some View {
-        HStack(spacing: 10) {
-            thumbnail
-                .frame(width: 24, height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(theme.colors.border.opacity(0.65), lineWidth: 1)
-                }
-            Text(source.displayName)
-                .font(theme.fonts.body)
-                .foregroundStyle(theme.colors.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-        .frame(height: 36)
-        .padding(.horizontal, 4)
-        .help(source.path)
-    }
-
-    @ViewBuilder
-    private var thumbnail: some View {
-        CodexReferencedFilePreview(file: source)
-    }
-}
-
-private struct SummaryBackgroundTerminalRow: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let terminal: CanonicalBackgroundTerminal
-    let onOpen: () -> Void
-    let onTerminate: () -> Void
-
-    private var title: String {
-        CodexTerminalTitleFormatter.title(for: terminal.command)
-    }
-
-    private var detail: String {
-        var values: [String] = []
-        if let cpuPercent = terminal.cpuPercent {
-            values.append(String(format: "%.1f%% CPU", cpuPercent))
-        }
-        if let rssKB = terminal.rssKB {
-            values.append("\(rssKB) KB")
-        }
-        return values.isEmpty ? terminal.cwd.displayString : values.joined(separator: " · ")
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Button(action: onOpen) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Image(systemName: "terminal")
-                        .font(theme.fonts.actionIcon)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .frame(width: 24, height: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(theme.fonts.body)
-                            .foregroundStyle(theme.colors.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(detail)
-                            .font(theme.fonts.micro)
-                            .foregroundStyle(theme.colors.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("View background process details")
-            .accessibilityLabel("View \(title) details")
-            Spacer(minLength: 0)
-            Menu {
-                Button("Terminate") { onTerminate() }
-                    .keyboardShortcut(.delete, modifiers: [.command, .option])
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(theme.fonts.chipLabel)
-                    .foregroundStyle(theme.colors.textTertiary)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .help("Background process actions")
-            .accessibilityLabel("Actions for \(title)")
-        }
-        .frame(minHeight: 36)
-        .padding(.horizontal, 4)
-        .summaryRowInteraction(isInteractive: true)
-        .help("Process \(terminal.processID) · \(terminal.cwd.displayString)")
-    }
-}
-
-private extension CodexJSONValue {
-    var displayString: String {
-        if case .string(let value) = self { return value }
-        return String(describing: self)
-    }
-}
-
 private struct SummaryDivider: View {
     @Environment(\.codexAgentTheme) private var theme
 
@@ -990,6 +329,8 @@ public struct CodexAgentSidePanel: View {
     private let width: Binding<CGFloat>?
     private let browserSessions: [CodexBrowserSession]
     private let mountedBrowserSessions: [CodexBrowserSession]
+    private let threadResourceInventory: CodexThreadResourceInventory?
+    private let onOpenResource: ((CodexWorkspaceTabRequest) -> Void)?
     private let isSideChatSending: Bool
     private let canSendSideChatMessage: Bool
     private let onSendSideChatMessage: () -> Void
@@ -1008,6 +349,8 @@ public struct CodexAgentSidePanel: View {
         workspaceTabs: CodexWorkspaceTabs,
         browserSessions: [CodexBrowserSession] = [],
         mountedBrowserSessions: [CodexBrowserSession] = [],
+        threadResourceInventory: CodexThreadResourceInventory? = nil,
+        onOpenResource: ((CodexWorkspaceTabRequest) -> Void)? = nil,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
@@ -1031,6 +374,8 @@ public struct CodexAgentSidePanel: View {
         self.width = nil
         self.browserSessions = browserSessions
         self.mountedBrowserSessions = mountedBrowserSessions
+        self.threadResourceInventory = threadResourceInventory
+        self.onOpenResource = onOpenResource
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -1049,6 +394,8 @@ public struct CodexAgentSidePanel: View {
         width: Binding<CGFloat>,
         browserSessions: [CodexBrowserSession] = [],
         mountedBrowserSessions: [CodexBrowserSession] = [],
+        threadResourceInventory: CodexThreadResourceInventory? = nil,
+        onOpenResource: ((CodexWorkspaceTabRequest) -> Void)? = nil,
         modelOptions: [CodexModelSelection] = CodexModelSelection.defaultOptions,
         sideChatDraft: Binding<String> = .constant(""),
         isSideChatSending: Bool = false,
@@ -1072,6 +419,8 @@ public struct CodexAgentSidePanel: View {
         self.width = width
         self.browserSessions = browserSessions
         self.mountedBrowserSessions = mountedBrowserSessions
+        self.threadResourceInventory = threadResourceInventory
+        self.onOpenResource = onOpenResource
         self.isSideChatSending = isSideChatSending
         self.canSendSideChatMessage = canSendSideChatMessage
         self.onSendSideChatMessage = onSendSideChatMessage
@@ -1423,28 +772,11 @@ public struct CodexAgentSidePanel: View {
     }
 
     private var toolLauncher: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Open a tool")
-                    .font(theme.fonts.body.weight(.semibold))
-                    .foregroundStyle(theme.colors.textPrimary)
-                Text("Run workspace tools beside the current chat.")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-            }
-
-            VStack(spacing: 8) {
-                ForEach(CodexWorkspaceToolCatalog.launcherOptions) { option in
-                    WorkspaceToolLauncherRow(option: option) {
-                        openTool(option.id)
-                    }
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        CodexThreadResourceNewTabView(
+            inventory: threadResourceInventory,
+            onOpen: { request in onOpenResource?(request) },
+            onOpenTool: openTool
+        )
     }
 
     private func ensureSelection() {
