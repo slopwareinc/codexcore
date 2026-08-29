@@ -206,8 +206,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             // Rebuild the retained-surface union on every frame: this is the
             // current workspace composition path while the transcript streams.
             let mountedTools = CodexMountedWorkspaceToolSessions(panels: [panel])
-            let retainedSurfaceCount = panel.terminalSessions.count
-                + mountedTools.browser.count
+            let retainedSurfaceCount = mountedTools.browser.count
                 + panel.workspaceTabs.snapshot.instances.count
             XCTAssertEqual(retainedSurfaceCount, 3)
             let snapshot = try await projector.project(
