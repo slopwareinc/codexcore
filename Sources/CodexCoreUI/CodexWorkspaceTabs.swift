@@ -470,7 +470,10 @@ public final class CodexWorkspaceTabs: ObservableObject {
 
     func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
         var panel = snapshot.topology[placement]
-        panel.isOpen = isOpen && !panel.orderedTabs.isEmpty
+        // An explicit open must reveal the panel's launcher even before the
+        // first resource tab exists. Removing the last tab still closes the
+        // panel through CodexWorkspaceTabPanelSnapshot.remove(_:).
+        panel.isOpen = isOpen
         if panel.isOpen, panel.activeTab == nil { panel.activeTab = panel.orderedTabs.first }
         snapshot.topology[placement] = panel
         if panel.isOpen { snapshot.topology.focusedPlacement = placement }
