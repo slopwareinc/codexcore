@@ -72,31 +72,34 @@ extension CodexCoreAppModel {
         threadListSession.allChats.isEmpty ? threadListSession.recentChats : threadListSession.allChats
     }
 
+    var archivedSidebarChats: [CodexThreadSummary] {
+        threadListSession.archivedChats
+    }
+
+    var archivedSidebarNextCursor: String? {
+        threadListSession.archivedNextCursor
+    }
+
+    var isLoadingArchivedSidebarChats: Bool {
+        threadListSession.isLoadingArchived
+    }
+
+    var archivedSidebarErrorMessage: String? {
+        threadListSession.archivedErrorMessage
+    }
+
+    var isSidebarMutating: Bool {
+        !pendingSidebarMutationIDs.isEmpty
+    }
+
     var recentProjects: [CodexProjectSummary] {
-        let projectChats = allSidebarChats.filter { !projectlessThreadIDs.contains($0.id) }
-        let inferred = CodexProjectSummary.projects(
-            from: projectChats,
-            currentWorkspacePath: workspacePath
+        CodexSidebarProjection.presentedProjects(
+            serverProjects: threadListSession.serverProjects,
+            chats: allSidebarChats,
+            currentWorkspacePath: workspacePath,
+            projectlessThreadIDs: projectlessThreadIDs,
+            sourceFoldersByPrimaryPath: projectSourceFoldersByPrimaryPath
         )
-        guard !projectSourceFoldersByPrimaryPath.isEmpty else { return inferred }
-
-        let claimedRoots = Set(projectSourceFoldersByPrimaryPath.values.flatMap { $0 })
-        var projects = inferred.filter { !claimedRoots.contains($0.workspacePath) }
-
-        for (primary, roots) in projectSourceFoldersByPrimaryPath {
-            let members = inferred.filter { roots.contains($0.workspacePath) }
-            let chatCount = members.reduce(0) { $0 + $1.chatCount }
-            let updatedAt = members.compactMap(\.updatedAt).max()
-            projects.append(CodexProjectSummary(
-                workspacePath: primary,
-                sourceFolders: roots,
-                chatCount: chatCount,
-                updatedAt: updatedAt
-            ))
-        }
-        return projects.sorted {
-            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
     }
 
     var workspaceRoots: [String] {
@@ -117,7 +120,20 @@ extension CodexCoreAppModel {
             currentThreadID: currentThreadID,
             pinnedThreadIDs: pinnedThreadIDs,
             projectlessThreadIDs: projectlessThreadIDs,
-            threadStatusEntries: canonicalThreadStatusEntries
+            threadStatusEntries: canonicalThreadStatusEntries,
+            archivedChats: archivedSidebarChats,
+            sections: threadSections.enumerated().map {
+                CodexSidebarSectionSummary(schema: $0.element, position: $0.offset)
+            },
+            archivedNextCursor: archivedSidebarNextCursor,
+            activeLoadState: threadListSession.activeLoadState,
+            archivedLoadState: {
+                if threadListSession.isLoadingArchived { return .loading }
+                if let message = threadListSession.archivedErrorMessage { return .failed(message) }
+                return threadListSession.hasLoadedArchived ? .loaded : .idle
+            }(),
+            actionErrorMessage: sidebarActionError,
+            pendingThreadIDs: pendingSidebarMutationIDs
         )
     }
 

@@ -137,7 +137,13 @@ completed mutations refresh the catalog from app-server state.
 
 ## Projects and chats
 
-The sidebar groups chats by project. Chats can be pinned, archived, renamed, forked, copied, searched, and resumed. Projects can be selected, grouped, pinned, reordered, edited, removed, revealed in Finder, or used to archive their chats. Chat reorder/hide/reveal actions are not supported.
+The sidebar groups chats by project and server-owned custom section. Chats can be
+pinned, selected in bulk, archived, restored from the lazy **Archived** list,
+renamed, forked, copied, searched, and resumed. Projects can be selected,
+grouped, pinned, reordered, edited, removed, revealed in Finder, or used to
+archive their chats. Custom section membership and task order use the native
+app-server section APIs; local pin, expansion, alias, and selection choices are
+presentation preferences and never replace server task/project facts.
 
 A separate **Chats** section contains projectless tasks. **New chat** creates a
 projectless task in a generated `Documents/Codex/Chats` workspace; use a
