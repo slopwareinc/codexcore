@@ -363,9 +363,9 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 resourceID: session.identity.rawValue,
                 payload: Self.routePayload(for: session)
             ),
+            onClose: onClose,
             routeReplacementKey: "codex.terminal:\(session.identity.rawValue)",
             preferredPlacement: placement,
-            onClose: onClose,
             onReopen: onReopen,
             onVisibilityChanged: { visible in
                 session.setSurfaceVisible(visible)
@@ -460,9 +460,9 @@ package struct CodexLazyTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             systemImage: "terminal",
             lifetime: .pinned,
             durableRoute: route,
+            onClose: onClose,
             routeReplacementKey: "codex.terminal:\(identity.rawValue)",
             preferredPlacement: placement,
-            onClose: onClose,
             onReopen: { _ in onReopen() },
             onVisibilityChanged: { visible in
                 guard let session = materialize() else { return }

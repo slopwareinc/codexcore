@@ -176,11 +176,16 @@ public enum CodexPinnedThreadStorage {
         deduped(store.loadStrings(forKey: pinnedThreadStorageKey))
     }
 
+    @discardableResult
     public static func savePinnedThreadIDs(
         _ ids: [String],
         to store: any CodexStringListPreferenceStore
-    ) {
-        store.saveStrings(deduped(ids), forKey: pinnedThreadStorageKey)
+    ) -> Bool {
+        CodexPreferenceStorageCodec.saveStrings(
+            deduped(ids),
+            forKey: pinnedThreadStorageKey,
+            to: store
+        )
     }
 
     private static func deduped(_ ids: [String]) -> [String] {
@@ -490,11 +495,16 @@ public enum CodexProjectOrderStorage {
         normalized(store.loadStrings(forKey: projectOrderStorageKey))
     }
 
+    @discardableResult
     public static func saveProjectOrder(
         _ paths: [String],
         to store: any CodexStringListPreferenceStore
-    ) {
-        store.saveStrings(normalized(paths), forKey: projectOrderStorageKey)
+    ) -> Bool {
+        CodexPreferenceStorageCodec.saveStrings(
+            normalized(paths),
+            forKey: projectOrderStorageKey,
+            to: store
+        )
     }
 
     private static func normalized(_ paths: [String]) -> [String] {
@@ -518,11 +528,16 @@ public enum CodexPinnedProjectStorage {
         normalized(store.loadStrings(forKey: pinnedProjectStorageKey))
     }
 
+    @discardableResult
     public static func savePinnedProjectIDs(
         _ paths: [String],
         to store: any CodexStringListPreferenceStore
-    ) {
-        store.saveStrings(normalized(paths), forKey: pinnedProjectStorageKey)
+    ) -> Bool {
+        CodexPreferenceStorageCodec.saveStrings(
+            normalized(paths),
+            forKey: pinnedProjectStorageKey,
+            to: store
+        )
     }
 
     private static func normalized(_ paths: [String]) -> [String] {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import CodexCore
 
@@ -71,32 +72,18 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 @MainActor
 struct CodexMountedWorkspaceToolSessions {
     let browser: [CodexBrowserSession]
-    let files: [CodexFilesSession]
-    let filePreview: [CodexFilePreviewSession]
 
     init(panels: [CodexWorkspacePanelState]) {
         var browserIDs = Set<String>()
-        var filesIDs = Set<String>()
-        var filePreviewIDs = Set<String>()
         var browser: [CodexBrowserSession] = []
-        var files: [CodexFilesSession] = []
-        var filePreview: [CodexFilePreviewSession] = []
 
         for panel in panels {
             for session in panel.browserSessions where browserIDs.insert(session.id).inserted {
                 browser.append(session)
             }
-            if let session = panel.filesSession, filesIDs.insert(session.id).inserted {
-                files.append(session)
-            }
-            for session in panel.filePreviewSessions where filePreviewIDs.insert(session.id).inserted {
-                filePreview.append(session)
-            }
         }
 
         self.browser = browser
-        self.files = files
-        self.filePreview = filePreview
     }
 }
 
@@ -513,6 +500,28 @@ public struct CodexChatWorkspaceView: View {
                     }
                 }
             }
+            .codexTranscriptFileNavigationService(
+                CodexWorkspaceTranscriptFileNavigationService(
+                    workspaceURL: URL(fileURLWithPath: workspacePath),
+                    openFile: { [weak panel] resolved in
+                        guard let panel else { return }
+                        let tabID = panel.openFilePreview(fileURL: resolved.fileURL)
+                        if let line = resolved.reference.line {
+                            panel.workspaceTabs.updateState(
+                                CodexFilePreviewTabState(goToLine: line).tabState,
+                                for: tabID
+                            )
+                        }
+                        panel.isAgentPanelOpen = true
+                    },
+                    revealFile: { resolved in
+                        NSWorkspace.shared.selectFile(
+                            resolved.fileURL.path,
+                            inFileViewerRootedAtPath: workspacePath
+                        )
+                    }
+                )
+            )
             .overlay(alignment: .topTrailing) {
                 if isDockedOverviewVisible {
                     floatingSummaryPanel
@@ -713,11 +722,7 @@ public struct CodexChatWorkspaceView: View {
             workspaceTabs: workspaceTabs,
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             browserSessions: panel.browserSessions,
-            filesSessions: panel.filesSession.map { [$0] } ?? [],
-            filePreviewSessions: panel.filePreviewSessions,
             mountedBrowserSessions: mountedTools.browser,
-            mountedFilesSessions: mountedTools.files,
-            mountedFilePreviewSessions: mountedTools.filePreview,
             modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
@@ -727,10 +732,7 @@ public struct CodexChatWorkspaceView: View {
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
-            onOpenFilePreview: openFilePreviewTab,
             onCloseBrowser: closeBrowserTab,
-            onCloseFiles: closeFilesTab,
-            onCloseFilePreview: closeFilePreviewTab,
             showsCloseButton: showsCloseButton,
             onClose: {
                 withAnimation(.spring(
@@ -828,14 +830,14 @@ public struct CodexChatWorkspaceView: View {
         let subagentIdentity = subagentCoordinator != nil
             ? (currentThreadID ?? "no-thread")
             : "no-subagent-coordinator"
-        let terminals = panel.terminalSessions
-            .map { "\($0.id):\($0.command ?? "")" }
-            .joined(separator: ",")
+        let routes = workspaceTabs.snapshot.instances.map {
+            "\($0.resourceKey):\($0.durableRoute?.resourceID ?? "")"
+        }.joined(separator: "|")
         let backgroundTerminals = workspaceSummary?.backgroundTerminals.map { state in
             "\(state.lastChangedRevision.rawValue):"
                 + state.terminals.map { "\($0.processID):\($0.command)" }.joined(separator: ",")
         } ?? "no-background-terminals"
-        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(terminals)|\(backgroundTerminals)"
+        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
     }
 
     private func registerAvailableWorkspaceTabs() {
@@ -861,6 +863,20 @@ public struct CodexChatWorkspaceView: View {
                 )
             })
         }
+        let fileAdapters = CodexFilesWorkspaceTabAdapterRegistry.make(
+            snapshot: workspaceTabs.snapshot,
+            workspaceURL: URL(fileURLWithPath: workspacePath),
+            existingSession: panel.filesSession,
+            onOpenFile: { [weak panel] url in
+                _ = panel?.openFilePreview(fileURL: url)
+            },
+            onSessionClosed: { [weak panel] session in
+                guard panel?.filesSession?.id == session.id else { return }
+                panel?.filesSession = nil
+            }
+        )
+        panel.filesSession = fileAdapters.filesSession
+        adapters.append(contentsOf: fileAdapters.adapters)
         workspaceTabs.register(adapters)
     }
 
@@ -953,20 +969,6 @@ public struct CodexChatWorkspaceView: View {
         }
     }
 
-    private func closeFilesTab(_ id: String) {
-        panel.closeFiles(id: id)
-    }
-
-    private func openFilePreviewTab(_ fileURL: URL) {
-        panel.openFilePreview(fileURL: fileURL)
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
-    }
-
-    private func closeFilePreviewTab(_ id: String) {
-        panel.closeFilePreview(id: id)
-    }
 }
 
 public struct CodexThreadLoadingView: View {

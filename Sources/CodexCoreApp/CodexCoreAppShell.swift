@@ -238,7 +238,22 @@ struct CodexCoreAppShell: View {
             onOpenFolder: { chooseWorkspaceFolder() },
             onSelectChat: { chat in Task { await model.selectSidebarChat(chat) } },
             onTogglePinChat: { chat in model.toggleSidebarChatPin(chat) },
-            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } }
+            onArchiveChat: { chat in Task { await model.archiveSidebarChat(chat) } },
+            onToggleSection: { model.toggleSidebarSection($0) },
+            onToggleThreadSelection: { model.toggleSidebarThreadSelection($0) },
+            onSelectAllThreads: { model.selectAllSidebarThreads() },
+            onTogglePinnedSelectedChats: { model.togglePinnedSelectedSidebarChats() },
+            onClearThreadSelection: { model.clearSidebarThreadSelection() },
+            onArchiveSelectedChats: { Task { await model.archiveSelectedSidebarChats() } },
+            onLoadArchivedChats: { Task { await model.refreshArchivedSidebarChats() } },
+            onLoadMoreArchivedChats: { Task { await model.loadMoreArchivedSidebarChats() } },
+            onUnarchiveChat: { chat in Task { await model.unarchiveSidebarChat(chat) } },
+            sectionDestinations: model.threadSections.enumerated().map {
+                CodexSidebarSectionSummary(schema: $0.element, position: $0.offset)
+            },
+            onMoveChat: { chat, sectionID in
+                Task { await model.moveSidebarChat(chat, toSectionID: sectionID) }
+            }
         )
     }
 

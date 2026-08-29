@@ -91,29 +91,20 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         let tabHandles: [CodexWorkspaceTabHandle] = [
             .workspace(try XCTUnwrap(panel.terminalTabID(for: terminal))),
             .legacy(browser),
-            .legacy(files),
-            .legacy(preview),
+            .workspace(files),
+            .workspace(preview),
         ]
 
         // Warm the reducer-owned activation path before recording samples.
-        for handle in tabHandles {
-            switch handle {
-            case .workspace(let id): panel.workspaceTabs.activate(id)
-            case .legacy(let id): panel.workspaceTabs.activateLegacy(id)
-            }
-        }
+        for handle in tabHandles { activate(handle, in: panel.workspaceTabs) }
 
         let iterations = scaledIterations(default: 80, minimum: 12)
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
             samples.append(signposted("tab_activation") {
-                let handle = tabHandles[index % tabHandles.count]
-                switch handle {
-                case .workspace(let id): panel.workspaceTabs.activate(id)
-                case .legacy(let id): panel.workspaceTabs.activateLegacy(id)
-                }
-                _ = panel.workspaceTabs.snapshot.topology
+                activate(tabHandles[index % tabHandles.count], in: panel.workspaceTabs)
+                _ = panel.workspaceTabs.snapshot.topology.right.activeTab
             })
         }
 
@@ -217,8 +208,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             let mountedTools = CodexMountedWorkspaceToolSessions(panels: [panel])
             let retainedSurfaceCount = panel.terminalSessions.count
                 + mountedTools.browser.count
-                + mountedTools.files.count
-                + mountedTools.filePreview.count
+                + panel.workspaceTabs.snapshot.instances.count
             XCTAssertEqual(retainedSurfaceCount, 3)
             let snapshot = try await projector.project(
                 presentation: presentation,
@@ -245,7 +235,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             samples: samples,
             notes: [
                 "The projector is exercised through its public async interface.",
-                "The retained surface union covers browser/files; terminal PTY hosts are retained by workspace-tab adapters.",
+                "Terminal and Files are retained workspace adapters; Browser remains in the mounted legacy deck.",
             ]
         )
     }
@@ -261,11 +251,15 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             placement: .right
         )
         workspaceTabs.openLegacy(browser.id)
-        workspaceTabs.openLegacy(files.id)
+        let filesID = workspaceTabs.open(
+            CodexFilesWorkspaceTabAdapter(session: files),
+            from: .commandMenu,
+            placement: .right
+        )
         let tabHandles: [CodexWorkspaceTabHandle] = [
             .workspace(terminalTabID),
             .legacy(browser.id),
-            .legacy(files.id),
+            .workspace(filesID),
         ]
         workspaceTabs.activate(terminalTabID)
 
@@ -275,9 +269,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
                     tabs: [],
                     workspaceTabs: workspaceTabs,
                     browserSessions: [browser],
-                    filesSessions: [files],
                     mountedBrowserSessions: [browser],
-                    mountedFilesSessions: [files],
                     onClose: {}
                 )
             )
@@ -292,11 +284,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
-            let handle = tabHandles[(index + 1) % tabHandles.count]
-            switch handle {
-            case .workspace(let id): workspaceTabs.activate(id)
-            case .legacy(let id): workspaceTabs.activateLegacy(id)
-            }
+            activate(tabHandles[(index + 1) % tabHandles.count], in: workspaceTabs)
             let start = DispatchTime.now().uptimeNanoseconds
             let id = OSSignpostID(log: Self.signpostLog)
             os_signpost(.begin, log: Self.signpostLog, name: "hidden_surface_layout", signpostID: id)
@@ -370,16 +358,23 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
                     retainedChatCount: retainedIDs.count,
                     evictionCount: 1,
                     touchedChatWasRetained: retainedIDs.contains(ObjectIdentifier(touched)),
-                    evictedChatWasPurged: states[1].filePreviewSessions.isEmpty
+                    evictedChatWasPurged: states[1].workspaceTabs.snapshot.instances.isEmpty
                 )
             ),
             capacity: 20,
             retainedChatCount: retainedIDs.count,
             evictionCount: 1,
             touchedChatWasRetained: retainedIDs.contains(ObjectIdentifier(touched)),
-            evictedChatWasPurged: states[1].filePreviewSessions.isEmpty
+            evictedChatWasPurged: states[1].workspaceTabs.snapshot.instances.isEmpty
         )
         return result
+    }
+
+    private func activate(_ handle: CodexWorkspaceTabHandle, in tabs: CodexWorkspaceTabs) {
+        switch handle {
+        case .workspace(let id): tabs.activate(id)
+        case .legacy(let id): tabs.activateLegacy(id)
+        }
     }
 
     private func measureLRULookups(store: CodexWorkspacePanelStore) -> [Double] {

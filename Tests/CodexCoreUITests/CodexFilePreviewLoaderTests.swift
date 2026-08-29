@@ -57,4 +57,41 @@ final class CodexFilePreviewLoaderTests: XCTestCase {
         XCTAssertNotNil(spans, "unknown extensions should still preview as text")
         XCTAssertTrue(spans?.isEmpty ?? false, "no grammar means no highlight spans")
     }
+
+    func testOversizedFilesAreRejectedBeforePreviewRead() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-preview-too-large-\(UUID().uuidString).swift")
+        try Data(repeating: 0x20, count: CodexFilePreviewLoader.maxByteSize + 1).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard case let .notice(message) = CodexFilePreviewLoader.load(url: url) else {
+            return XCTFail("files over the byte cap should not be previewed")
+        }
+        XCTAssertTrue(message.contains("too large"))
+    }
+
+    func testLargeTextSkipsSyntaxParsingButStillReturnsText() throws {
+        let source = String(repeating: "let value = 1\n", count: 40_000)
+        let state = try load(source, ext: "swift")
+
+        guard case let .text(text, spans) = state else {
+            return XCTFail("large text should remain previewable")
+        }
+        XCTAssertEqual(text, source)
+        XCTAssertTrue(spans.isEmpty, "highlight parsing is bounded independently from preview bytes")
+    }
+
+    func testUnsupportedRefsFailClosedInsteadOfShowingWorkingTreeBytes() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-preview-ref-\(UUID().uuidString).swift")
+        try "let workingTree = true\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard case let .notice(message) = CodexFilePreviewLoader.load(
+            reference: CodexWorkspaceFileReference(fileURL: url, ref: "main")
+        ) else {
+            return XCTFail("unsupported refs must not silently show working-tree bytes")
+        }
+        XCTAssertTrue(message.contains("current workspace"))
+    }
 }

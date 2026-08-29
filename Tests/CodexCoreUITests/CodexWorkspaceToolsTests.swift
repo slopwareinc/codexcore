@@ -1,6 +1,8 @@
+import AppKit
 import Foundation
 import GhosttyTerminal
 import CodexCore
+import SwiftUI
 import XCTest
 @testable import CodexCoreUI
 
@@ -290,48 +292,29 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             ),
             onTerminate: { terminated = true }
         )
-        let registration = adapter.workspaceTabRegistration
         let tabs = CodexWorkspaceTabs()
         let tabID = tabs.open(adapter, from: .summary)
 
         tabs.close(tabID)
 
-        XCTAssertNil(registration.onClose)
         XCTAssertFalse(terminated)
         XCTAssertEqual(tabs.undoClose(), tabID)
     }
 
     @MainActor
-    func testMountedLegacyToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
+    func testMountedProcessSessionsDeduplicateEachCategoryInFirstSeenOrder() {
         let first = CodexWorkspacePanelState()
         first.browserSessions = [CodexBrowserSession(id: "browser-shared")]
-        first.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp"))
-        first.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-        ]
 
         let second = CodexWorkspacePanelState()
         second.browserSessions = [
             CodexBrowserSession(id: "browser-shared"),
             CodexBrowserSession(id: "browser-second"),
         ]
-        second.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp/other"))
-        second.filePreviewSessions = [
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/shared.swift")),
-            CodexFilePreviewSession(fileURL: URL(fileURLWithPath: "/tmp/second.swift")),
-        ]
 
         let mounted = CodexMountedWorkspaceToolSessions(panels: [first, second])
 
         XCTAssertEqual(mounted.browser.map(\.id), ["browser-shared", "browser-second"])
-        XCTAssertEqual(mounted.files.map(\.id), ["files-shared"])
-        XCTAssertEqual(
-            mounted.filePreview.map(\.id),
-            [
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/shared.swift"), ref: nil),
-                CodexFilePreviewSession.identity(fileURL: URL(fileURLWithPath: "/tmp/second.swift"), ref: nil),
-            ]
-        )
     }
 
     @MainActor
@@ -341,8 +324,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         let second = panel.openFiles(workspacePath: "/tmp/other")
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(panel.filesSession?.id, first)
-        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .legacy(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.topology.right.activeTab, .workspace(first))
+        XCTAssertEqual(panel.workspaceTabs.snapshot.instance(id: first)?.title, "Files")
         XCTAssertEqual(panel.filesSession?.rootURL.path, "/tmp/workspace")
         XCTAssertTrue(panel.hasOpenTools)
     }
@@ -358,8 +341,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             from: .summary
         )
 
-        panel.workspaceTabs.activateLegacy(files)
-        panel.closeFiles(id: files)
+        panel.workspaceTabs.activate(files)
+        panel.workspaceTabs.close(files)
         XCTAssertNil(panel.filesSession)
         XCTAssertEqual(
             panel.workspaceTabs.snapshot.topology.right.activeTab,
@@ -381,6 +364,7 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             panel.workspaceTabs.snapshot.topology.right.activeTab,
             .workspace(planID)
         )
+        panel.workspaceTabs.close(planID)
         XCTAssertFalse(panel.hasOpenTools)
     }
 
@@ -582,6 +566,84 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         XCTAssertEqual(entries.map(\.kind), [.directory, .file])
     }
 
+    func testFileTreeLoaderBoundsDirectoryEntries() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        for index in 0..<(CodexFileTreeLoader.maximumEntriesPerDirectory + 25) {
+            FileManager.default.createFile(
+                atPath: workspace.appendingPathComponent("File-\(index).txt").path,
+                contents: Data()
+            )
+        }
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace)
+
+        XCTAssertEqual(entries.count, CodexFileTreeLoader.maximumEntriesPerDirectory)
+    }
+
+    func testFileTreeLoaderCancellationStopsSupersededEnumeration() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        for index in 0..<64 {
+            FileManager.default.createFile(
+                atPath: workspace.appendingPathComponent("File-\(index).txt").path,
+                contents: Data()
+            )
+        }
+
+        let entries = await CodexFileTreeLoader.childrenAsync(of: workspace) {
+            throw CancellationError()
+        }
+
+        XCTAssertTrue(entries.isEmpty, "a superseded outline load must not publish partial children")
+    }
+
+    @MainActor
+    func testMountedFilesDismantleCancelsPendingEnumerationAndDropsStaleChildren() async throws {
+        let workspace = try makeTemporaryWorkspace()
+        let staleURL = workspace.appendingPathComponent("stale.swift")
+        let probe = FileTreeLoadProbe()
+        let session = CodexFilesSession(rootURL: workspace, childrenLoader: { url in
+            await probe.started(url)
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                await probe.cancelled(url)
+                return [CodexFileTreeEntry(url: staleURL, name: "stale.swift", kind: .file)]
+            }
+            await probe.finished(url)
+            return []
+        })
+        let model = FilesDismantleHarnessModel()
+        let hosting = NSHostingView(rootView: FilesDismantleHarness(model: model, session: session))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 640)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        pumpMainRunLoop()
+        let outline = try XCTUnwrap(firstFileOutline(in: hosting))
+        _ = outline.dataSource?.outlineView?(outline, numberOfChildrenOfItem: nil)
+        pumpMainRunLoop()
+
+        let started = await probe.waitForStart(workspace)
+        XCTAssertTrue(started)
+
+        model.isVisible = false
+        hosting.layoutSubtreeIfNeeded()
+        pumpMainRunLoop()
+
+        let cancelled = await probe.waitForCancellation(workspace)
+        XCTAssertTrue(cancelled)
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(session.rootNode.areChildrenLoaded, "cancelled enumeration must not publish stale children")
+    }
+
     func testFileTreeLoaderTreatsSymlinkDirectoryAsLeaf() throws {
         let workspace = try makeTemporaryWorkspace()
         let target = workspace.appendingPathComponent("target")
@@ -690,5 +752,65 @@ final class CodexWorkspaceToolsTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    @MainActor
+    private func pumpMainRunLoop() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    @MainActor
+    private func firstFileOutline(in view: NSView) -> NSOutlineView? {
+        if let outline = view as? NSOutlineView { return outline }
+        for child in view.subviews {
+            if let outline = firstFileOutline(in: child) { return outline }
+        }
+        return nil
+    }
+}
+
+@MainActor
+private final class FilesDismantleHarnessModel: ObservableObject {
+    @Published var isVisible = true
+}
+
+private struct FilesDismantleHarness: View {
+    @ObservedObject var model: FilesDismantleHarnessModel
+    let session: CodexFilesSession
+
+    var body: some View {
+        Group {
+            if model.isVisible {
+                CodexFilesToolView(session: session)
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
+private actor FileTreeLoadProbe {
+    private var startedPaths: Set<String> = []
+    private var cancelledPaths: Set<String> = []
+    private var finishedPaths: Set<String> = []
+
+    func started(_ url: URL) { startedPaths.insert(url.path) }
+    func cancelled(_ url: URL) { cancelledPaths.insert(url.path) }
+    func finished(_ url: URL) { finishedPaths.insert(url.path) }
+
+    func waitForStart(_ url: URL) async -> Bool {
+        await wait { startedPaths.contains(url.path) }
+    }
+
+    func waitForCancellation(_ url: URL) async -> Bool {
+        await wait { cancelledPaths.contains(url.path) }
+    }
+
+    private func wait(_ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if predicate() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return predicate()
     }
 }

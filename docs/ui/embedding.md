@@ -90,6 +90,15 @@ host. Restored interactive routes register lazily and create their PTY only when
 the user activates the tab; missing canonical background facts remain
 unavailable rather than producing a blank detail surface.
 
+Files are opened through the public panel facade:
+`panel.openFiles(workspacePath:)` registers the workspace browser and
+`panel.openFilePreview(fileURL:ref:)` opens a typed file/ref preview. The
+package-internal adapters own replacement, pinning, and active-only editor
+policy; hosts persist `workspaceTabRestorationState` rather than constructing
+those adapters directly. The current implementation accepts only files from
+the active workspace; a non-`nil` ref is rejected with an explicit preview
+notice until a bounded ref resolver is supplied.
+
 When a host exposes recursive agent work, pass the active
 `CodexSubagentPresentationCoordinator` as `subagentCoordinator` to
 `CodexChatWorkspaceView`. The workspace registers one `Subagents` tab through
