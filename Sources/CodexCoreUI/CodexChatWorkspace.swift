@@ -64,31 +64,25 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 
 /// Stable, first-seen tool-session unions for the mounted chat panels.
 ///
-/// The workspace keeps each tool category in its own deck, so each category
-/// needs an independent identity set. Collecting all four categories together
-/// avoids rebuilding the mounted-panel array and traversing every panel four
-/// times during one side-panel composition.
+/// The workspace keeps each legacy tool category in its own deck, so each
+/// category needs an independent identity set. Collecting the legacy
+/// categories together avoids rebuilding the mounted-panel array and
+/// traversing every panel three times during one side-panel composition.
 @MainActor
 struct CodexMountedWorkspaceToolSessions {
-    let terminal: [CodexTerminalSession]
     let browser: [CodexBrowserSession]
     let files: [CodexFilesSession]
     let filePreview: [CodexFilePreviewSession]
 
     init(panels: [CodexWorkspacePanelState]) {
-        var terminalIDs = Set<String>()
         var browserIDs = Set<String>()
         var filesIDs = Set<String>()
         var filePreviewIDs = Set<String>()
-        var terminal: [CodexTerminalSession] = []
         var browser: [CodexBrowserSession] = []
         var files: [CodexFilesSession] = []
         var filePreview: [CodexFilePreviewSession] = []
 
         for panel in panels {
-            for session in panel.terminalSessions where terminalIDs.insert(session.id).inserted {
-                terminal.append(session)
-            }
             for session in panel.browserSessions where browserIDs.insert(session.id).inserted {
                 browser.append(session)
             }
@@ -100,7 +94,6 @@ struct CodexMountedWorkspaceToolSessions {
             }
         }
 
-        self.terminal = terminal
         self.browser = browser
         self.files = files
         self.filePreview = filePreview

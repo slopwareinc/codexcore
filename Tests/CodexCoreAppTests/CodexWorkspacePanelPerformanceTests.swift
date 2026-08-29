@@ -215,7 +215,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             // Rebuild the retained-surface union on every frame: this is the
             // current workspace composition path while the transcript streams.
             let mountedTools = CodexMountedWorkspaceToolSessions(panels: [panel])
-            let retainedSurfaceCount = mountedTools.terminal.count
+            let retainedSurfaceCount = panel.terminalSessions.count
                 + mountedTools.browser.count
                 + mountedTools.files.count
                 + mountedTools.filePreview.count
@@ -245,7 +245,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             samples: samples,
             notes: [
                 "The projector is exercised through its public async interface.",
-                "The retained surface union is terminal + browser + files; no product behavior is changed.",
+                "The retained surface union covers browser/files; terminal PTY hosts are retained by workspace-tab adapters.",
             ]
         )
     }

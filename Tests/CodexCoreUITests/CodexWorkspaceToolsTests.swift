@@ -194,12 +194,8 @@ final class CodexWorkspaceToolsTests: XCTestCase {
     }
 
     @MainActor
-    func testMountedToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
+    func testMountedLegacyToolSessionsDeduplicateEachCategoryInFirstSeenOrder() {
         let first = CodexWorkspacePanelState()
-        first.terminalSessions = [
-            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp"),
-            CodexTerminalSession(id: "terminal-first", workingDirectory: "/tmp"),
-        ]
         first.browserSessions = [CodexBrowserSession(id: "browser-shared")]
         first.filesSession = CodexFilesSession(id: "files-shared", rootURL: URL(fileURLWithPath: "/tmp"))
         first.filePreviewSessions = [
@@ -207,10 +203,6 @@ final class CodexWorkspaceToolsTests: XCTestCase {
         ]
 
         let second = CodexWorkspacePanelState()
-        second.terminalSessions = [
-            CodexTerminalSession(id: "terminal-shared", workingDirectory: "/tmp/other"),
-            CodexTerminalSession(id: "terminal-second", workingDirectory: "/tmp"),
-        ]
         second.browserSessions = [
             CodexBrowserSession(id: "browser-shared"),
             CodexBrowserSession(id: "browser-second"),
@@ -223,7 +215,6 @@ final class CodexWorkspaceToolsTests: XCTestCase {
 
         let mounted = CodexMountedWorkspaceToolSessions(panels: [first, second])
 
-        XCTAssertEqual(mounted.terminal.map(\.id), ["terminal-shared", "terminal-first", "terminal-second"])
         XCTAssertEqual(mounted.browser.map(\.id), ["browser-shared", "browser-second"])
         XCTAssertEqual(mounted.files.map(\.id), ["files-shared"])
         XCTAssertEqual(
