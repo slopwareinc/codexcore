@@ -142,43 +142,6 @@ public struct CodexComposerBar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if isMCPStatusPalettePresented {
-                CodexComposerMCPStatusPalette(
-                    model: mcpStatusPaletteModel,
-                    onOpenDetails: onOpenMCPDetails,
-                    onRefresh: onRefreshMCPServers,
-                    onClose: {
-                        isMCPStatusPalettePresented = false
-                    }
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if let activeCommandSelector, !activeSelectorRows.isEmpty {
-                CodexComposerInlineSelectorPalette(
-                    title: activeCommandSelector.title,
-                    rows: activeSelectorRows,
-                    selectedID: commandSelectorSelection.selectedID,
-                    onSelect: selectActiveSelectorRow
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if let slashQuery, isSlashPaletteVisible {
-                CodexSlashCommandPalette(
-                    commands: filteredSlashCommands,
-                    query: slashQuery,
-                    selectedCommandID: slashPaletteSelection.selectedID,
-                    onSelect: selectSlashCommand
-                )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-
-            if mentionQuery != nil, !mentionResults.isEmpty {
-                CodexMentionPalette(results: mentionResults, onSelect: selectMention)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-
             VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
                 if let errorMessage = dictationState.errorMessage {
                     ComposerDictationErrorBanner(
@@ -272,6 +235,13 @@ public struct CodexComposerBar: View {
                 onDrop: handleFileDrop
             )
         }
+        .overlay(alignment: .topLeading) {
+            paletteOverlay
+                .alignmentGuide(.top) { dimensions in
+                    dimensions[.bottom] + 8
+                }
+                .zIndex(10)
+        }
         .onAppear {
             reconcilePaletteSelections()
             consumeFocusRequest()
@@ -311,6 +281,49 @@ public struct CodexComposerBar: View {
             EmptyView()
             #endif
         }
+    }
+
+    @ViewBuilder
+    private var paletteOverlay: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isMCPStatusPalettePresented {
+                CodexComposerMCPStatusPalette(
+                    model: mcpStatusPaletteModel,
+                    onOpenDetails: onOpenMCPDetails,
+                    onRefresh: onRefreshMCPServers,
+                    onClose: {
+                        isMCPStatusPalettePresented = false
+                    }
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let activeCommandSelector, !activeSelectorRows.isEmpty {
+                CodexComposerInlineSelectorPalette(
+                    title: activeCommandSelector.title,
+                    rows: activeSelectorRows,
+                    selectedID: commandSelectorSelection.selectedID,
+                    onSelect: selectActiveSelectorRow
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let slashQuery, isSlashPaletteVisible {
+                CodexSlashCommandPalette(
+                    commands: filteredSlashCommands,
+                    query: slashQuery,
+                    selectedCommandID: slashPaletteSelection.selectedID,
+                    onSelect: selectSlashCommand
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if mentionQuery != nil, !mentionResults.isEmpty {
+                CodexMentionPalette(results: mentionResults, onSelect: selectMention)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func handleFileDrop(_ urls: [URL]) {
@@ -1073,7 +1086,7 @@ private struct CodexSlashCommandPalette: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(sectionNames, id: \.self) { section in
                         if section != sectionNames.first {
                             Text(section)
@@ -1132,7 +1145,7 @@ private struct CodexSlashCommandPalette: View {
                             }
         }
         .frame(maxWidth: 736, alignment: .leading)
-        .frame(maxHeight: 320, alignment: .top)
+        .frame(height: preferredHeight, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
@@ -1142,6 +1155,12 @@ private struct CodexSlashCommandPalette: View {
             names.append(command.section)
         }
         return names
+    }
+
+    private var preferredHeight: CGFloat {
+        let rowHeight = CGFloat(commands.count) * 33
+        let sectionHeight = CGFloat(max(0, sectionNames.count - 1)) * 25
+        return min(320, max(48, rowHeight + sectionHeight + 16))
     }
 }
 
