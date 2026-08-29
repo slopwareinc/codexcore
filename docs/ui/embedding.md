@@ -85,6 +85,15 @@ panel by default and `openBackgroundTerminal` retains a command-labelled PTY
 without changing focus. Keep the panel state alive outside the SwiftUI view
 tree so moving, hiding, and restoring a terminal never creates a second host.
 
+When a host exposes recursive agent work, pass the active
+`CodexSubagentPresentationCoordinator` as `subagentCoordinator` to
+`CodexChatWorkspaceView`. The workspace registers one `Subagents` tab through
+its package adapter; its durable state contains only the
+selected child thread ID. The master list keeps active and done metadata rows,
+while the coordinator lazily retains and projects the selected child's
+transcript/final response. Back navigation clears that selection, and changing
+selection cancels the previous child projection.
+
 CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
 by default. For product-specific live progress, configure the presentation
 store with `CodexTranscriptItemPresentationPolicyV2`. The policy can preserve,

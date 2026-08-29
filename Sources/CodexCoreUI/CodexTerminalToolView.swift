@@ -416,6 +416,7 @@ package struct CodexTerminalWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
                 resourceID: session.identity.rawValue,
                 payload: Self.routePayload(for: session)
             ),
+            routeReplacementKey: "codex.terminal:\(session.identity.rawValue)",
             preferredPlacement: placement,
             onClose: onClose,
             onReopen: onReopen,

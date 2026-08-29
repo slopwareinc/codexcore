@@ -1,6 +1,22 @@
-# Subagents: dual-mode handling + Subagents panel
+# Subagents: dual-mode handling + Subagents workspace
 
 > **Historical engineering note:** Capture-derived implementation research, not current public product documentation. Verify behavior against production source and tests.
+
+## Current workspace surface
+
+CodexCore presents collaboration children through one registered
+`CodexSubagentsWorkspaceTabAdapter` per parent workspace. Its master list keeps
+only stable identity, title, prompt, and lifecycle metadata, split into Active
+and Done sections with concise status summaries. A row selection is presentation
+state persisted in `CodexWorkspaceTabState`; it does not create a child tab.
+
+`CodexSubagentPresentationCoordinator` remains the sole metadata and projection
+owner. It acquires the exact child-thread lease only for the selected row,
+projects that transcript (including a final response) lazily, and cancels the
+obsolete projection when selection changes or Back is pressed. The detail uses
+one stable transcript host, while unselected rows never retain transcript data.
+Summary and transcript openers both select this same workspace tab, so parent
+transcript identity and projection counts are unaffected by child navigation.
 
 Ground truth: wire + CDP captures of the official app (ChatGPT.app v0.144,
 2026-07-11) — fixtures `turn-collab-official.jsonl` (classic) and
@@ -70,17 +86,16 @@ For each new agent thread id (from `receiverThreadIds` or `agentThreadId`):
   read/resume/list dance and feeds metadata back into the store.
 - Pure value type + reducer, fixture-replayable like the transcript.
 
-### 2. `CodexSubagentsPanelV2` (view)
+### 2. `CodexSubagentsWorkspaceTabAdapter` (view)
 
-- Sidebar-style section: header "Subagents" + count of working agents
-  ("2 working").
-- One card per agent (tree-ordered by `agentPath`, indent children):
-  title = nickname if known, else humanized last path segment
-  ("count_docs" → "Count docs"), role tag, its own live stopwatch
-  ("Working for Ns" → "Worked for Xm Ys"), and the agent's transcript
-  rendered with the existing `CodexTranscriptViewV2` (same grammar,
-  smaller type scale). Live tail per agent.
-- Zero new transcript rendering code — composition only.
+- Register one durable `Subagents` workspace tab per parent thread.
+- Render a master list with Active and Done groups plus a compact status
+  summary. Rows contain metadata only and have stable accessibility IDs.
+- Selecting a row persists its child thread ID, asks the canonical coordinator
+  for the one selected-child lease/projection, and opens a detail transcript;
+  Back returns to the list and releases the detail lease.
+- Zero new transcript rendering code — detail composition uses the existing
+  `CodexTranscriptViewV2` and only the selected child can retain its transcript.
 
 ### 3. Runtime session
 

@@ -44,6 +44,12 @@ public final class CodexChatRuntimeSession {
     public var subagentsV2: [CodexSubagentV2] {
         subagentCoordinator?.agents ?? []
     }
+    /// Canonical presentation owner for the selected parent thread's
+    /// subagents. Workspace adapters observe this object directly so list
+    /// updates do not require a second child-state coordinator.
+    public var subagentPresentationCoordinator: CodexSubagentPresentationCoordinator? {
+        subagentCoordinator
+    }
     public var isSending: Bool { state.isSending }
     /// Local optimistic state used to serialize queued turn submission.
     /// Unlike `isSending`, this deliberately excludes canonical snapshot state,
@@ -77,11 +83,6 @@ public final class CodexChatRuntimeSession {
         let threadID = threadID.map { ThreadID($0) }
         presentationStore.select(threadID: threadID)
         subagentCoordinator?.selectParent(threadID)
-    }
-
-    /// Updates the subagent transcript currently visible in the agent panel.
-    public func selectSubagentTranscript(_ threadID: String?) {
-        subagentCoordinator?.selectTranscript(threadID.map { ThreadID($0) })
     }
 
     /// Connects every runtime projection to one public facade and therefore one

@@ -22,6 +22,7 @@ public struct CodexFloatingSummaryPanel: View {
 
     private let sideChat: CodexSideChatState?
     private let subagents: [CodexSubagentState]
+    private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
     private let backgroundTerminalActions: CodexBackgroundTerminalActions?
@@ -34,6 +35,7 @@ public struct CodexFloatingSummaryPanel: View {
     public init(
         sideChat: CodexSideChatState?,
         subagents: [CodexSubagentState],
+        subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
         backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
@@ -45,6 +47,7 @@ public struct CodexFloatingSummaryPanel: View {
     ) {
         self.sideChat = sideChat
         self.subagents = subagents
+        self.subagentCoordinator = subagentCoordinator
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
         self.backgroundTerminalActions = backgroundTerminalActions
@@ -190,16 +193,16 @@ public struct CodexFloatingSummaryPanel: View {
                 }
             }
 
-            let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
-            if !visibleAgents.isEmpty {
-                SummaryDivider()
-                SummarySection(title: "Subagents") {
-                    ForEach(visibleAgents) { subagent in
-                        SummaryRow(title: subagent.floatingSummaryTitle, systemImage: subagent.floatingSummarySystemImage) {
-                            onSelectTab(subagent.id)
-                        }
-                    }
-                }
+            if let subagentCoordinator {
+                LiveSubagentsSummarySection(
+                    coordinator: subagentCoordinator,
+                    onSelectTab: onSelectTab
+                )
+            } else {
+                StaticSubagentsSummarySection(
+                    subagents: subagents,
+                    onSelectTab: onSelectTab
+                )
             }
 
             SummaryDivider()
@@ -229,9 +232,6 @@ public struct CodexFloatingSummaryPanel: View {
         .frame(width: theme.spacing.summaryPanelWidth, alignment: .topLeading)
         .fixedSize(horizontal: true, vertical: false)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
-        .onAppear {
-            backgroundTerminalActions?.refresh()
-        }
     }
 
     /// Section-header actions for Environment. Only what this app can actually
@@ -255,6 +255,49 @@ public struct CodexFloatingSummaryPanel: View {
         Button("Copy path") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(summary.workspacePath, forType: .string)
+        }
+    }
+}
+
+@MainActor
+private struct LiveSubagentsSummarySection: View {
+    @Bindable private var coordinator: CodexSubagentPresentationCoordinator
+    let onSelectTab: (String) -> Void
+
+    init(
+        coordinator: CodexSubagentPresentationCoordinator,
+        onSelectTab: @escaping (String) -> Void
+    ) {
+        self.coordinator = coordinator
+        self.onSelectTab = onSelectTab
+    }
+
+    var body: some View {
+        StaticSubagentsSummarySection(
+            subagents: coordinator.panelSubagents,
+            onSelectTab: onSelectTab
+        )
+    }
+}
+
+private struct StaticSubagentsSummarySection: View {
+    let subagents: [CodexSubagentState]
+    let onSelectTab: (String) -> Void
+
+    var body: some View {
+        let visibleAgents = subagents.filter(\.isVisibleInFloatingSummary)
+        if !visibleAgents.isEmpty {
+            SummaryDivider()
+            SummarySection(title: "Subagents") {
+                ForEach(visibleAgents) { subagent in
+                    SummaryRow(
+                        title: subagent.floatingSummaryTitle,
+                        systemImage: subagent.floatingSummarySystemImage
+                    ) {
+                        onSelectTab(subagent.id)
+                    }
+                }
+            }
         }
     }
 }
@@ -945,8 +988,6 @@ public struct CodexAgentSidePanel: View {
     private let onCloseBrowser: (String) -> Void
     private let onCloseFiles: (String) -> Void
     private let onCloseFilePreview: (String) -> Void
-    private let onCloseSubagent: (String) -> Void
-    private let onSelectSubagentTranscript: (String?) -> Void
     private let showsCloseButton: Bool
     private let onClose: () -> Void
     @State private var resizeStartWidth: CGFloat?
@@ -975,8 +1016,6 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
-        onCloseSubagent: @escaping (String) -> Void = { _ in },
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void,
         placement: CodexWorkspaceTabPlacement = .right,
@@ -1006,8 +1045,6 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
-        self.onCloseSubagent = onCloseSubagent
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
@@ -1036,8 +1073,6 @@ public struct CodexAgentSidePanel: View {
         onCloseBrowser: @escaping (String) -> Void = { _ in },
         onCloseFiles: @escaping (String) -> Void = { _ in },
         onCloseFilePreview: @escaping (String) -> Void = { _ in },
-        onCloseSubagent: @escaping (String) -> Void = { _ in },
-        onSelectSubagentTranscript: @escaping (String?) -> Void = { _ in },
         showsCloseButton: Bool = true,
         onClose: @escaping () -> Void,
         placement: CodexWorkspaceTabPlacement = .right,
@@ -1067,8 +1102,6 @@ public struct CodexAgentSidePanel: View {
         self.onCloseBrowser = onCloseBrowser
         self.onCloseFiles = onCloseFiles
         self.onCloseFilePreview = onCloseFilePreview
-        self.onCloseSubagent = onCloseSubagent
-        self.onSelectSubagentTranscript = onSelectSubagentTranscript
         self.showsCloseButton = showsCloseButton
         self.onClose = onClose
     }
@@ -1097,17 +1130,9 @@ public struct CodexAgentSidePanel: View {
         .animation(nil, value: panelWidth)
         .onAppear {
             ensureSelection()
-            if placement == .right { publishSelectedSubagent() }
         }
         .onChange(of: legacyTabIDs) { _, _ in
             ensureSelection()
-            if placement == .right { publishSelectedSubagent() }
-        }
-        .onChange(of: activeTab) { _, _ in
-            if placement == .right { publishSelectedSubagent() }
-        }
-        .onDisappear {
-            if placement == .right { onSelectSubagentTranscript(nil) }
         }
     }
 
@@ -1155,9 +1180,7 @@ public struct CodexAgentSidePanel: View {
                 let isSelected = activeTab == .workspace(instance.id)
                 if let content = workspaceTabs.content(for: instance.id) {
                     content
-                        .toolPanelVisibility(
-                            isSelected: isSelected
-                        )
+                        .toolPanelVisibility(isSelected: isSelected)
                         .onAppear {
                             workspaceTabs.setVisibility(isSelected, for: instance.id)
                         }
@@ -1219,7 +1242,7 @@ public struct CodexAgentSidePanel: View {
                     .padding(.leading, 2)
             }
         }
-        .frame(width: 14)
+        .frame(width: placement == .right ? 14 : 0)
         .frame(maxHeight: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .gesture(resizeGesture)
@@ -1269,14 +1292,6 @@ public struct CodexAgentSidePanel: View {
 
     private func isSelectedLegacy(_ id: String) -> Bool {
         activeTab == .legacy(id)
-    }
-
-    private func publishSelectedSubagent() {
-        guard case .subagent(let subagent)? = selectedTab else {
-            onSelectSubagentTranscript(nil)
-            return
-        }
-        onSelectSubagentTranscript(subagent.id)
     }
 
     private var selectedBrowserSession: CodexBrowserSession? {
@@ -1383,7 +1398,9 @@ public struct CodexAgentSidePanel: View {
 
                 if showsCloseButton {
                     Button(action: onClose) {
-                        Image(systemName: placement == .right ? "sidebar.right" : "rectangle.bottomthird.inset.filled")
+                        Image(systemName: placement == .right
+                            ? "sidebar.right"
+                            : "rectangle.bottomthird.inset.filled")
                             .font(theme.fonts.label)
                             .foregroundStyle(theme.colors.textTertiary)
                             .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
@@ -1455,7 +1472,7 @@ public struct CodexAgentSidePanel: View {
                     isSelected: activeTab == handle,
                     width: width,
                     showsLeadingDivider: showsLeadingDivider(for: handle),
-                    closeAction: tab.isSubagent ? { onCloseSubagent(id) } : nil
+                    closeAction: nil
                 ) { workspaceTabs.activateLegacy(id) }
             }
         }
@@ -1505,11 +1522,8 @@ public struct CodexAgentSidePanel: View {
     }
 
     private func ensureSelection() {
-        if placement == .right {
-            workspaceTabs.reconcileLegacy(legacyTabIDs)
-        }
-        if workspaceTabs.activeTab(in: placement) == nil,
-           !workspaceTabs.orderedTabs(in: placement).isEmpty {
+        workspaceTabs.reconcileLegacy(legacyTabIDs)
+        if activeTab == nil, !orderedTabs.isEmpty {
             workspaceTabs.setOpen(true, placement: placement)
         }
         workspaceTabs.restoreFocus()
@@ -1720,31 +1734,11 @@ private struct CodexAgentPanelContent: View {
                     transcriptID: sideChat.id,
                     empty: "Side chat is ready for a focused branch of the parent conversation."
                 )
-            case .subagent(let subagent):
-                subagentTranscriptPanel(subagent)
             }
 
             compactComposer(for: tab)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-        }
-    }
-
-    private func subagentHeader(_ subagent: CodexSubagentState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(subagent.name)
-                    .font(theme.fonts.body)
-                    .foregroundStyle(theme.colors.textPrimary)
-                SubagentStatusBadge(status: subagent.status)
-            }
-            if subagent.title != subagent.name {
-                Text(subagent.title)
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -1786,24 +1780,6 @@ private struct CodexAgentPanelContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func subagentTranscriptPanel(_ subagent: CodexSubagentState) -> some View {
-        VStack(spacing: 0) {
-            subagentHeader(subagent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-
-            CodexTranscriptViewV2(
-                transcript: subagent.transcript,
-                bottomContentInset: 16
-            ) {
-                emptyText(subagent.emptyTranscriptMessage)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func emptyText(_ text: String) -> some View {
         Text(text)
             .font(theme.fonts.chat)
@@ -1825,8 +1801,6 @@ private struct CodexAgentPanelContent: View {
                 onSend: onSendSideChatMessage,
                 onInterrupt: onInterruptSideChatMessage
             )
-        case .subagent:
-            EmptyView()
         }
     }
 }
@@ -1915,24 +1889,5 @@ private struct AgentPanelComposer: View {
     private func submit() {
         guard canSend else { return }
         onSend()
-    }
-}
-
-private struct SubagentStatusBadge: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let status: CodexSubagentState.Status
-
-    var body: some View {
-        CodexStatusChip(color: color, label: status.rawValue, isStreaming: false)
-    }
-
-    private var color: Color {
-        switch status {
-        case .running: return theme.colors.running
-        case .completed: return theme.colors.success
-        case .closed: return theme.colors.textTertiary
-        case .failed: return theme.colors.danger
-        }
     }
 }

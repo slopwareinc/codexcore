@@ -114,6 +114,97 @@ struct CodexWorkspaceTabsTests {
         #expect(restored.snapshot.instance(id: id)?.isMaterialized == true)
     }
 
+    @Test func subagentsWorkspaceProjectionSeparatesActiveAndDoneRows() {
+        let agents = [
+            CodexSubagentState(
+                id: "active",
+                name: "Scout",
+                title: "Explorer",
+                prompt: "Find the seam",
+                status: .running
+            ),
+            CodexSubagentState(
+                id: "done",
+                name: "Builder",
+                title: "Implementer",
+                prompt: "Build the adapter",
+                status: .completed
+            ),
+        ]
+
+        let snapshot = CodexSubagentsWorkspaceProjection.snapshot(
+            subagents: agents,
+            selectedThreadID: "active"
+        )
+
+        #expect(snapshot.active.map(\.id) == ["active"])
+        #expect(snapshot.done.map(\.id) == ["done"])
+        #expect(snapshot.selectedThreadID == "active")
+        #expect(snapshot.active[0].statusSummary == "Working")
+        #expect(snapshot.done[0].statusSummary == "Completed")
+    }
+
+    @Test func subagentsWorkspaceSelectionStateRoundTripsWithoutTranscriptData() throws {
+        let state = CodexSubagentsWorkspaceTabState(selectedThreadID: "child")
+            .workspaceTabState
+        let restored = CodexSubagentsWorkspaceTabState(state)
+
+        #expect(restored.selectedThreadID == "child")
+        #expect(state.data.contains(Data("child".utf8)))
+        #expect(!state.data.contains(Data("transcript".utf8)))
+    }
+
+    @Test func unresolvedSubagentOpenerUsesOneWorkspaceTabWhileChildHydrates() async throws {
+        let homeURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("codexcore-subagents-unresolved-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: homeURL) }
+
+        let transport = CoordinatorTestTransport(homePath: homeURL.path)
+        let codex = try await Codex(
+            transport: transport,
+            config: .init(codexHome: CodexHome(path: homeURL.path))
+        )
+        let coordinator = CodexSubagentPresentationCoordinator(codex: codex)
+        let tabs = CodexWorkspaceTabs()
+        let childID = "child-not-loaded-yet"
+
+        let tabID = tabs.open(
+            CodexSubagentsWorkspaceTabAdapter(
+                parentThreadID: "parent",
+                coordinator: coordinator,
+                selectedThreadID: childID
+            ),
+            from: .transcript
+        )
+
+        #expect(tabs.snapshot.topology.right.orderedTabs == [.workspace(tabID)])
+        #expect(tabs.snapshot.topology.right.activeTab == .workspace(tabID))
+        #expect(
+            CodexSubagentsWorkspaceTabState.selectedThreadID(
+                in: try #require(tabs.snapshot.instance(id: tabID)?.state)
+            ) == childID
+        )
+        #expect(tabs.snapshot.topology.right.orderedTabs.allSatisfy { $0.legacyID == nil })
+
+        await codex.close()
+    }
+
+    @Test func subagentsWorkspaceAccessibilityUsesStableMasterAndRowVocabulary() {
+        let row = CodexSubagentsWorkspaceRow(CodexSubagentState(
+            id: "child",
+            name: "Scout",
+            title: "Explorer",
+            prompt: "",
+            status: .running
+        ))
+
+        #expect(CodexSubagentsWorkspaceAccessibility.masterIdentifier == "subagents.master")
+        #expect(CodexSubagentsWorkspaceAccessibility.backToMasterLabel == "Back to subagents")
+        #expect(CodexSubagentsWorkspaceAccessibility.rowIdentifier(row.id) == "subagent.row.child")
+        #expect(CodexSubagentsWorkspaceAccessibility.rowLabel(row) == "Scout, Working")
+        #expect(CodexSubagentsWorkspaceAccessibility.rowHint == "Show subagent transcript")
+    }
+
     @Test func planAndReviewOpenThroughOneAdapterInterfaceWithStableIdentity() throws {
         let tabs = CodexWorkspaceTabs()
         let plan = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(
