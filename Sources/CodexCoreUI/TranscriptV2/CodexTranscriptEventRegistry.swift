@@ -146,7 +146,7 @@ private extension CodexTranscriptEventRegistry {
             else { return nil }
             let status = cardStatus(object.string("status"), completed: false, steps: [])
             return .init(
-                id: object.string("id") ?? "(itemID):step:(index)",
+                id: object.string("id") ?? itemID + ":step:" + String(index),
                 title: title,
                 status: status,
                 detail: object.string("detail")?.codexTranscriptBounded
@@ -304,6 +304,26 @@ private extension CodexTranscriptEventRegistry {
            object.bool("showBufferingUi") == true {
             return .notice(.init(id: key, message: "Model is buffering the response"))
         }
+        if key == "personality", let personality = value.stringValue?.codexTranscriptNonEmpty {
+            return .notice(.init(id: key, message: "Personality: \(personality)"))
+        }
+        if key == "forkedFromId", let source = value.stringValue?.codexTranscriptNonEmpty {
+            return .notice(.init(id: key, message: "Forked from chat \(shortID(source))"))
+        }
+        if key == "worktree", let object = value.object {
+            let name = object.string("name") ?? object.string("path")
+            return name.map { .notice(.init(id: key, message: "Working in \($0)")) }
+        }
+        if key == "remoteTask", let object = value.object {
+            let state = object.string("status") ?? "connected"
+            return .notice(.init(id: key, message: "Remote task \(state)"))
+        }
+        if key == "remoteTask", let state = value.stringValue?.codexTranscriptNonEmpty {
+            return .notice(.init(id: key, message: "Remote task \(state)"))
+        }
+        if key == "historyRetry", value == .bool(true) {
+            return .recovery(.init(id: key, kind: .historyRetry, message: "Retrying history", canRetry: true))
+        }
         // The item-backed representation already emits the stable
         // `context-compacted-<turn>` notice. Do not add a second entry when the
         // live extension and hydrated item are reconciled.
@@ -390,6 +410,10 @@ private extension CodexTranscriptEventRegistry {
         case .some(let value): .unknown(value)
         case nil: .completed
         }
+    }
+
+    static func shortID(_ value: String) -> String {
+        String((value.split(separator: "-").last.map(String.init) ?? value).prefix(8))
     }
 
     static func boundedObject(_ object: [String: CodexJSONValue]) -> [String: CodexJSONValue] {

@@ -226,7 +226,7 @@ public struct CodexMemoryCitationV2: Identifiable, Sendable, Equatable {
         self.lineEnd = max(self.lineStart, lineEnd)
         self.note = note
         self.sourceThreadIDs = sourceThreadIDs
-        self.id = id ?? "(path):(self.lineStart):(self.lineEnd)"
+        self.id = id ?? path + ":" + String(self.lineStart) + ":" + String(self.lineEnd)
     }
 }
 
@@ -483,7 +483,7 @@ public struct CodexHookActivityV2: Identifiable, Sendable, Equatable {
 
     public var label: String {
         let event = eventName.isEmpty ? "Hook" : eventName
-        return handler.isEmpty ? event : "(event) · (handler)"
+        return handler.isEmpty ? event : event + " · " + handler
     }
 }
 
