@@ -1820,6 +1820,12 @@ final class CodexCoreAppModel {
         placement: CodexProjectDropPlacement
     ) {
         let previousOrder = sidebarNavigationSession.projectOrder
+        let sourceProject = recentProjects.first {
+            $0.workspacePath == CodexProjectSummary.normalizedPath(sourcePath)
+        }
+        let targetProject = recentProjects.first {
+            $0.workspacePath == CodexProjectSummary.normalizedPath(targetPath)
+        }
         guard sidebarNavigationSession.moveProject(
             sourcePath,
             relativeTo: targetPath,
@@ -1832,6 +1838,36 @@ final class CodexCoreAppModel {
             return
         }
         sidebarActionError = nil
+
+        guard let codex,
+              let sourceID = sourceProject?.serverID,
+              let targetID = targetProject?.serverID else { return }
+        let orderedProjects = recentProjects.sorted {
+            let left = sidebarNavigationSession.projectOrder.firstIndex(of: $0.workspacePath) ?? Int.max
+            let right = sidebarNavigationSession.projectOrder.firstIndex(of: $1.workspacePath) ?? Int.max
+            return left < right
+        }
+        let beforeProjectID: String?
+        if placement == .before {
+            beforeProjectID = targetID
+        } else if let targetIndex = orderedProjects.firstIndex(where: { $0.serverID == targetID }) {
+            beforeProjectID = orderedProjects.dropFirst(targetIndex + 1).first(where: { $0.serverID != sourceID })?.serverID
+        } else {
+            beforeProjectID = nil
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await codex.perform(CodexRequest.projectMove(.init(
+                    beforeProjectID: beforeProjectID,
+                    projectID: sourceID
+                )))
+            } catch {
+                sidebarNavigationSession.setProjectOrder(previousOrder)
+                _ = saveSidebarProjectOrder()
+                sidebarActionError = friendlyError(error)
+            }
+        }
     }
 
     func toggleSidebarProjectPin(_ workspacePath: String) {
