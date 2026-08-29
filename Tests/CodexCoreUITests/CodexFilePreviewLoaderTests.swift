@@ -80,4 +80,18 @@ final class CodexFilePreviewLoaderTests: XCTestCase {
         XCTAssertEqual(text, source)
         XCTAssertTrue(spans.isEmpty, "highlight parsing is bounded independently from preview bytes")
     }
+
+    func testUnsupportedRefsFailClosedInsteadOfShowingWorkingTreeBytes() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-preview-ref-\(UUID().uuidString).swift")
+        try "let workingTree = true\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard case let .notice(message) = CodexFilePreviewLoader.load(
+            reference: CodexWorkspaceFileReference(fileURL: url, ref: "main")
+        ) else {
+            return XCTFail("unsupported refs must not silently show working-tree bytes")
+        }
+        XCTAssertTrue(message.contains("current workspace"))
+    }
 }

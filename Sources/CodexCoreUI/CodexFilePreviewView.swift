@@ -93,12 +93,32 @@ enum CodexFilePreviewLoader {
         loadImplementation(url: url, checkpoint: {})
     }
 
+    static func load(reference: CodexWorkspaceFileReference) -> CodexFilePreviewState {
+        guard reference.ref == nil else {
+            return .notice("Only files from the current workspace can be previewed.")
+        }
+        return load(url: reference.fileURL)
+    }
+
     /// Structured owners use this entry point so cancellation propagates into
     /// the off-main worker instead of leaving an unowned detached task behind.
     @concurrent
     nonisolated static func loadAsync(url: URL) async throws -> CodexFilePreviewState {
         try Task.checkCancellation()
         return try loadImplementation(url: url) {
+            try Task.checkCancellation()
+        }
+    }
+
+    @concurrent
+    nonisolated static func loadAsync(
+        reference: CodexWorkspaceFileReference
+    ) async throws -> CodexFilePreviewState {
+        try Task.checkCancellation()
+        guard reference.ref == nil else {
+            return .notice("Only files from the current workspace can be previewed.")
+        }
+        return try loadImplementation(url: reference.fileURL) {
             try Task.checkCancellation()
         }
     }
@@ -236,25 +256,25 @@ final class CodexFilePreviewModel: ObservableObject {
     @Published private(set) var state: CodexFilePreviewState = .empty
     @Published private(set) var contentIdentity: UUID?
 
-    private var currentURL: URL?
+    private var currentFile: CodexWorkspaceFileReference?
     private var loadTask: Task<Void, Never>?
-    private let loader: @Sendable (URL) async throws -> CodexFilePreviewState
+    private let loader: @Sendable (CodexWorkspaceFileReference) async throws -> CodexFilePreviewState
 
     init(
-        loader: @escaping @Sendable (URL) async throws -> CodexFilePreviewState = CodexFilePreviewLoader.loadAsync
+        loader: @escaping @Sendable (CodexWorkspaceFileReference) async throws -> CodexFilePreviewState = CodexFilePreviewLoader.loadAsync(reference:)
     ) {
         self.loader = loader
     }
 
     deinit { loadTask?.cancel() }
 
-    func update(url: URL?) {
-        guard url != currentURL else { return }
-        currentURL = url
+    func update(file: CodexWorkspaceFileReference?) {
+        guard file != currentFile else { return }
+        currentFile = file
         loadTask?.cancel()
         contentIdentity = nil
 
-        guard let url else {
+        guard let file else {
             state = .empty
             return
         }
@@ -262,19 +282,23 @@ final class CodexFilePreviewModel: ObservableObject {
         state = .loading
         loadTask = Task { [weak self, loader] in
             do {
-                let result = try await loader(url)
+                let result = try await loader(file)
                 guard !Task.isCancelled else { return }
-                guard let self, self.currentURL == url else { return }
+                guard let self, self.currentFile == file else { return }
                 if case .text = result { self.contentIdentity = UUID() }
                 self.state = result
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                guard let self, self.currentURL == url else { return }
+                guard let self, self.currentFile == file else { return }
                 self.state = .notice("Unable to read this file.")
             }
         }
+    }
+
+    func update(url: URL?) {
+        update(file: url.map { CodexWorkspaceFileReference(fileURL: $0) })
     }
 }
 
@@ -304,8 +328,8 @@ struct CodexFilePreviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(theme.colors.codeBackground)
-        .onAppear { model.update(url: file.fileURL) }
-        .onChange(of: file.id) { _, _ in model.update(url: file.fileURL) }
+        .onAppear { model.update(file: file) }
+        .onChange(of: file.id) { _, _ in model.update(file: file) }
     }
 
     private var previewState: CodexFilePreviewTabState {

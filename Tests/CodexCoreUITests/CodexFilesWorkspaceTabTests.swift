@@ -139,6 +139,65 @@ struct CodexFilesWorkspaceTabTests {
         #expect(CodexFilePreviewWorkspaceTabAdapter(route: route) == nil)
     }
 
+    @Test func closingFilesRunsTheAdapterCleanupAndReopeningConsumesUndo() throws {
+        let panel = CodexWorkspacePanelState()
+        let id = panel.openFiles(workspacePath: "/tmp/project")
+        let contentID = try #require(panel.workspaceTabs.snapshot.instance(id: id)?.contentID)
+
+        panel.workspaceTabs.close(id)
+
+        #expect(panel.filesSession == nil)
+        let reopened = panel.openFiles(workspacePath: "/tmp/project")
+        #expect(reopened == id)
+        #expect(panel.workspaceTabs.snapshot.instances.count == 1)
+        #expect(panel.workspaceTabs.snapshot.instance(id: id)?.contentID == contentID)
+        #expect(panel.workspaceTabs.undoClose() == nil)
+    }
+
+    @Test func restoredFileRoutesFailClosedOutsideTheWorkspaceOrForWrongKinds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-files-route-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("App.swift")
+        try "let value = 1\n".write(to: file, atomically: true, encoding: .utf8)
+        let validFilesRoute = CodexFilesWorkspaceTabAdapter.route(for: root)
+        let validPreviewRoute = CodexFilePreviewWorkspaceTabAdapter.route(
+            for: CodexWorkspaceFileReference(fileURL: file)
+        )
+
+        #expect(
+            CodexFilesWorkspaceTabAdapter(
+                restoring: validFilesRoute,
+                within: root
+            ) != nil
+        )
+        #expect(
+            CodexFilePreviewWorkspaceTabAdapter(
+                restoring: validPreviewRoute,
+                within: root
+            ) != nil
+        )
+
+        let outsideRoute = CodexFilePreviewWorkspaceTabAdapter.route(
+            for: CodexWorkspaceFileReference(
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("outside.swift")
+            )
+        )
+        #expect(
+            CodexFilePreviewWorkspaceTabAdapter(
+                restoring: outsideRoute,
+                within: root
+            ) == nil
+        )
+        #expect(
+            CodexFilesWorkspaceTabAdapter(
+                restoring: validFilesRoute,
+                within: file
+            ) == nil
+        )
+    }
+
     @Test func transcriptFileReferenceOpensPreviewAndPersistsLineLocation() throws {
         let root = URL(fileURLWithPath: "/tmp/project")
         let file = root.appendingPathComponent("App.swift").standardizedFileURL

@@ -187,6 +187,12 @@ public final class CodexSubagentPresentationCoordinator {
         selectedProjection?.estimatedByteCount ?? 0
     }
 
+    /// The internally-selected child whose detail is currently retained.
+    /// Unselected children remain metadata-only and return nil here.
+    public var selectedSubagentThreadID: ThreadID? {
+        selectedProjection?.threadID
+    }
+
     /// Selects the child transcript that is currently visible in the agent panel.
     func selectTranscript(_ threadID: ThreadID?) {
         guard selectedProjection?.threadID != threadID else { return }

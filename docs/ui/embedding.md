@@ -81,14 +81,23 @@ Callers never construct or switch on tab IDs. Persist
 routes and per-tab presentation state are durable. Current Plan/Review facts
 remain disposable projections and are supplied again after restoration.
 
-Files uses the same seam. Register `CodexFilesWorkspaceTabAdapter` for a
-workspace root and open text resources with
-`CodexFilePreviewWorkspaceTabAdapter(file:)`. A
-`CodexWorkspaceFileReference` standardizes the URL and optional ref into one
-stable identity. Preview tabs replace one another until interaction pins the
-active tab; `CodexFilePreviewTabState` keeps find and go-to-line intent in the
-durable tab state. Preview content is active-only, so hidden editors do not
-perform layout or parsing.
+Files are opened through the public panel facade:
+`panel.openFiles(workspacePath:)` registers the workspace browser and
+`panel.openFilePreview(fileURL:ref:)` opens a typed file/ref preview. The
+package-internal adapters own replacement, pinning, and active-only editor
+policy; hosts persist `workspaceTabRestorationState` rather than constructing
+those adapters directly. The current implementation accepts only files from
+the active workspace; a non-`nil` ref is rejected with an explicit preview
+notice until a bounded ref resolver is supplied.
+
+When a host exposes recursive agent work, pass the active
+`CodexSubagentPresentationCoordinator` as `subagentCoordinator` to
+`CodexChatWorkspaceView`. The workspace registers one `Subagents` tab through
+its package adapter; its durable state contains only the
+selected child thread ID. The master list keeps active and done metadata rows,
+while the coordinator lazily retains and projects the selected child's
+transcript/final response. Back navigation clears that selection, and changing
+selection cancels the previous child projection.
 
 CodexCoreUI uses an official-style compact [activity presentation](live-activity.md)
 by default. For product-specific live progress, configure the presentation

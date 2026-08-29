@@ -1,7 +1,9 @@
+import AppKit
 import CodexCore
 @testable import CodexCoreUI
 import Foundation
 import Observation
+import SwiftUI
 import Testing
 
 @MainActor
@@ -518,13 +520,12 @@ struct CodexSubagentPresentationCoordinatorTests {
         }.joined(separator: "\n")
     }
 }
-
 private enum CoordinatorTestError: Error {
     case disconnected
     case timedOut
 }
 
-private actor CoordinatorTestTransport: CodexFrameTransport {
+actor CoordinatorTestTransport: CodexFrameTransport {
     private let homePath: String
     private let includesInheritedParentTurn: Bool
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?

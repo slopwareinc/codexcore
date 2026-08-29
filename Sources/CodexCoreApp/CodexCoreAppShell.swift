@@ -419,6 +419,7 @@ struct CodexCoreAppShell: View {
                 presentationStore: model.runtimeSession.presentationStore,
                 sideChat: model.sideChat,
                 subagents: model.subagents,
+                subagentCoordinator: model.subagentPresentationCoordinator,
                 workspacePath: model.workspacePath,
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,
@@ -501,9 +502,6 @@ struct CodexCoreAppShell: View {
                 onComposerChipClear: { model.clearComposerChip($0) },
                 onFilesDropped: { [threadID = model.currentThreadID] urls in
                     model.addReferencedFileURLs(urls, to: threadID)
-                },
-                onSelectSubagentTranscript: {
-                    model.runtimeSession.selectSubagentTranscript($0)
                 },
                 onOpenThread: { reference in
                     Task { await model.openThreadReference(reference) }

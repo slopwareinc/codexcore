@@ -8,18 +8,18 @@ final class CodexFilePreviewCancellationTests: XCTestCase {
         let first = URL(fileURLWithPath: "/tmp/first.swift")
         let second = URL(fileURLWithPath: "/tmp/second.swift")
         let probe = PreviewLoadProbe()
-        let model = CodexFilePreviewModel(loader: { url in
-            await probe.started(url)
-            if url == first {
+        let model = CodexFilePreviewModel(loader: { file in
+            await probe.started(file.fileURL)
+            if file.fileURL == first {
                 do {
                     try await Task.sleep(for: .seconds(1))
                 } catch is CancellationError {
-                    await probe.cancelled(url)
+                    await probe.cancelled(file.fileURL)
                     return .text("stale", [])
                 }
             }
-            await probe.finished(url)
-            return .text(url.lastPathComponent, [])
+            await probe.finished(file.fileURL)
+            return .text(file.fileURL.lastPathComponent, [])
         })
 
         model.update(url: first)
@@ -42,12 +42,12 @@ final class CodexFilePreviewCancellationTests: XCTestCase {
     func testUnmountCancelsOwnedPreviewLoad() async {
         let file = URL(fileURLWithPath: "/tmp/unmounted.swift")
         let probe = PreviewLoadProbe()
-        var model: CodexFilePreviewModel? = CodexFilePreviewModel(loader: { url in
-            await probe.started(url)
+        var model: CodexFilePreviewModel? = CodexFilePreviewModel(loader: { file in
+            await probe.started(file.fileURL)
             do {
                 try await Task.sleep(for: .seconds(1))
             } catch is CancellationError {
-                await probe.cancelled(url)
+                await probe.cancelled(file.fileURL)
             }
             return .text("obsolete", [])
         })

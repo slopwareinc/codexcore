@@ -60,6 +60,35 @@ public struct CodexFilePreviewTabState: Codable, Hashable, Sendable {
     }
 }
 
+package enum CodexWorkspaceFileRouteValidation {
+    package static func directory(
+        at path: String,
+        within workspaceURL: URL
+    ) -> URL? {
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL
+        let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey])
+        guard contained(candidate, in: workspaceURL), values?.isDirectory == true else {
+            return nil
+        }
+        return candidate
+    }
+
+    package static func regularFile(
+        _ fileURL: URL,
+        within workspaceURL: URL
+    ) -> Bool {
+        guard contained(fileURL, in: workspaceURL) else { return false }
+        let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+        return values?.isDirectory == false && values?.isRegularFile == true
+    }
+
+    private static func contained(_ candidate: URL, in workspaceURL: URL) -> Bool {
+        let root = workspaceURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let path = candidate.standardizedFileURL.resolvingSymlinksInPath().path
+        return path == root || path.hasPrefix(root + "/")
+    }
+}
+
 /// The workspace-tab adapter for the Files browser. The browser session is a
 /// retained resource host; tab identity and panel placement remain owned by
 /// `CodexWorkspaceTabs`.
@@ -107,6 +136,23 @@ package struct CodexFilesWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             onOpenFile: onOpenFile,
             onClose: onClose
         )
+    }
+
+    package init?(
+        restoring route: CodexWorkspaceTabRoute,
+        within workspaceURL: URL,
+        onOpenFile: @escaping @MainActor (URL) -> Void = { _ in },
+        onClose: @escaping @MainActor () -> Void = {}
+    ) {
+        guard route.adapterID == Self.adapterID,
+              route.version == Self.routeVersion,
+              let root = CodexWorkspaceFileRouteValidation.directory(
+                at: route.resourceID,
+                within: workspaceURL
+              ) else {
+            return nil
+        }
+        self.init(workspaceURL: root, onOpenFile: onOpenFile, onClose: onClose)
     }
 
     package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
@@ -201,6 +247,36 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
         )
     }
 
+    package init?(
+        restoring resourceKey: String,
+        within workspaceURL: URL
+    ) {
+        guard let adapter = Self(resourceKey: resourceKey),
+              adapter.file.ref == nil,
+              CodexWorkspaceFileRouteValidation.regularFile(
+                adapter.file.fileURL,
+                within: workspaceURL
+              ) else {
+            return nil
+        }
+        self = adapter
+    }
+
+    package init?(
+        restoring route: CodexWorkspaceTabRoute,
+        within workspaceURL: URL
+    ) {
+        guard let adapter = Self(route: route),
+              adapter.file.ref == nil,
+              CodexWorkspaceFileRouteValidation.regularFile(
+                adapter.file.fileURL,
+                within: workspaceURL
+              ) else {
+            return nil
+        }
+        self = adapter
+    }
+
     package var workspaceTabRegistration: CodexWorkspaceTabRegistration {
         CodexWorkspaceTabRegistration(
             resourceKey: Self.resourceKey(for: file),
@@ -234,5 +310,74 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
             resourceID: file.id,
             payload: (try? encoder.encode(file)) ?? Data()
         )
+    }
+}
+
+package struct CodexFilesWorkspaceTabAdapterSet {
+    package let filesSession: CodexFilesSession?
+    package let adapters: [any CodexWorkspaceTabAdapter]
+}
+
+/// Restores all Files-owned routes in one place. The chat workspace only asks
+/// this registry for adapters; it never interprets route IDs or filesystem
+/// availability itself.
+@MainActor
+package enum CodexFilesWorkspaceTabAdapterRegistry {
+    package static func make(
+        snapshot: CodexWorkspaceTabSnapshot,
+        workspaceURL: URL,
+        existingSession: CodexFilesSession?,
+        onOpenFile: @escaping @MainActor (URL) -> Void,
+        onSessionClosed: @escaping @MainActor (CodexFilesSession) -> Void
+    ) -> CodexFilesWorkspaceTabAdapterSet {
+        var adapters: [any CodexWorkspaceTabAdapter] = []
+        var fileRoots = Set<String>()
+        var previewKeys = Set<String>()
+        var filesSession: CodexFilesSession?
+
+        func addFiles(_ session: CodexFilesSession) {
+            guard fileRoots.insert(session.rootURL.path).inserted else { return }
+            if filesSession == nil { filesSession = session }
+            adapters.append(CodexFilesWorkspaceTabAdapter(
+                session: session,
+                onOpenFile: onOpenFile,
+                onClose: { onSessionClosed(session) }
+            ))
+        }
+
+        if let existingSession,
+           CodexWorkspaceFileRouteValidation.directory(
+               at: existingSession.rootURL.path,
+               within: workspaceURL
+           ) != nil {
+            addFiles(existingSession)
+        }
+
+        for instance in snapshot.instances {
+            if let route = instance.durableRoute {
+                if route.adapterID == CodexFilesWorkspaceTabAdapter.adapterID,
+                   let adapter = CodexFilesWorkspaceTabAdapter(
+                       restoring: route,
+                       within: workspaceURL
+                   ) {
+                    addFiles(adapter.session)
+                } else if route.adapterID == CodexFilePreviewWorkspaceTabAdapter.adapterID,
+                          let adapter = CodexFilePreviewWorkspaceTabAdapter(
+                              restoring: route,
+                              within: workspaceURL
+                          ),
+                          previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
+                    adapters.append(adapter)
+                }
+            } else if let adapter = CodexFilePreviewWorkspaceTabAdapter(
+                restoring: instance.resourceKey,
+                within: workspaceURL
+            ),
+            previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
+                adapters.append(adapter)
+            }
+        }
+
+        return .init(filesSession: filesSession, adapters: adapters)
     }
 }
