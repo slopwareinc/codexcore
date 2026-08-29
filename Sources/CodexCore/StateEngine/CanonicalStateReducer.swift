@@ -22,6 +22,14 @@ public enum CanonicalStateMutation: Sendable, Equatable {
         key: CanonicalMCPServerStartupKey,
         status: CanonicalMCPServerStartupStatus
     )
+    case backgroundTerminalsPage(
+        threadID: ThreadID,
+        terminals: [CanonicalBackgroundTerminal],
+        nextCursor: String?,
+        replacesExisting: Bool
+    )
+    case backgroundTerminalRemoved(threadID: ThreadID, processID: String)
+    case backgroundTerminalsRemoved(threadID: ThreadID)
     case threadUpsert(CanonicalThread)
     case threadSnapshotReplaced(CanonicalThread)
     /// Destructive authority reserved for a successful `thread/rollback` response.
@@ -81,6 +89,7 @@ public enum CanonicalStateMutation: Sendable, Equatable {
 public enum CanonicalStateChange: Sendable, Equatable, Hashable {
     case accountUpdated
     case mcpServerStartupStatusUpdated(CanonicalMCPServerStartupKey)
+    case backgroundTerminalsUpdated(ThreadID)
     case threadInserted(ThreadID)
     case threadUpdated(ThreadID)
     case threadTurnsReplaced(ThreadID)
@@ -347,6 +356,51 @@ internal struct CanonicalStateReducer: Sendable {
             if valueChanged || evicted {
                 changes.append(.mcpServerStartupStatusUpdated(key))
             }
+
+        case .backgroundTerminalsPage(
+            let threadID,
+            let incoming,
+            let nextCursor,
+            let replacesExisting
+        ):
+            var terminals = replacesExisting
+                ? []
+                : (graph.backgroundTerminals[threadID]?.terminals ?? [])
+            var positions = Dictionary(uniqueKeysWithValues: terminals.enumerated().map {
+                ($0.element.processID, $0.offset)
+            })
+            for terminal in incoming {
+                if let index = positions[terminal.processID] {
+                    terminals[index] = terminal
+                } else {
+                    positions[terminal.processID] = terminals.count
+                    terminals.append(terminal)
+                }
+            }
+            let previous = graph.backgroundTerminals[threadID]
+            guard previous?.terminals != terminals || previous?.nextCursor != nextCursor else {
+                break
+            }
+            graph.backgroundTerminals[threadID] = CanonicalBackgroundTerminalState(
+                threadID: threadID,
+                terminals: terminals,
+                nextCursor: nextCursor,
+                lastChangedRevision: revision
+            )
+            changes.append(.backgroundTerminalsUpdated(threadID))
+
+        case .backgroundTerminalRemoved(let threadID, let processID):
+            guard var state = graph.backgroundTerminals[threadID],
+                  state.terminals.contains(where: { $0.processID == processID })
+            else { break }
+            state.terminals.removeAll { $0.processID == processID }
+            state.lastChangedRevision = revision
+            graph.backgroundTerminals[threadID] = state
+            changes.append(.backgroundTerminalsUpdated(threadID))
+
+        case .backgroundTerminalsRemoved(let threadID):
+            guard graph.backgroundTerminals.removeValue(forKey: threadID) != nil else { break }
+            changes.append(.backgroundTerminalsUpdated(threadID))
 
         case .threadUpsert(let incoming):
             upsertThread(incoming, revision: revision, graph: &graph, changes: &changes)
@@ -766,6 +820,9 @@ private extension CanonicalStateReducer {
             changes.append(.submissionIntentRemoved(id: intentID, threadID: id))
         }
 
+        if graph.backgroundTerminals.removeValue(forKey: id) != nil {
+            changes.append(.backgroundTerminalsUpdated(id))
+        }
         if graph.threads.removeValue(forKey: id) != nil {
             graph.threadOrder.removeAll { $0 == id }
             changes.append(.threadRemoved(id))
@@ -1600,6 +1657,7 @@ extension CanonicalStateChange {
         case .submissionIntentInserted(_, let threadID), .submissionIntentUpdated(_, let threadID),
              .submissionIntentRemoved(_, let threadID): threadID
         case .accountUpdated, .mcpServerStartupStatusUpdated: nil
+        case .backgroundTerminalsUpdated(let id): id
         }
     }
 
@@ -1614,7 +1672,7 @@ extension CanonicalStateChange {
              .itemDeltaAppended(let key), .itemCompleted(let key), .itemRemoved(let key),
              .itemLiveFieldReplaced(let key), .orphanDeltaBuffered(let key),
              .orphanDeltaDropped(let key): key.turnKey
-        case .accountUpdated, .mcpServerStartupStatusUpdated,
+        case .accountUpdated, .mcpServerStartupStatusUpdated, .backgroundTerminalsUpdated,
              .threadInserted, .threadUpdated, .threadTurnsReplaced, .threadRemoved,
              .threadLifecycleUpdated, .threadNameReplaced, .threadEnvironmentUpdated, .threadGoalReplaced,
              .threadSettingsReplaced, .threadHistoryUpdated, .threadDetailEvicted,

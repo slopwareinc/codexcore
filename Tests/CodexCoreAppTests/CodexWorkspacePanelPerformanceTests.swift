@@ -46,7 +46,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
     // MARK: - Report assembly
 
     private func makeReport() async throws -> PerformanceReport {
-        let tabActivation = measureTabActivation()
+        let tabActivation = try measureTabActivation()
         let panelOpenClose = measurePanelOpenClose()
         let streaming = try await measureTranscriptStreamingWithHeavyPanels()
         let hiddenSurface = measureHiddenSurfaceLayout()
@@ -82,28 +82,28 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         )
     }
 
-    private func measureTabActivation() -> ScenarioReport {
+    private func measureTabActivation() throws -> ScenarioReport {
         let panel = CodexWorkspacePanelState()
         let terminal = panel.openTerminal(workspacePath: "/tmp")
         let browser = panel.openBrowser()
         let files = panel.openFiles(workspacePath: "/tmp")
         let preview = panel.openFilePreview(fileURL: URL(fileURLWithPath: "/tmp/README.md"))
-        let tabIDs: [CodexWorkspaceTabHandle] = [
-            .legacy(terminal),
+        let tabHandles: [CodexWorkspaceTabHandle] = [
+            .workspace(try XCTUnwrap(panel.terminalTabID(for: terminal))),
             .legacy(browser),
             .workspace(files),
             .workspace(preview),
         ]
 
         // Warm the reducer-owned activation path before recording samples.
-        for handle in tabIDs { activate(handle, in: panel.workspaceTabs) }
+        for handle in tabHandles { activate(handle, in: panel.workspaceTabs) }
 
         let iterations = scaledIterations(default: 80, minimum: 12)
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
             samples.append(signposted("tab_activation") {
-                activate(tabIDs[index % tabIDs.count], in: panel.workspaceTabs)
+                activate(tabHandles[index % tabHandles.count], in: panel.workspaceTabs)
                 _ = panel.workspaceTabs.snapshot.topology.right.activeTab
             })
         }
@@ -112,11 +112,11 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             id: "tab_activation",
             operation: "activate each existing workspace tab through CodexWorkspaceTabs",
             iterations: iterations,
-            workload: ["tabCount": tabIDs.count],
+            workload: ["tabCount": tabHandles.count],
             samples: samples,
             notes: [
                 "State-level activation; SwiftUI/AppKit display composition is measured separately.",
-                "Tab identities are terminal, browser, files, and file preview.",
+                "Tab identities are workspace-terminal, browser, files, and file preview.",
             ]
         )
     }
@@ -206,8 +206,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             // Rebuild the retained-surface union on every frame: this is the
             // current workspace composition path while the transcript streams.
             let mountedTools = CodexMountedWorkspaceToolSessions(panels: [panel])
-            let retainedSurfaceCount = mountedTools.terminal.count
-                + mountedTools.browser.count
+            let retainedSurfaceCount = mountedTools.browser.count
                 + panel.workspaceTabs.snapshot.instances.count
             XCTAssertEqual(retainedSurfaceCount, 3)
             let snapshot = try await projector.project(
@@ -235,7 +234,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             samples: samples,
             notes: [
                 "The projector is exercised through its public async interface.",
-                "The retained surface union is terminal + browser + the Files workspace tab; no product behavior is changed.",
+                "Terminal and Files are retained workspace adapters; Browser remains in the mounted legacy deck.",
             ]
         )
     }
@@ -245,25 +244,30 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         let browser = CodexBrowserSession(id: "oracle-browser")
         let files = CodexFilesSession(id: "oracle-files", rootURL: URL(fileURLWithPath: "/tmp"))
         let workspaceTabs = CodexWorkspaceTabs()
+        let terminalTabID = workspaceTabs.open(
+            CodexTerminalWorkspaceTabAdapter(session: terminal, placement: .right),
+            from: .commandMenu,
+            placement: .right
+        )
+        workspaceTabs.openLegacy(browser.id)
         let filesID = workspaceTabs.open(
             CodexFilesWorkspaceTabAdapter(session: files),
-            from: .commandMenu
+            from: .commandMenu,
+            placement: .right
         )
-        let sessionIDs: [CodexWorkspaceTabHandle] = [
-            .legacy(terminal.id),
+        let tabHandles: [CodexWorkspaceTabHandle] = [
+            .workspace(terminalTabID),
             .legacy(browser.id),
             .workspace(filesID),
         ]
-        workspaceTabs.activateLegacy(terminal.id)
+        workspaceTabs.activate(terminalTabID)
 
         func rootView() -> AnyView {
             AnyView(
                 CodexAgentSidePanel(
                     tabs: [],
                     workspaceTabs: workspaceTabs,
-                    terminalSessions: [terminal],
                     browserSessions: [browser],
-                    mountedTerminalSessions: [terminal],
                     mountedBrowserSessions: [browser],
                     onClose: {}
                 )
@@ -279,7 +283,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         var samples: [Double] = []
         samples.reserveCapacity(iterations)
         for index in 0..<iterations {
-            activate(sessionIDs[(index + 1) % sessionIDs.count], in: workspaceTabs)
+            activate(tabHandles[(index + 1) % tabHandles.count], in: workspaceTabs)
             let start = DispatchTime.now().uptimeNanoseconds
             let id = OSSignpostID(log: Self.signpostLog)
             os_signpost(.begin, log: Self.signpostLog, name: "hidden_surface_layout", signpostID: id)
@@ -293,7 +297,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
         // While one tab is selected, the other two native sessions remain
         // mounted by the current ZStack deck.  Keep this count explicit in the
         // report so a later lifecycle adapter can prove that hidden work falls.
-        let hiddenSurfaceCount = sessionIDs.count - 1
+        let hiddenSurfaceCount = tabHandles.count - 1
         XCTAssertEqual(hiddenSurfaceCount, 2)
         XCTAssertNotNil(host)
         host = nil
@@ -303,7 +307,7 @@ final class CodexWorkspacePanelPerformanceTests: XCTestCase {
             operation: "switch the selected tab and relayout a deck containing retained terminal/browser/files surfaces",
             iterations: iterations,
             workload: [
-                "mountedSurfaceCount": sessionIDs.count,
+                "mountedSurfaceCount": tabHandles.count,
                 "hiddenSurfaceCount": hiddenSurfaceCount,
                 "activeSurfaceCount": 1,
             ],

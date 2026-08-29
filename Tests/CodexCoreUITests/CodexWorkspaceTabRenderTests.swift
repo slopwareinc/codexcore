@@ -6,6 +6,85 @@ import Testing
 
 @MainActor
 struct CodexWorkspaceTabRenderTests {
+    @Test func bottomPanelMountsOnlyTheActiveTerminalDisplayWork() throws {
+        let panel = CodexWorkspacePanelState(threadID: "thread-235")
+        let firstID = panel.openTerminal(workspacePath: "/tmp", command: "swift test")
+        let secondID = panel.openTerminal(workspacePath: "/tmp", command: "swift build")
+        let firstTabID = try #require(panel.terminalTabID(for: firstID))
+        let secondTabID = try #require(panel.terminalTabID(for: secondID))
+        let first = try #require(panel.terminalSessions.first { $0.id == firstID })
+        let second = try #require(panel.terminalSessions.first { $0.id == secondID })
+        panel.workspaceTabs.activate(firstTabID)
+
+        let hosting = NSHostingView(rootView: CodexAgentSidePanel(
+            tabs: [],
+            workspaceTabs: panel.workspaceTabs,
+            showsCloseButton: false,
+            onClose: {},
+            placement: .bottom
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+
+        #expect(first.isSurfaceVisible)
+        #expect(!second.isSurfaceVisible)
+        let firstHostIdentity = first.terminalHostIdentity
+        let secondHostIdentity = second.terminalHostIdentity
+
+        panel.workspaceTabs.activate(secondTabID)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+
+        #expect(!first.isSurfaceVisible)
+        #expect(second.isSurfaceVisible)
+        #expect(first.terminalHostIdentity == firstHostIdentity)
+        #expect(second.terminalHostIdentity == secondHostIdentity)
+    }
+
+    @Test func bottomTerminalPanelKeepsTranscriptAndPTYHostIdentities() throws {
+        let model = WorkspaceTabRenderHarnessModel()
+        let terminalID = model.panel.openTerminal(
+            workspacePath: "/tmp",
+            command: "swift test"
+        )
+        let terminal = try #require(model.panel.terminalSessions.first { $0.id == terminalID })
+        let hostIdentity = terminal.terminalHostIdentity
+        let hosting = NSHostingView(rootView: WorkspaceTabRenderHarness(model: model))
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_420, height: 820)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        let transcriptHost = try #require(transcriptDescendant(in: hosting))
+        #expect(terminal.terminalHostIdentity == hostIdentity)
+
+        let tabID = try #require(model.panel.terminalTabID(for: terminalID))
+        model.panel.workspaceTabs.move(tabID, to: .right)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        model.panel.workspaceTabs.move(tabID, to: .bottom)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        #expect(transcriptDescendant(in: hosting) === transcriptHost)
+        #expect(terminal.terminalHostIdentity == hostIdentity)
+    }
+
     @Test func tabSwitchesKeepTheSameTranscriptHost() throws {
         let model = WorkspaceTabRenderHarnessModel()
         let hosting = NSHostingView(rootView: WorkspaceTabRenderHarness(model: model))
@@ -142,6 +221,7 @@ struct CodexWorkspaceTabRenderTests {
                 available = [plan, refreshedReview, files, preview, replacementPreview]
             }
             tabs.register(index.isMultiple(of: 4) ? [] : available)
+            tabs.move(reviewID, to: index.isMultiple(of: 2) ? .bottom : .right)
             let handles: [CodexWorkspaceTabID] = [planID, reviewID, filesID, previewID]
             tabs.activate(handles[index % handles.count])
             if index.isMultiple(of: 7) { tabs.interact(previewID) }

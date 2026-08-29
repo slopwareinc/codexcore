@@ -201,6 +201,36 @@ final class CanonicalStateModelTests: XCTestCase {
         XCTAssertNotEqual(global, scoped)
     }
 
+    func testBackgroundTerminalSnapshotScopesByThreadWithoutLosingPageMetadata() {
+        let first = CanonicalBackgroundTerminalState(
+            threadID: "thread-a",
+            terminals: [CanonicalBackgroundTerminal(
+                processID: "process-a",
+                command: "sleep 10",
+                cwd: .string("/tmp/a"),
+                itemID: "item-a"
+            )],
+            nextCursor: "next",
+            lastChangedRevision: StateRevision(7)
+        )
+        let second = CanonicalBackgroundTerminalState(
+            threadID: "thread-b",
+            terminals: [CanonicalBackgroundTerminal(
+                processID: "process-b",
+                command: "sleep 20",
+                cwd: .string("/tmp/b"),
+                itemID: "item-b"
+            )]
+        )
+        let snapshot = CanonicalStateSnapshot(
+            backgroundTerminals: ["thread-a": first, "thread-b": second]
+        )
+
+        let scoped = snapshot.scoped(to: .thread("thread-a", fields: .backgroundTerminals))
+        XCTAssertEqual(scoped.backgroundTerminals, ["thread-a": first])
+        XCTAssertEqual(scoped.backgroundTerminals["thread-a"]?.nextCursor, "next")
+    }
+
     func testCanonicalTurnErrorExposesTypedCodexInfoWithoutDroppingRawValue() {
         let raw = CodexJSONValue.dictionary([
             "type": .string("responseStreamConnectionFailed"),

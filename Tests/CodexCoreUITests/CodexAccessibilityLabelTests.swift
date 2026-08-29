@@ -68,4 +68,25 @@ final class CodexAccessibilityLabelTests: XCTestCase {
             "2m"
         )
     }
+
+    func testWorkspacePanelLabelsNamePlacementAndKeyboardMoveAction() {
+        XCTAssertEqual(
+            CodexWorkspaceTabAccessibility.panelLabel(.right),
+            "Workspace right panel"
+        )
+        XCTAssertEqual(
+            CodexWorkspaceTabAccessibility.panelLabel(.bottom),
+            "Workspace bottom panel"
+        )
+        XCTAssertEqual(
+            CodexWorkspaceTabAccessibility.moveLabel(title: "swift test", to: .bottom),
+            "Move swift test to bottom panel"
+        )
+        XCTAssertEqual(
+            CodexWorkspaceTabAccessibility.closeLabel(title: "swift test"),
+            "Close swift test"
+        )
+        XCTAssertEqual(CodexWorkspaceTabAccessibility.moveShortcut(for: .right), "⌘⌥]")
+        XCTAssertEqual(CodexWorkspaceTabAccessibility.moveShortcut(for: .bottom), "⌘⌥[")
+    }
 }

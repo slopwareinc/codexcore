@@ -432,6 +432,89 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertEqual(deleted.mutations, [.threadRemoved("thread-1")])
     }
 
+    func testBackgroundTerminalResponsesBecomeTypedCanonicalMutations() throws {
+        let list = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadBackgroundTerminalsList,
+                requestParams: ["threadId": .string("thread-1")],
+                connectionEpoch: 1
+            ),
+            result: valueFixture(#"""
+            {
+              "data": [{
+                "command": "sleep 10",
+                "cpuPercent": 1.5,
+                "cwd": "/tmp/project",
+                "itemId": "item-1",
+                "osPid": 42,
+                "processId": "process-1",
+                "rssKb": 128
+              }],
+              "nextCursor": "next"
+            }
+            """#)
+        )
+        XCTAssertEqual(list.mutations, [.backgroundTerminalsPage(
+            threadID: "thread-1",
+            terminals: [CanonicalBackgroundTerminal(
+                processID: "process-1",
+                command: "sleep 10",
+                cwd: .string("/tmp/project"),
+                itemID: "item-1",
+                osPID: 42,
+                cpuPercent: 1.5,
+                rssKB: 128
+            )],
+            nextCursor: "next",
+            replacesExisting: true
+        )])
+
+        let terminated = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadBackgroundTerminalsTerminate,
+                requestParams: [
+                    "threadId": .string("thread-1"),
+                    "processId": .string("process-1"),
+                ],
+                connectionEpoch: 1
+            ),
+            result: .dictionary(["terminated": .bool(true)])
+        )
+        XCTAssertEqual(terminated.mutations, [
+            .backgroundTerminalRemoved(threadID: "thread-1", processID: "process-1")
+        ])
+
+        let clean = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadBackgroundTerminalsClean,
+                requestParams: ["threadId": .string("thread-1")],
+                connectionEpoch: 1
+            ),
+            result: .null
+        )
+        XCTAssertEqual(clean.mutations, [.backgroundTerminalsRemoved(threadID: "thread-1")])
+    }
+
+    func testBackgroundTerminalListCursorAppendsInsteadOfReplacing() throws {
+        let adaptation = try adapter.adaptResponse(
+            ProtocolResponseContext(
+                method: .threadBackgroundTerminalsList,
+                requestParams: [
+                    "threadId": .string("thread-1"),
+                    "cursor": .string("older"),
+                ],
+                connectionEpoch: 1
+            ),
+            result: .dictionary(["data": .array([]), "nextCursor": .null])
+        )
+        XCTAssertEqual(adaptation.mutations, [.backgroundTerminalsPage(
+            threadID: "thread-1",
+            terminals: [],
+            nextCursor: nil,
+            replacesExisting: false
+        )])
+    }
+
     func testUnknownUnsubscribeStatusFailsClosed() {
         let context = ProtocolResponseContext(
             method: .threadUnsubscribe,

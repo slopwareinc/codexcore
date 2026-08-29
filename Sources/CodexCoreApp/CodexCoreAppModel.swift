@@ -1062,6 +1062,9 @@ final class CodexCoreAppModel {
         syncComposerThreadID()
         if let codex {
             startCurrentThreadObservation(session: codex.session, threadID: lease.id)
+            Task { [weak self] in
+                await self?.refreshBackgroundTerminals()
+            }
             await startThreadQueueObservation(
                 session: codex.session,
                 threadID: lease.id.rawValue
@@ -1076,7 +1079,7 @@ final class CodexCoreAppModel {
         cancelCurrentThreadObservation()
         currentThreadObservationGeneration &+= 1
         let generation = currentThreadObservationGeneration
-        let fields: StateFieldMask = [.thread, .turn, .item, .requests]
+        let fields: StateFieldMask = [.thread, .turn, .item, .requests, .backgroundTerminals]
         currentThreadObservationTask = Task { [weak self] in
             let observation = await session.observeSessionState(
                 scope: .thread(threadID, fields: fields)
@@ -3649,6 +3652,27 @@ final class CodexCoreAppModel {
         _ = configurationSession.cycleReasoning()
     }
 
+    /// Refreshes server-owned background terminals for the selected thread.
+    /// The protocol operation updates canonical state; UI reads the resulting
+    /// snapshot rather than retaining a second process ledger.
+    func refreshBackgroundTerminals(threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
+        _ = try? await codex.listBackgroundTerminals(threadID: ThreadID(threadID))
+    }
+
+    func terminateBackgroundTerminal(processID: String, threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
+        _ = try? await codex.terminateBackgroundTerminal(
+            threadID: ThreadID(threadID),
+            processID: processID
+        )
+    }
+
+    func cleanBackgroundTerminals(threadID: String? = nil) async {
+        guard let codex, let threadID = threadID ?? currentThreadID else { return }
+        try? await codex.cleanBackgroundTerminals(threadID: ThreadID(threadID))
+    }
+
     private var statusSummaryContext: CodexChatStatusSummaryContext {
         CodexChatStatusSummaryContext(
             connectionLabel: connectionState.label,
@@ -3702,7 +3726,10 @@ final class CodexCoreAppModel {
             sourceFiles: Array(sourceFiles),
             plan: !isSending && !currentPlan.isEmpty
                 ? CodexPlanSummary(steps: currentPlan, explanation: currentPlanExplanation)
-                : nil
+                : nil,
+            backgroundTerminals: currentThreadID.flatMap {
+                selectedThreadSessionSnapshot?.canonical.backgroundTerminals[ThreadID($0)]
+            }
         )
     }
 

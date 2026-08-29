@@ -429,6 +429,7 @@ struct CodexCoreAppShell: View {
         let supplementalVoicePresentation = model.voiceSession.threadID == model.currentThreadID
             ? model.voiceSession.transcriptPresentation
             : CodexVoiceTranscriptPresentation()
+        let backgroundThreadID = model.currentThreadID
 
         return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
@@ -443,6 +444,18 @@ struct CodexCoreAppShell: View {
                 rateLimitBannerMessage: model.rateLimitBannerMessage,
                 workspaceSummary: model.workspaceSummaryContext,
                 gitReviewSession: model.gitReviewSession,
+                backgroundTerminalActions: CodexBackgroundTerminalActions(
+                    refresh: { Task { await model.refreshBackgroundTerminals(threadID: backgroundThreadID) } },
+                    terminate: { processID in
+                        Task {
+                            await model.terminateBackgroundTerminal(
+                                processID: processID,
+                                threadID: backgroundThreadID
+                            )
+                        }
+                    },
+                    clean: { Task { await model.cleanBackgroundTerminals(threadID: backgroundThreadID) } }
+                ),
                 showsSidebarToggle: true,
                 isSidebarVisible: !model.sidebarSnapshot.isCollapsed,
                 leadingTitlebarInset: model.sidebarSnapshot.isCollapsed

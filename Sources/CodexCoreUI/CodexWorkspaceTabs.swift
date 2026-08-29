@@ -31,7 +31,7 @@ public enum CodexWorkspaceTabHandle: Hashable, Codable, Sendable, Identifiable {
 public enum CodexWorkspaceTabPlacement: String, Codable, Sendable {
     case right
     case bottom
-    var other: Self { self == .right ? .bottom : .right }
+    public var other: Self { self == .right ? .bottom : .right }
 }
 
 public enum CodexWorkspaceTabOpener: String, Codable, Sendable {
@@ -39,6 +39,7 @@ public enum CodexWorkspaceTabOpener: String, Codable, Sendable {
     case transcript
     case commandMenu
     case restoration
+    case background
 }
 
 package enum CodexWorkspaceTabLifetime: String, Codable, Sendable {
@@ -183,6 +184,9 @@ package struct CodexWorkspaceTabRegistration {
     package let makeContent: @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     package let routeReplacementKey: String?
     package let contentRevision: UInt64
+    package let preferredPlacement: CodexWorkspaceTabPlacement
+    package let onReopen: (@MainActor (CodexWorkspaceTabID) -> Void)?
+    package let onVisibilityChanged: (@MainActor (Bool) -> Void)?
 
     init(
         resourceKey: String,
@@ -197,6 +201,9 @@ package struct CodexWorkspaceTabRegistration {
         onClose: @escaping @MainActor () -> Void = {},
         routeReplacementKey: String? = nil,
         contentRevision: UInt64 = 0,
+        preferredPlacement: CodexWorkspaceTabPlacement = .right,
+        onReopen: (@MainActor (CodexWorkspaceTabID) -> Void)? = nil,
+        onVisibilityChanged: (@MainActor (Bool) -> Void)? = nil,
         makeContent: @escaping @MainActor (Binding<CodexWorkspaceTabState>) -> AnyView
     ) {
         self.resourceKey = resourceKey
@@ -211,6 +218,9 @@ package struct CodexWorkspaceTabRegistration {
         self.onClose = onClose
         self.routeReplacementKey = routeReplacementKey
         self.contentRevision = contentRevision
+        self.preferredPlacement = preferredPlacement
+        self.onReopen = onReopen
+        self.onVisibilityChanged = onVisibilityChanged
         self.makeContent = makeContent
     }
 }
@@ -305,17 +315,47 @@ public final class CodexWorkspaceTabs: ObservableObject {
         _ adapter: any CodexWorkspaceTabAdapter,
         from opener: CodexWorkspaceTabOpener
     ) -> CodexWorkspaceTabID {
+        open(adapter, from: opener, placement: nil, focus: true)
+    }
+
+    /// Opens a resource in the requested panel. When `focus` is false the tab
+    /// is retained and its panel is opened without stealing the active tab.
+    @discardableResult
+    package func open(
+        _ adapter: any CodexWorkspaceTabAdapter,
+        from opener: CodexWorkspaceTabOpener,
+        placement requestedPlacement: CodexWorkspaceTabPlacement? = nil,
+        focus: Bool = true
+    ) -> CodexWorkspaceTabID {
         let registration = adapter.workspaceTabRegistration
         if let index = snapshot.instances.firstIndex(where: { $0.resourceKey == registration.resourceKey }) {
-            return reopen(index, registration: registration, opener: opener)
+            return reopen(
+                index,
+                registration: registration,
+                opener: opener,
+                requestedPlacement: requestedPlacement,
+                focus: focus
+            )
         }
         if closed?.tab.resourceKey == registration.resourceKey {
-            return reopenClosed(registration: registration, opener: opener)
+            return reopenClosed(
+                registration: registration,
+                opener: opener,
+                requestedPlacement: requestedPlacement,
+                focus: focus
+            )
         }
         if registration.lifetime == .preview,
            let index = snapshot.instances.firstIndex(where: { !$0.isPinned }) {
-            return replacePreview(index, registration: registration, opener: opener)
+            return replacePreview(
+                index,
+                registration: registration,
+                opener: opener,
+                requestedPlacement: requestedPlacement,
+                focus: focus
+            )
         }
+        let placement = requestedPlacement ?? registration.preferredPlacement
         let id = CodexWorkspaceTabID()
         let tab = CodexWorkspaceTabInstanceSnapshot(
             id: id,
@@ -326,7 +366,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
             durableRoute: registration.lifetime == .pinned ? registration.durableRoute : nil,
             openMetadata: .init(
                 opener: opener,
-                insertionIndex: snapshot.topology.right.orderedTabs.count,
+                insertionIndex: snapshot.topology[placement].orderedTabs.count,
                 replacedResourceKey: nil,
                 replacedRoute: nil
             ),
@@ -338,15 +378,26 @@ public final class CodexWorkspaceTabs: ObservableObject {
         )
         snapshot.instances.append(tab)
         registrations[id] = registration
-        activate(.workspace(id), in: .right, inserting: true)
+        activate(.workspace(id), in: placement, inserting: true, focus: focus)
         return id
+    }
+
+    @discardableResult
+    package func openInBackground(
+        _ adapter: any CodexWorkspaceTabAdapter,
+        from opener: CodexWorkspaceTabOpener = .background,
+        placement: CodexWorkspaceTabPlacement? = nil
+    ) -> CodexWorkspaceTabID {
+        open(adapter, from: opener, placement: placement, focus: false)
     }
 
     /// Reopening a just-closed resource consumes its undo record and restores
     /// the original tab/content identities instead of creating a duplicate.
     private func reopenClosed(
         registration: CodexWorkspaceTabRegistration,
-        opener: CodexWorkspaceTabOpener
+        opener: CodexWorkspaceTabOpener,
+        requestedPlacement: CodexWorkspaceTabPlacement?,
+        focus: Bool
     ) -> CodexWorkspaceTabID {
         guard let closed else { preconditionFailure("Missing matching closed tab") }
         self.closed = nil
@@ -356,13 +407,21 @@ public final class CodexWorkspaceTabs: ObservableObject {
         var panel = snapshot.topology[closed.placement]
         panel.orderedTabs.insert(.workspace(closed.tab.id), at: min(closed.tabIndex, panel.orderedTabs.count))
         snapshot.topology[closed.placement] = panel
-        return reopen(instanceIndex, registration: registration, opener: opener)
+        return reopen(
+            instanceIndex,
+            registration: registration,
+            opener: opener,
+            requestedPlacement: requestedPlacement,
+            focus: focus
+        )
     }
 
     private func reopen(
         _ index: Int,
         registration: CodexWorkspaceTabRegistration,
-        opener: CodexWorkspaceTabOpener
+        opener: CodexWorkspaceTabOpener,
+        requestedPlacement: CodexWorkspaceTabPlacement?,
+        focus: Bool
     ) -> CodexWorkspaceTabID {
         var tab = snapshot.instances[index]
         let placement = placement(of: .workspace(tab.id)) ?? .right
@@ -382,14 +441,21 @@ public final class CodexWorkspaceTabs: ObservableObject {
         )
         snapshot.instances[index] = tab
         registrations[tab.id] = registration
-        activate(.workspace(tab.id), in: placement)
+        let destination = requestedPlacement ?? placement
+        if destination != placement {
+            move(tab.id, to: destination, focus: focus)
+        } else {
+            activate(.workspace(tab.id), in: placement, focus: focus)
+        }
         return tab.id
     }
 
     private func replacePreview(
         _ index: Int,
         registration: CodexWorkspaceTabRegistration,
-        opener: CodexWorkspaceTabOpener
+        opener: CodexWorkspaceTabOpener,
+        requestedPlacement: CodexWorkspaceTabPlacement?,
+        focus: Bool
     ) -> CodexWorkspaceTabID {
         var tab = snapshot.instances[index]
         let placement = placement(of: .workspace(tab.id)) ?? .right
@@ -411,7 +477,12 @@ public final class CodexWorkspaceTabs: ObservableObject {
         )
         snapshot.instances[index] = tab
         registrations[tab.id] = registration
-        activate(.workspace(tab.id), in: placement)
+        let destination = requestedPlacement ?? placement
+        if destination != placement {
+            move(tab.id, to: destination, focus: focus)
+        } else {
+            activate(.workspace(tab.id), in: placement, focus: focus)
+        }
         return tab.id
     }
 
@@ -424,14 +495,57 @@ public final class CodexWorkspaceTabs: ObservableObject {
     public func activate(_ id: CodexWorkspaceTabID) {
         guard let index = index(of: id), let placement = placement(of: .workspace(id)) else { return }
         if registrations[id] != nil { snapshot.instances[index].isMaterialized = true }
-        activate(.workspace(id), in: placement)
+        activate(.workspace(id), in: placement, focus: true)
     }
 
     public func move(_ id: CodexWorkspaceTabID, to destination: CodexWorkspaceTabPlacement) {
+        move(id, to: destination, focus: true)
+    }
+
+    package func move(
+        _ id: CodexWorkspaceTabID,
+        to destination: CodexWorkspaceTabPlacement,
+        focus: Bool
+    ) {
         guard let source = placement(of: .workspace(id)) else { return }
-        guard source != destination else { activate(id); return }
+        guard source != destination else {
+            if focus { activate(id) }
+            return
+        }
         remove(.workspace(id), from: source)
-        activate(.workspace(id), in: destination, inserting: true)
+        activate(.workspace(id), in: destination, inserting: true, focus: focus)
+    }
+
+    package func orderedTabs(in placement: CodexWorkspaceTabPlacement) -> [CodexWorkspaceTabHandle] {
+        snapshot.topology[placement].orderedTabs
+    }
+
+    package func activeTab(in placement: CodexWorkspaceTabPlacement) -> CodexWorkspaceTabHandle? {
+        snapshot.topology[placement].activeTab
+    }
+
+    package func isOpen(in placement: CodexWorkspaceTabPlacement) -> Bool {
+        snapshot.topology[placement].isOpen
+    }
+
+    package func placement(of id: CodexWorkspaceTabID) -> CodexWorkspaceTabPlacement? {
+        placement(of: .workspace(id))
+    }
+
+    /// Restores focus to the last focused open panel, falling back to the other
+    /// panel when the saved placement has been closed or emptied.
+    package func restoreFocus() {
+        if let focusedPlacement = snapshot.topology.focusedPlacement,
+           snapshot.topology[focusedPlacement].isOpen {
+            return
+        }
+        if snapshot.topology.right.isOpen {
+            snapshot.topology.focusedPlacement = .right
+        } else if snapshot.topology.bottom.isOpen {
+            snapshot.topology.focusedPlacement = .bottom
+        } else {
+            snapshot.topology.focusedPlacement = nil
+        }
     }
 
     public func updateState(_ state: CodexWorkspaceTabState, for id: CodexWorkspaceTabID) {
@@ -450,6 +564,10 @@ public final class CodexWorkspaceTabs: ObservableObject {
             \.codexWorkspaceTabInteraction,
             { [weak self] in self?.interact(id) }
         ))
+    }
+
+    package func setVisibility(_ visible: Bool, for id: CodexWorkspaceTabID) {
+        registrations[id]?.onVisibilityChanged?(visible)
     }
 
     package func isAvailable(_ id: CodexWorkspaceTabID) -> Bool { registrations[id] != nil }
@@ -505,6 +623,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         panel.orderedTabs.insert(.workspace(closed.tab.id), at: min(closed.tabIndex, panel.orderedTabs.count))
         snapshot.topology[closed.placement] = panel
         activate(.workspace(closed.tab.id), in: closed.placement)
+        closed.registration?.onReopen?(closed.tab.id)
         return closed.tab.id
     }
 
@@ -530,7 +649,7 @@ public final class CodexWorkspaceTabs: ObservableObject {
         if panel != previous { snapshot.topology.right = panel }
     }
 
-    func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
+    package func setOpen(_ isOpen: Bool, placement: CodexWorkspaceTabPlacement = .right) {
         var panel = snapshot.topology[placement]
         // An explicit open must reveal the panel's launcher even before the
         // first resource tab exists. Removing the last tab still closes the
@@ -539,6 +658,10 @@ public final class CodexWorkspaceTabs: ObservableObject {
         if panel.isOpen, panel.activeTab == nil { panel.activeTab = panel.orderedTabs.first }
         snapshot.topology[placement] = panel
         if panel.isOpen { snapshot.topology.focusedPlacement = placement }
+        else if snapshot.topology.focusedPlacement == placement {
+            snapshot.topology.focusedPlacement = snapshot.topology[placement.other].isOpen
+                ? placement.other : nil
+        }
     }
 
     func removeAll() {
@@ -573,15 +696,20 @@ public final class CodexWorkspaceTabs: ObservableObject {
     private func activate(
         _ handle: CodexWorkspaceTabHandle,
         in placement: CodexWorkspaceTabPlacement,
-        inserting: Bool = false
+        inserting: Bool = false,
+        focus: Bool = true
     ) {
         var panel = snapshot.topology[placement]
         if inserting, !panel.orderedTabs.contains(handle) { panel.orderedTabs.append(handle) }
         guard panel.orderedTabs.contains(handle) else { return }
-        panel.activeTab = handle
         panel.isOpen = true
+        if focus {
+            panel.activeTab = handle
+        } else if panel.activeTab == nil {
+            panel.activeTab = panel.orderedTabs.first
+        }
         snapshot.topology[placement] = panel
-        snapshot.topology.focusedPlacement = placement
+        if focus { snapshot.topology.focusedPlacement = placement }
     }
 
     private func remove(_ handle: CodexWorkspaceTabHandle, from placement: CodexWorkspaceTabPlacement) {

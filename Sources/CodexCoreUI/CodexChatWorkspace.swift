@@ -65,31 +65,24 @@ public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
 
 /// Stable, first-seen tool-session unions for the mounted chat panels.
 ///
-/// The workspace keeps each tool category in its own deck, so each category
-/// needs an independent identity set. Collecting all four categories together
-/// avoids rebuilding the mounted-panel array and traversing every panel four
-/// times during one side-panel composition.
+/// The workspace keeps each legacy tool category in its own deck, so each
+/// category needs an independent identity set. Collecting the legacy
+/// categories together avoids rebuilding the mounted-panel array and
+/// traversing every panel three times during one side-panel composition.
 @MainActor
 struct CodexMountedWorkspaceToolSessions {
-    let terminal: [CodexTerminalSession]
     let browser: [CodexBrowserSession]
 
     init(panels: [CodexWorkspacePanelState]) {
-        var terminalIDs = Set<String>()
         var browserIDs = Set<String>()
-        var terminal: [CodexTerminalSession] = []
         var browser: [CodexBrowserSession] = []
 
         for panel in panels {
-            for session in panel.terminalSessions where terminalIDs.insert(session.id).inserted {
-                terminal.append(session)
-            }
             for session in panel.browserSessions where browserIDs.insert(session.id).inserted {
                 browser.append(session)
             }
         }
 
-        self.terminal = terminal
         self.browser = browser
     }
 }
@@ -108,6 +101,7 @@ public struct CodexChatWorkspaceView: View {
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
     private let gitReviewSession: CodexGitReviewSession?
+    private let backgroundTerminalActions: CodexBackgroundTerminalActions?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let leadingTitlebarInset: CGFloat
@@ -193,6 +187,7 @@ public struct CodexChatWorkspaceView: View {
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
+        backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = false,
         leadingTitlebarInset: CGFloat = 0,
@@ -270,6 +265,7 @@ public struct CodexChatWorkspaceView: View {
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
         self.gitReviewSession = gitReviewSession
+        self.backgroundTerminalActions = backgroundTerminalActions
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.leadingTitlebarInset = max(0, leadingTitlebarInset)
@@ -348,22 +344,35 @@ public struct CodexChatWorkspaceView: View {
             let floatingOverviewTrailingInset = 16 + (panelState.usesPersistentSidePanel && panel.isAgentPanelOpen ? panel.panelWidth : 0)
 
             ZStack(alignment: .trailing) {
-                HStack(spacing: 0) {
-                    mainColumn(
-                        panelState: panelState,
-                        isDockedOverviewVisible: isDockedOverviewVisible,
-                        isOverviewControlActive: isDockedOverviewVisible || isFloatingOverviewVisible
-                    )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if panelState.usesPersistentSidePanel, panel.isAgentPanelOpen {
-                        agentSidePanel(
-                            resizable: true,
-                            showsCloseButton: panelState.showsCloseButtonInsideSidePanel
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        mainColumn(
+                            panelState: panelState,
+                            isDockedOverviewVisible: isDockedOverviewVisible,
+                            isOverviewControlActive: isDockedOverviewVisible || isFloatingOverviewVisible
                         )
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        if panelState.usesPersistentSidePanel, panel.isAgentPanelOpen {
+                            agentSidePanel(
+                                resizable: true,
+                                showsCloseButton: panelState.showsCloseButtonInsideSidePanel,
+                                placement: .right
+                            )
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    }
+
+                    if workspaceTabs.isOpen(in: .bottom) {
+                        agentSidePanel(
+                            resizable: false,
+                            showsCloseButton: true,
+                            placement: .bottom
+                        )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if isFloatingOverviewVisible {
                     compactOverlayBackdrop {
@@ -386,13 +395,15 @@ public struct CodexChatWorkspaceView: View {
 
                     agentSidePanel(
                         resizable: true,
-                        showsCloseButton: panelState.showsCloseButtonInsideSidePanel
+                        showsCloseButton: panelState.showsCloseButtonInsideSidePanel,
+                        placement: .right
                     )
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
         }
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: panel.isAgentPanelOpen)
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: workspaceTabs.snapshot.topology.bottom.isOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
@@ -530,7 +541,7 @@ public struct CodexChatWorkspaceView: View {
                     leadingTitlebarInset: leadingTitlebarInset,
                     isSummaryPanelOpen: isOverviewControlActive,
                     hasPanelTabs: true,
-                    isPanelOpen: panel.isAgentPanelOpen,
+                    isPanelOpen: panel.isAnyWorkspacePanelOpen,
                     chatActions: workspaceChatActions,
                     onToggleSidebar: onToggleSidebar,
                     onToggleSummaryPanel: {
@@ -680,12 +691,14 @@ public struct CodexChatWorkspaceView: View {
             subagentCoordinator: subagentCoordinator,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
+            backgroundTerminalActions: backgroundTerminalActions,
             chatTitle: chatTitle,
             onEnvironmentHandoffCompletion: { completion in
                 onEnvironmentHandoffCompletion?(completion)
             },
             onOpenPlan: openPlanPanel,
             onOpenReview: openReviewPanel,
+            onOpenBackgroundTerminalDetail: openBackgroundTerminalDetail,
             onSelectTab: { openPanelTab($0, from: .summary) }
         )
     }
@@ -698,15 +711,17 @@ public struct CodexChatWorkspaceView: View {
         CodexMountedWorkspaceToolSessions(panels: mountedPanels + [panel])
     }
 
-    private func agentSidePanel(resizable: Bool, showsCloseButton: Bool) -> some View {
+    private func agentSidePanel(
+        resizable: Bool,
+        showsCloseButton: Bool,
+        placement: CodexWorkspaceTabPlacement
+    ) -> some View {
         let mountedTools = mountedWorkspaceTools
         return CodexAgentSidePanel(
             tabs: panelTabs,
             workspaceTabs: workspaceTabs,
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
-            terminalSessions: panel.terminalSessions,
             browserSessions: panel.browserSessions,
-            mountedTerminalSessions: mountedTools.terminal,
             mountedBrowserSessions: mountedTools.browser,
             modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
@@ -717,10 +732,22 @@ public struct CodexChatWorkspaceView: View {
             onOpenTerminal: openTerminalTab,
             onOpenBrowser: openBrowserTab,
             onOpenFiles: openFilesTab,
-            onCloseTerminal: closeTerminalTab,
             onCloseBrowser: closeBrowserTab,
             showsCloseButton: showsCloseButton,
-            onClose: { withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) { panel.isAgentPanelOpen = false } }
+            onClose: {
+                withAnimation(.spring(
+                    response: theme.animations.springResponse,
+                    dampingFraction: theme.animations.springDamping
+                )) {
+                    if placement == .right {
+                        panel.isAgentPanelOpen = false
+                    } else {
+                        workspaceTabs.setOpen(false, placement: placement)
+                    }
+                }
+            },
+            placement: placement,
+            panelHeight: placement == .bottom ? 280 : 0
         )
     }
 
@@ -806,11 +833,15 @@ public struct CodexChatWorkspaceView: View {
         let routes = workspaceTabs.snapshot.instances.map {
             "\($0.resourceKey):\($0.durableRoute?.resourceID ?? "")"
         }.joined(separator: "|")
-        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(routes)"
+        let backgroundTerminals = workspaceSummary?.backgroundTerminals.map { state in
+            "\(state.lastChangedRevision.rawValue):"
+                + state.terminals.map { "\($0.processID):\($0.command)" }.joined(separator: ",")
+        } ?? "no-background-terminals"
+        return "\(workspacePath)|\(plan)|\(review)|\(subagentIdentity)|\(routes)|\(backgroundTerminals)"
     }
 
     private func registerAvailableWorkspaceTabs() {
-        var adapters: [any CodexWorkspaceTabAdapter] = []
+        var adapters: [any CodexWorkspaceTabAdapter] = panel.terminalWorkspaceTabAdapters
         if let plan = workspaceSummary?.plan {
             adapters.append(CodexPlanWorkspaceTabAdapter(plan: plan))
         }
@@ -820,6 +851,17 @@ public struct CodexChatWorkspaceView: View {
         }
         if let adapter = subagentsAdapter {
             adapters.append(adapter)
+        }
+        if let backgroundTerminals = workspaceSummary?.backgroundTerminals {
+            adapters.append(contentsOf: backgroundTerminals.terminals.map { terminal in
+                CodexBackgroundTerminalWorkspaceTabAdapter(
+                    threadID: backgroundTerminals.threadID,
+                    terminal: terminal,
+                    onTerminate: {
+                        backgroundTerminalActions?.terminate(terminal.processID)
+                    }
+                )
+            })
         }
         let fileAdapters = CodexFilesWorkspaceTabAdapterRegistry.make(
             snapshot: workspaceTabs.snapshot,
@@ -836,6 +878,24 @@ public struct CodexChatWorkspaceView: View {
         panel.filesSession = fileAdapters.filesSession
         adapters.append(contentsOf: fileAdapters.adapters)
         workspaceTabs.register(adapters)
+    }
+
+    private func openBackgroundTerminalDetail(_ processID: String) {
+        guard let backgroundTerminals = workspaceSummary?.backgroundTerminals,
+              let terminal = backgroundTerminals.terminals.first(
+            where: { $0.processID == processID }
+        ) else { return }
+        workspaceTabs.open(
+            CodexBackgroundTerminalWorkspaceTabAdapter(
+                threadID: backgroundTerminals.threadID,
+                terminal: terminal,
+                onTerminate: {
+                    backgroundTerminalActions?.terminate(processID)
+                }
+            ),
+            from: .summary
+        )
+        showAgentPanel()
     }
 
     private var subagentsAdapter: CodexSubagentsWorkspaceTabAdapter? {
@@ -889,13 +949,6 @@ public struct CodexChatWorkspaceView: View {
 
     private func openTerminalTab() {
         panel.openTerminal(workspacePath: workspacePath)
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
-    }
-
-    private func closeTerminalTab(_ id: String) {
-        panel.closeTerminal(id: id)
     }
 
     private func openBrowserTab() {

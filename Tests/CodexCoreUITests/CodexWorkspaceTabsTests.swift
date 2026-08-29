@@ -6,6 +6,114 @@ import Testing
 
 @MainActor
 struct CodexWorkspaceTabsTests {
+    @Test func terminalAdapterUsesScopedStableIdentityAndBottomPlacement() throws {
+        let identity = CodexTerminalIdentity(
+            threadID: "thread-235",
+            worktreePath: "/tmp/codex-worktree",
+            ordinal: 1
+        )
+        let first = CodexTerminalSession(
+            workingDirectory: identity.worktreePath,
+            command: "swift test",
+            identity: identity
+        )
+        let second = CodexTerminalSession(
+            workingDirectory: identity.worktreePath,
+            command: "swift test",
+            identity: identity
+        )
+
+        #expect(first.id == second.id)
+        #expect(first.title == "swift test")
+
+        let tabs = CodexWorkspaceTabs()
+        let id = tabs.open(
+            CodexTerminalWorkspaceTabAdapter(session: first),
+            from: .background,
+            placement: .bottom
+        )
+
+        #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
+        #expect(tabs.snapshot.topology.bottom.orderedTabIDs == [id])
+        #expect(tabs.snapshot.topology.bottom.activeTabID == id)
+        #expect(tabs.snapshot.instance(id: id)?.durableRoute?.resourceID == first.id)
+        #expect(tabs.content(for: id) != nil)
+    }
+
+    @Test func backgroundOpenAndRestorePreservePanelFocusAndTabIdentity() throws {
+        let tabs = CodexWorkspaceTabs()
+        let rightID = tabs.open(
+            TestWorkspaceTabAdapter(resourceKey: "right", lifetime: .pinned),
+            from: .summary,
+            placement: .right
+        )
+        let terminal = CodexTerminalSession(
+            workingDirectory: "/tmp/worktree",
+            command: "swift test",
+            identity: CodexTerminalIdentity(
+                threadID: "thread-235",
+                worktreePath: "/tmp/worktree",
+                ordinal: 1
+            )
+        )
+        let bottomID = tabs.openInBackground(
+            CodexTerminalWorkspaceTabAdapter(session: terminal),
+            placement: .bottom
+        )
+
+        #expect(tabs.snapshot.topology.right.activeTabID == rightID)
+        #expect(tabs.snapshot.topology.bottom.activeTabID == bottomID)
+        #expect(tabs.snapshot.topology.focusedPlacement == .right)
+
+        tabs.setOpen(false, placement: .right)
+        tabs.restoreFocus()
+        #expect(tabs.snapshot.topology.focusedPlacement == .bottom)
+
+        let restored = CodexWorkspaceTabs(restoring: try JSONDecoder().decode(
+            CodexWorkspaceTabRestorationState.self,
+            from: JSONEncoder().encode(tabs.restorationState)
+        ))
+        restored.register([CodexTerminalWorkspaceTabAdapter(session: terminal)])
+        restored.activate(bottomID)
+
+        #expect(restored.snapshot.topology.bottom.orderedTabIDs == [bottomID])
+        #expect(restored.snapshot.topology.bottom.activeTabID == bottomID)
+        #expect(restored.snapshot.instance(id: bottomID)?.contentID == tabs.snapshot.instance(id: bottomID)?.contentID)
+    }
+
+    @Test func terminalRouteRestoresByScopedIdentityWhenCommandTitleChanges() throws {
+        let identity = CodexTerminalIdentity(
+            threadID: "thread-235",
+            worktreePath: "/tmp/worktree",
+            ordinal: 1
+        )
+        let sourceSession = CodexTerminalSession(
+            title: "Terminal",
+            workingDirectory: "/tmp/worktree",
+            command: "swift test",
+            identity: identity
+        )
+        let source = CodexWorkspaceTabs()
+        let id = source.open(
+            CodexTerminalWorkspaceTabAdapter(session: sourceSession),
+            from: .commandMenu,
+            placement: .bottom
+        )
+
+        let restored = CodexWorkspaceTabs(restoring: source.restorationState)
+        let replacementSession = CodexTerminalSession(
+            title: "Terminal",
+            workingDirectory: "/tmp/worktree",
+            command: "swift build",
+            identity: identity
+        )
+        let adapter = CodexTerminalWorkspaceTabAdapter(session: replacementSession)
+        restored.register([adapter])
+        #expect(restored.isAvailable(id))
+        restored.activate(id)
+        #expect(restored.snapshot.instance(id: id)?.isMaterialized == true)
+    }
+
     @Test func subagentsWorkspaceProjectionSeparatesActiveAndDoneRows() {
         let agents = [
             CodexSubagentState(

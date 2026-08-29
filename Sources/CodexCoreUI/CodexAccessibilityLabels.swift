@@ -114,6 +114,27 @@ public enum CodexSidebarAccessibility {
     }
 }
 
+public enum CodexWorkspaceTabAccessibility {
+    public static func panelLabel(_ placement: CodexWorkspaceTabPlacement) -> String {
+        placement == .right ? "Workspace right panel" : "Workspace bottom panel"
+    }
+
+    public static func moveLabel(
+        title: String,
+        to placement: CodexWorkspaceTabPlacement
+    ) -> String {
+        "Move \(title) to \(placement == .right ? "right" : "bottom") panel"
+    }
+
+    public static func closeLabel(title: String) -> String {
+        "Close \(title)"
+    }
+
+    public static func moveShortcut(for placement: CodexWorkspaceTabPlacement) -> String {
+        placement == .right ? "⌘⌥]" : "⌘⌥["
+    }
+}
+
 public enum CodexButtonAccessibility {
     public static func accessLevelLabel(level: String) -> String {
         "Approval level: \(level). Change with arrow keys."
