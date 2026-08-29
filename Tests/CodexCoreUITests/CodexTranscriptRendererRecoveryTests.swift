@@ -255,4 +255,139 @@ struct CodexTranscriptRendererRecoveryTests {
         #expect(node == .structuredCard(card))
         #expect(node?.id == "todo")
     }
+
+    @Test func approvalReviewAndHookExtensionsBecomeStableTypedCards() throws {
+        let turn = CanonicalTurn(
+            key: .init(threadID: "thread", turnID: "turn"),
+            status: .completed,
+            extensions: [
+                "autoApprovalReview:review-1": .dictionary([
+                    "reviewId": .string("review-1"),
+                    "review": .dictionary([
+                        "status": .string("timedOut"),
+                        "rationale": .string("Review deadline elapsed"),
+                        "riskLevel": .string("high")
+                    ])
+                ]),
+                "hook:hook-1": .dictionary([
+                    "run": .dictionary([
+                        "id": .string("hook-1"),
+                        "eventName": .string("preToolUse"),
+                        "handlerType": .string("command"),
+                        "status": .string("completed"),
+                        "entries": .array([.dictionary(["text": .string("checked")])])
+                    ])
+                ])
+            ]
+        )
+        let events = CodexTranscriptEventRegistry().events(for: turn)
+        guard case .approvalReview(let review) = events[0] else {
+            Issue.record("Expected approval review card")
+            return
+        }
+        #expect(review.status == .timedOut)
+        #expect(review.title == "Approval timed out")
+        guard case .hookActivity(let hook) = events[1] else {
+            Issue.record("Expected hook activity")
+            return
+        }
+        #expect(hook.label == "preToolUse · command")
+        #expect(hook.entries == ["checked"])
+    }
+
+    @Test func markdownProjectionUsesTypedMathAndMermaidBlocks() {
+        let blocks = CodexBlockProjector.project(
+            "$$x^2 + y^2$$\n\n```mermaid\ngraph TD\n A-->B\n```",
+            cacheNamespace: "rich"
+        )
+        #expect(blocks.count == 2)
+        guard case .math(_, let latex, let display) = blocks[0] else {
+            Issue.record("Expected display math block")
+            return
+        }
+        #expect(latex == "x^2 + y^2")
+        #expect(display)
+        guard case .mermaid(_, let diagram, let complete) = blocks[1] else {
+            Issue.record("Expected Mermaid block")
+            return
+        }
+        #expect(diagram.contains("graph TD"))
+        #expect(complete)
+    }
+
+    @Test func canonicalTurnPlanBecomesAStableImplementationCard() throws {
+        let turnID: TurnID = "turn"
+        let threadID: ThreadID = "thread"
+        let turn = CanonicalTurn(
+            key: .init(threadID: threadID, turnID: turnID),
+            status: .inProgress,
+            plan: [
+                .init(step: "Inspect", status: .completed),
+                .init(step: "Implement", status: .inProgress)
+            ],
+            planExplanation: "Proposed plan"
+        )
+        let thread = CanonicalThread(
+            id: threadID,
+            status: .active(flags: []),
+            turnOrder: [turnID],
+            history: .init(mode: .legacy, turnsCoverage: .full)
+        )
+        let snapshot = CanonicalStateSnapshot(
+            revision: .init(1),
+            threadOrder: [threadID],
+            threads: [threadID: thread],
+            turns: [turn.key: turn]
+        )
+        let projected = try #require(
+            CodexCanonicalTranscriptProjector().rebuild(snapshot: snapshot, threadID: threadID)
+                .presentation.transcript.turns.first
+        )
+        let card = try #require(projected.structuredCards.first)
+        #expect(card.id == "plan:turn")
+        #expect(card.title == "Proposed plan")
+        #expect(card.steps.map(\.status) == [.completed, .inProgress])
+        #expect(projected.narrative.contains { entry in
+            if case .structuredCard = entry { return true }
+            return false
+        })
+    }
+
+    @Test func MCPDetailsUseTypedContentSummariesInsteadOfRawJSON() {
+        let blocks: [CodexMCPContentBlockV2] = [
+            .text("The answer"),
+            .resource(uri: "docs://guide", mimeType: "text/plain", text: "Read this"),
+            .widget(id: "chart", uri: "ui://chart", payload: ["series": .array([])])
+        ]
+        let summary = CodexMCPContentPresentationV2.summary(blocks)
+        #expect(summary?.contains("The answer") == true)
+        #expect(summary?.contains("docs://guide") == true)
+        #expect(summary?.contains("Interactive widget") == true)
+        #expect(summary?.contains("series") == false)
+        #expect(CodexMCPContentPresentationV2.toolDetail(arguments: .dictionary(["secret": .string("value")]), blocks: blocks)?.contains("Arguments supplied") == true)
+    }
+
+    @Test func memoryCitationsProjectAsSelectableFileReferenceChips() async throws {
+        let citation = CodexMemoryCitationV2(
+            path: "docs/README.md",
+            lineStart: 12,
+            lineEnd: 14,
+            note: "Project guide"
+        )
+        let turn = CodexTurnV2(
+            id: "turn",
+            finalAnswer: .init(id: "answer", text: "See the guide", isStreaming: false, memoryCitations: [citation]),
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: .init(.officialDark, colorScheme: .dark)
+        )
+        let chips = try #require(snapshot.itemsByID.values.first { $0.id.rawValue.contains("memory-citations") })
+        #expect(chips.agentChips.first?.label == "docs/README.md:12")
+        #expect(chips.agentChips.first?.attachmentKind == .file)
+        #expect(chips.copyText?.contains("docs/README.md:12-14") == true)
+        #expect(chips.accessibilityLabel.contains("Memory citations"))
+    }
 }

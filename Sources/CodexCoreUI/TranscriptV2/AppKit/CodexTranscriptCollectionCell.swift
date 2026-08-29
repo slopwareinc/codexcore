@@ -1633,6 +1633,11 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                    let path = CodexTranscriptImageSource.localFilePath(source),
                    isAttachment {
                     CodexTranscriptQuickLookController.shared.present(URL(fileURLWithPath: path))
+                } else if isAttachment,
+                          chip.attachmentKind == .file,
+                          let path = chip.taskSummary,
+                          let resolved = self?.fileNavigationService.resolve(.init(path: path)) {
+                    self?.fileNavigationService.open(resolved)
                 } else if let threadID = chip.threadID {
                     self?.performAction?(.openSubagent(threadID: threadID))
                 }
@@ -2564,6 +2569,7 @@ private struct CodexTranscriptAgentPill: View {
         let imageAttachment = chip.attachmentKind == .image
         let canOpenAttachment = chip.taskSummary
             .flatMap(CodexTranscriptImageSource.localFilePath) != nil
+            || (chip.attachmentKind == .file && chip.taskSummary?.isEmpty == false)
         HStack(spacing: 5) {
             if imageAttachment {
                 if let source = chip.taskSummary {

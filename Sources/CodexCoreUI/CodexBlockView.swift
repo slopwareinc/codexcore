@@ -150,6 +150,10 @@ struct CodexBlockView: View, Equatable {
             CodexProseBlock(text: text, attributed: fallbackAttributed, digest: block.contentDigest)
         case .code(_, let language, let code, _):
             CodexCodeBlock(language: language, code: code)
+        case .math(_, let latex, let display):
+            CodexMathBlockView(latex: latex, display: display)
+        case .mermaid(_, let diagram, let complete):
+            CodexMermaidBlockView(diagram: diagram, isComplete: complete)
         case .table(_, let model):
             CodexTableBlockView(model: model)
         case .heading(_, let level, let text, let attributed):

@@ -186,8 +186,10 @@ private struct CodexWorkRowViewV2: View {
         switch row {
         case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
         case .mcpToolCall(let v):
-            let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return CodexMCPContentPresentationV2.toolDetail(
+                arguments: v.arguments,
+                blocks: v.contentBlocks
+            )
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames

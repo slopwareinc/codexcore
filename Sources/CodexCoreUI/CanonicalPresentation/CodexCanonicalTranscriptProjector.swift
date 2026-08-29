@@ -413,6 +413,31 @@ private extension CodexCanonicalTranscriptProjector {
             }
         }
 
+        // `turn/plan/updated` is canonical turn state rather than a durable
+        // plan item. Project it through the same typed card adapter so a plan
+        // remains visible after reconnect/history hydration.
+        if let plan = canonical?.plan, !plan.isEmpty {
+            appendStructuredCard(
+                CodexStructuredTranscriptCardV2(
+                    id: "plan:\(turnID.rawValue)",
+                    kind: .proposedPlan,
+                    title: canonical?.planExplanation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? canonical?.planExplanation ?? "Plan"
+                        : "Plan",
+                    explanation: canonical?.planExplanation,
+                    steps: plan.enumerated().map { index, step in
+                        .init(
+                            id: "plan:\(turnID.rawValue):step:\(index)",
+                            title: step.step,
+                            status: Self.structuredPlanStatus(step.status)
+                        )
+                    },
+                    status: Self.structuredPlanStatus(Self.planStatus(plan))
+                ),
+                to: &turn
+            )
+        }
+
         if let canonical {
             for event in eventRegistry.events(for: canonical) {
                 switch event {
@@ -817,6 +842,21 @@ private extension CodexCanonicalTranscriptProjector {
 // MARK: - Work grammar
 
 private extension CodexCanonicalTranscriptProjector {
+    static func structuredPlanStatus(_ status: CanonicalPlanStepStatus) -> CodexStructuredTranscriptCardStatusV2 {
+        switch status {
+        case .pending: .pending
+        case .inProgress: .inProgress
+        case .completed: .completed
+        case .unknown(let value): .unknown(value)
+        }
+    }
+
+    static func planStatus(_ steps: [CanonicalPlanStep]) -> CanonicalPlanStepStatus {
+        if steps.contains(where: { $0.status == .inProgress }) { return .inProgress }
+        if steps.allSatisfy({ $0.status == .completed }) { return .completed }
+        return .pending
+    }
+
     func makeWorkRows(
         _ item: CanonicalItem,
         completed: Bool,

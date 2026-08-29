@@ -14,6 +14,8 @@ import SwiftUI
 public enum CodexBlock: Identifiable, Equatable, Sendable {
     case prose(id: String, text: String, attributed: AttributedString)
     case code(id: String, language: String?, code: String, complete: Bool)
+    case math(id: String, latex: String, display: Bool)
+    case mermaid(id: String, diagram: String, complete: Bool)
     case table(id: String, model: CodexTableModel)
     case heading(id: String, level: Int, text: String, attributed: AttributedString)
     case list(id: String, ordered: Bool, items: [CodexListItem])
@@ -25,6 +27,8 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
         switch self {
         case .prose(let id, _, _),
              .code(let id, _, _, _),
+             .math(let id, _, _),
+             .mermaid(let id, _, _),
              .table(let id, _),
              .heading(let id, _, _, _),
              .list(let id, _, _),
@@ -47,6 +51,10 @@ public enum CodexBlock: Identifiable, Equatable, Sendable {
             return CodexBlockDigest.digest(text)
         case .code(_, let language, let code, _):
             return CodexBlockDigest.digest("\(language ?? "")\u{0}\(code)")
+        case .math(_, let latex, let display):
+            return CodexBlockDigest.digest("math\u{0}\(display)\u{0}\(latex)")
+        case .mermaid(_, let diagram, let complete):
+            return CodexBlockDigest.digest("mermaid\u{0}\(complete)\u{0}\(diagram)")
         case .table(_, let model):
             return model.digest
         case .heading(_, let level, let text, _):
@@ -205,6 +213,7 @@ public enum CodexBlockProjector {
     enum Region: Equatable {
         case prose(text: String)
         case code(language: String?, body: String, complete: Bool)
+        case math(latex: String, display: Bool)
         case table(text: String)
         case heading(level: Int, text: String)
         case list(ordered: Bool, items: [CodexListItem])
@@ -247,6 +256,28 @@ public enum CodexBlockProjector {
                 ))
                 index += consumed + 1
                 continue
+            }
+
+            // Standalone display-math delimiters are promoted to a typed
+            // block. Inline `$…$` remains part of ordinary Markdown so it can
+            // flow naturally with surrounding prose.
+            if trimmed.hasPrefix("$$"), trimmed.hasSuffix("$$"), trimmed.count > 4 {
+                let latex = String(trimmed.dropFirst(2).dropLast(2))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !latex.isEmpty {
+                    regions.append(.math(latex: latex, display: true))
+                    index += 1
+                    continue
+                }
+            }
+            if trimmed.hasPrefix("\\["), trimmed.hasSuffix("\\]"), trimmed.count > 4 {
+                let latex = String(trimmed.dropFirst(2).dropLast(2))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !latex.isEmpty {
+                    regions.append(.math(latex: latex, display: true))
+                    index += 1
+                    continue
+                }
             }
 
             // ATX heading: # .. ######
@@ -333,7 +364,17 @@ public enum CodexBlockProjector {
         case .code(let language, let body, let complete):
             // The tail of a streaming code fence is incomplete; tag it
             // so the renderer can choose to keep it open and append.
-            return .code(id: baseID, language: language, code: body, complete: complete && !isTail ? true : complete)
+            let resolvedComplete = complete && !isTail ? true : complete
+            switch language?.lowercased() {
+            case "math", "latex", "katex":
+                return .math(id: baseID, latex: body, display: true)
+            case "mermaid", "mmd":
+                return .mermaid(id: baseID, diagram: body, complete: resolvedComplete)
+            default:
+                return .code(id: baseID, language: language, code: body, complete: resolvedComplete)
+            }
+        case .math(let latex, let display):
+            return .math(id: baseID, latex: latex, display: display)
         case .table(let text):
             if let model = CodexGFMTableParser.parse(text) {
                 return .table(id: baseID, model: model)
@@ -419,6 +460,11 @@ public enum CodexBlockProjector {
             case .code(_, let language, let code, _):
                 let fence = "```" + (language ?? "")
                 parts.append("\(fence)\n\(code)\n```")
+            case .math(_, let latex, let display):
+                let delimiter = display ? "$$" : "$"
+                parts.append("\(delimiter)\(latex)\(delimiter)")
+            case .mermaid(_, let diagram, _):
+                parts.append("```mermaid\n\(diagram)\n```")
             case .table(_, let model):
                 parts.append(model.renderMarkdown())
             case .list(_, let ordered, let items):
@@ -448,6 +494,10 @@ public enum CodexBlockProjector {
             return String(repeating: "#", count: level) + " " + text
         case .code:
             return ""
+        case .math(_, let latex, _):
+            return latex
+        case .mermaid(_, let diagram, _):
+            return diagram
         case .table:
             return ""
         case .list:

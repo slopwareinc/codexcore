@@ -725,6 +725,14 @@ actor CodexTranscriptRenderProjector {
                             role: .commentary, theme: theme, cacheHits: &preparedTextCacheHits,
                             cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                         ) { append(draft) }
+                        if let citationDraft = memoryCitationDraft(
+                            citations: prose.memoryCitations,
+                            sectionID: sectionID,
+                            sourceID: prose.id,
+                            theme: theme
+                        ) {
+                            append(citationDraft)
+                        }
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
@@ -1108,6 +1116,14 @@ actor CodexTranscriptRenderProjector {
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { append(draft) }
+                if let citationDraft = memoryCitationDraft(
+                    citations: answer.memoryCitations,
+                    sectionID: sectionID,
+                    sourceID: answer.id,
+                    theme: theme
+                ) {
+                    append(citationDraft)
+                }
             }
             for image in turn.generatedImages {
                 let label = CodexTranscriptImageSource.localFilePath(image.source)
@@ -1528,6 +1544,48 @@ private extension CodexTranscriptRenderProjector {
                     cacheHits: &cacheHits,
                     cacheMisses: &cacheMisses
                 ))
+            } else if case .math = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
+            } else if case .mermaid = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
             } else {
                 textRun.append(block)
             }
@@ -1637,6 +1695,48 @@ private extension CodexTranscriptRenderProjector {
                 code: CodexTranscriptCodeRender(language: language, code: displayCode),
                 copyText: code,
                 accessibilityLabel: "Code block \(language ?? "code"): \(code)",
+                maxWidthKind: .card
+            )
+        case .math(let id, let latex, let display):
+            let bounded = Self.bounded(latex, limit: 40_000)
+            let prepared = cachedPreparedText(
+                content: bounded,
+                style: "math",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.preparePlain(bounded, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+            }
+            return ItemDraft(
+                id: itemID ?? id,
+                fingerprint: "math:\(display):\(bounded)",
+                textRole: role,
+                preparedText: prepared,
+                code: .init(language: "math", code: bounded),
+                copyText: latex,
+                accessibilityLabel: "Mathematical expression: \(bounded)",
+                maxWidthKind: .card
+            )
+        case .mermaid(let id, let diagram, let complete):
+            let bounded = Self.bounded(diagram, limit: 40_000)
+            let prepared = cachedPreparedText(
+                content: bounded,
+                style: "mermaid-\(complete)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.preparePlain(bounded, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+            }
+            return ItemDraft(
+                id: itemID ?? id,
+                fingerprint: "mermaid:\(complete):\(bounded)",
+                textRole: role,
+                preparedText: prepared,
+                code: .init(language: "mermaid", code: bounded),
+                copyText: diagram,
+                accessibilityLabel: "Mermaid diagram: \(bounded)",
                 maxWidthKind: .card
             )
         default:
@@ -1815,6 +1915,28 @@ private extension CodexTranscriptRenderProjector {
                 bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
             ))
         }
+        if !user.attachments.isEmpty {
+            let chips = user.attachments.map { attachment in
+                CodexTranscriptAgentChipRender(
+                    id: "\(user.id):attachment:\(attachment.id)",
+                    label: attachment.label,
+                    status: .done,
+                    threadID: nil,
+                    taskSummary: attachment.value,
+                    latestUpdate: attachment.detail,
+                    attachmentKind: attachment.kind == .image ? .image : .file
+                )
+            }
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):typed-attachments",
+                fingerprint: "typed-attachments:\(user.attachments)",
+                agentChips: chips,
+                accessibilityLabel: "Attached input: \(user.attachments.map(\.label).joined(separator: ", "))",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
         if !visibleUserText.isEmpty {
             drafts.append(ItemDraft(
                 id: "\(sectionID):user:\(user.id)",
@@ -1840,6 +1962,38 @@ private extension CodexTranscriptRenderProjector {
             ))
         }
         return drafts
+    }
+
+    func memoryCitationDraft(
+        citations: [CodexMemoryCitationV2],
+        sectionID: String,
+        sourceID: String,
+        theme _: CodexTranscriptAppKitTheme
+    ) -> ItemDraft? {
+        guard !citations.isEmpty else { return nil }
+        let chips = citations.map { citation in
+            CodexTranscriptAgentChipRender(
+                id: "\(sourceID):memory-citation:\(citation.id)",
+                label: "\(citation.path):\(citation.lineStart)",
+                status: .done,
+                threadID: nil,
+                taskSummary: citation.path,
+                latestUpdate: citation.note,
+                attachmentKind: .file
+            )
+        }
+        let labels = citations.map { "\($0.path):\($0.lineStart)-\($0.lineEnd)" }
+        return ItemDraft(
+            id: "\(sectionID):memory-citations:\(sourceID)",
+            fingerprint: "memory-citations:\(citations)",
+            agentChips: chips,
+            action: citations.first.map { .openFile(path: $0.path, line: $0.lineStart) },
+            copyText: labels.joined(separator: "\n"),
+            accessibilityLabel: "Memory citations: \(labels.joined(separator: ", "))",
+            isTrailingAligned: false,
+            maxWidthKind: .card,
+            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
     }
 
     func cachedPreparedText(
@@ -2061,6 +2215,10 @@ private extension CodexTranscriptRenderProjector {
             return prepareTable(model, role: role, theme: theme)
         case .code:
             return preparePlain("", font: theme.codeFont, color: theme.codeText, theme: theme)
+        case .math(_, let latex, _):
+            return preparePlain(latex, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+        case .mermaid(_, let diagram, _):
+            return preparePlain(diagram, font: theme.codeFont, color: theme.textPrimary, theme: theme)
         }
     }
 
@@ -2416,11 +2574,10 @@ private extension CodexTranscriptRenderProjector {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
         case .fileChange: return nil
         case .mcpToolCall(let value):
-            let parts = [
-                value.arguments.map { "Arguments\n\($0.description)" },
-                value.result.map { "Result\n\($0.description)" }
-            ].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return CodexMCPContentPresentationV2.toolDetail(
+                arguments: value.arguments,
+                blocks: value.contentBlocks
+            )
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames
@@ -2502,10 +2659,10 @@ private extension CodexTranscriptRenderProjector {
                     })
                 case .productToolCall(let call):
                     let label = [call.namespace, call.tool].compactMap { $0 }.joined(separator: " · ")
-                    let payload = [call.arguments.map(\.description), call.contentItems.isEmpty ? nil : call.contentItems.map(\.description).joined(separator: "\n")]
-                        .compactMap { $0 }
-                        .joined(separator: "\n")
-                    work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+                    let payload = CodexMCPContentPresentationV2.summary(
+                        call.contentItems.compactMap(CodexMCPContentBlockAdapter.decode)
+                    )
+                    work.append([label, payload].compactMap { $0 }.joined(separator: "\n"))
                 case .inlineActivity(let activity): work.append(activity.label)
                 case .structuredCard(let card): work.append(card.title)
                 case .approvalReview(let review): work.append("\(review.title): \(review.statusLabel)")
@@ -2556,8 +2713,10 @@ extension CodexTranscriptRenderProjector {
 
 private extension CodexBlock {
     var isCodeV2: Bool {
-        if case .code = self { return true }
-        return false
+        switch self {
+        case .code, .math, .mermaid: return true
+        default: return false
+        }
     }
 }
 
