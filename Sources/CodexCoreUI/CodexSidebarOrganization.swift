@@ -366,7 +366,6 @@ public enum CodexSidebarProjection {
                     .filter { $0.sectionID == section.id }
                     .sorted { compareThreads($0, $1, sortKey: input.sortKey) }
                     .map { row($0, false) }
-                guard !rows.isEmpty || input.expandedSectionIDs.contains(section.id) else { return nil }
                 return CodexSidebarSectionGroup(
                     section: section,
                     rows: rows,

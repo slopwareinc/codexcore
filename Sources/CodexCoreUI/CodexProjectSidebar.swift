@@ -394,19 +394,27 @@ public struct CodexProjectSidebar: View {
                             onToggleSection(section.id)
                         }
                         if section.isExpanded {
-                            ForEach(section.rows) { row in
-                                SidebarChatRow(
-                                    row: row,
-                                    indentation: 0,
-                                    showsRecency: true,
-                                    onSelect: { onSelectChat(row.summary) },
-                                    onTogglePin: { onTogglePinChat(row.summary) },
-                                    onArchive: { onArchiveChat(row.summary) },
-                                    selectionMode: snapshot.isBulkSelectionMode,
-                                    onToggleSelection: { onToggleThreadSelection(row.id) },
-                                    sectionDestinations: sectionDestinations,
-                                    onMoveChat: { sectionID in onMoveChat(row.summary, sectionID) }
-                                )
+                            if section.rows.isEmpty {
+                                Text("No chats in this section")
+                                    .font(theme.fonts.sidebar.emptyState.font)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                                    .padding(.leading, 30)
+                                    .padding(.vertical, 5)
+                            } else {
+                                ForEach(section.rows) { row in
+                                    SidebarChatRow(
+                                        row: row,
+                                        indentation: 0,
+                                        showsRecency: true,
+                                        onSelect: { onSelectChat(row.summary) },
+                                        onTogglePin: { onTogglePinChat(row.summary) },
+                                        onArchive: { onArchiveChat(row.summary) },
+                                        selectionMode: snapshot.isBulkSelectionMode,
+                                        onToggleSelection: { onToggleThreadSelection(row.id) },
+                                        sectionDestinations: sectionDestinations,
+                                        onMoveChat: { sectionID in onMoveChat(row.summary, sectionID) }
+                                    )
+                                }
                             }
                         }
                     }
