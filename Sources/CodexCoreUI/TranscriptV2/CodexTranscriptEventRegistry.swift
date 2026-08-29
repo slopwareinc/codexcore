@@ -63,10 +63,15 @@ public struct CodexTranscriptEventRegistry: Sendable {
     /// extensions are canonical facts; this method only chooses their display
     /// representation and safely ignores malformed dictionaries.
     public func events(for turn: CanonicalTurn) -> [CodexTranscriptEvent] {
-        turn.extensions.keys.sorted().compactMap { key in
+        var events: [CodexTranscriptEvent] = turn.extensions.keys.sorted().compactMap { key in
             guard let value = turn.extensions[key] else { return nil }
             return Self.event(forExtensionKey: key, value: value)
         }
+        if let error = turn.error?.typedCodexErrorInfo,
+           let recovery = Self.recovery(for: error, turn: turn) {
+            events.append(.recovery(recovery))
+        }
+        return events
     }
 
     public static let defaultAdapters: [CodexTranscriptEventAdapter] = [
@@ -308,6 +313,61 @@ private extension CodexTranscriptEventRegistry {
         }
         if key == "writerConflict" { return .recovery(.init(id: key, kind: .writerConflict, message: "Another writer changed this thread", canRetry: true)) }
         return nil
+    }
+
+    static func recovery(
+        for error: CodexTurnErrorInfo,
+        turn: CanonicalTurn
+    ) -> CodexTranscriptRecoveryNoticeV2? {
+        let id = "turn-recovery:\(turn.key.turnID.rawValue)"
+        switch error {
+        case .serverOverloaded:
+            return .init(
+                id: id,
+                kind: .overload,
+                message: "The service is busy; retrying this turn",
+                canRetry: true
+            )
+        case .responseStreamConnectionFailed, .responseStreamDisconnected, .httpConnectionFailed:
+            return .init(
+                id: id,
+                kind: .streamFailure,
+                message: "Response stream disconnected; reconnecting",
+                canRetry: true
+            )
+        case .responseTooManyFailedAttempts:
+            return .init(
+                id: id,
+                kind: .historyRetry,
+                message: "The response could not be recovered automatically",
+                canRetry: true
+            )
+        case .threadRollbackFailed:
+            return .init(
+                id: id,
+                kind: .rollback,
+                message: "Rollback was not applied; the thread remains unchanged",
+                canRetry: true
+            )
+        case .contextWindowExceeded:
+            return .init(
+                id: id,
+                kind: .historyRetry,
+                message: "Context limit reached; retry after compacting history",
+                canRetry: true
+            )
+        case .activeTurnNotSteerable:
+            return .init(
+                id: id,
+                kind: .turnRetry,
+                message: "This turn cannot accept another steer yet",
+                canRetry: true
+            )
+        case .usageLimitExceeded, .sessionBudgetExceeded, .cyberPolicy,
+             .internalServerError, .unauthorized, .badRequest, .sandboxError,
+             .other, .unknown:
+            return nil
+        }
     }
 
     static func approvalStatus(_ value: String) -> CodexApprovalReviewStatusV2 {

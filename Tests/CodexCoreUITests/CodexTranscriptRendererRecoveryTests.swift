@@ -208,4 +208,37 @@ struct CodexTranscriptRendererRecoveryTests {
         }.first
         #expect(mcp?.contentBlocks == [CodexMCPContentBlockV2.text("found")])
     }
+
+    @Test func typedRecoveryEventsExplainOverloadAndStreamFailuresWithoutRawErrors() {
+        let overload = CanonicalTurn(
+            key: .init(threadID: "thread", turnID: "overload"),
+            status: .failed,
+            error: .init(
+                message: "busy",
+                codexErrorInfo: .dictionary(["type": .string("serverOverloaded")])
+            )
+        )
+        let stream = CanonicalTurn(
+            key: .init(threadID: "thread", turnID: "stream"),
+            status: .failed,
+            error: .init(
+                message: "lost",
+                codexErrorInfo: .dictionary(["type": .string("responseStreamDisconnected")])
+            )
+        )
+        let registry = CodexTranscriptEventRegistry()
+        guard case .recovery(let overloadNotice)? = registry.events(for: overload).first else {
+            Issue.record("Expected overload recovery")
+            return
+        }
+        #expect(overloadNotice.kind == .overload)
+        #expect(overloadNotice.canRetry)
+        #expect(overloadNotice.message.contains("busy"))
+        guard case .recovery(let streamNotice)? = registry.events(for: stream).first else {
+            Issue.record("Expected stream recovery")
+            return
+        }
+        #expect(streamNotice.kind == .streamFailure)
+        #expect(streamNotice.message.contains("disconnected"))
+    }
 }
