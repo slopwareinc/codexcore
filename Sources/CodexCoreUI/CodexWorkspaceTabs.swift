@@ -375,6 +375,40 @@ public final class CodexWorkspaceTabs: ObservableObject {
         }
     }
 
+    /// Permanently retires adapter-owned resources that cannot be restored.
+    /// Unlike a user close, retirement creates no undo entry, so a deleted file
+    /// or workspace cannot return as an unavailable zombie tab.
+    package func retireUnavailableResources(_ resourceKeys: Set<String>) {
+        guard !resourceKeys.isEmpty else { return }
+
+        if let closed, resourceKeys.contains(closed.tab.resourceKey) {
+            self.closed = nil
+        }
+
+        let retired = snapshot.instances.filter { resourceKeys.contains($0.resourceKey) }
+        guard !retired.isEmpty else { return }
+
+        var nextSnapshot = snapshot
+        var cleanupActions: [@MainActor () -> Void] = []
+        for tab in retired {
+            let handle = CodexWorkspaceTabHandle.workspace(tab.id)
+            if let registration = registrations.removeValue(forKey: tab.id) {
+                cleanupActions.append(registration.onClose)
+            }
+            nextSnapshot.instances.removeAll { $0.id == tab.id }
+            nextSnapshot.topology.right.remove(handle)
+            nextSnapshot.topology.bottom.remove(handle)
+        }
+        if let focused = nextSnapshot.topology.focusedPlacement,
+           !nextSnapshot.topology[focused].isOpen {
+            let fallback = focused.other
+            nextSnapshot.topology.focusedPlacement = nextSnapshot.topology[fallback].isOpen
+                ? fallback : nil
+        }
+        snapshot = nextSnapshot
+        cleanupActions.forEach { $0() }
+    }
+
     @discardableResult
     package func open(
         _ adapter: any CodexWorkspaceTabAdapter,

@@ -1028,6 +1028,7 @@ public struct CodexChatWorkspaceView: View {
                 panel?.filesSession = nil
             }
         )
+        workspaceTabs.retireUnavailableResources(fileAdapters.unavailableResourceKeys)
         panel.reconcileFilesSession(fileAdapters.filesSession)
         adapters.append(contentsOf: fileAdapters.adapters)
         adapters.append(contentsOf: CodexVisualizationWorkspaceTabAdapterRegistry.make(

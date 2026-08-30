@@ -316,6 +316,10 @@ package struct CodexFilePreviewWorkspaceTabAdapter: CodexWorkspaceTabAdapter {
 package struct CodexFilesWorkspaceTabAdapterSet {
     package let filesSession: CodexFilesSession?
     package let adapters: [any CodexWorkspaceTabAdapter]
+    /// File-owned resources that can no longer be restored in this workspace.
+    /// These are definitive failures (missing/out-of-workspace paths), not
+    /// temporarily unavailable canonical resources such as Plan or Review.
+    package let unavailableResourceKeys: Set<String>
 }
 
 /// Restores all Files-owned routes in one place. The chat workspace only asks
@@ -334,6 +338,7 @@ package enum CodexFilesWorkspaceTabAdapterRegistry {
         var fileRoots = Set<String>()
         var previewKeys = Set<String>()
         var filesSession: CodexFilesSession?
+        var unavailableResourceKeys = Set<String>()
 
         func addFiles(_ session: CodexFilesSession) {
             guard fileRoots.insert(session.rootURL.path).inserted else { return }
@@ -355,29 +360,45 @@ package enum CodexFilesWorkspaceTabAdapterRegistry {
 
         for instance in snapshot.instances {
             if let route = instance.durableRoute {
-                if route.adapterID == CodexFilesWorkspaceTabAdapter.adapterID,
-                   let adapter = CodexFilesWorkspaceTabAdapter(
-                       restoring: route,
-                       within: workspaceURL
-                   ) {
-                    addFiles(adapter.session)
-                } else if route.adapterID == CodexFilePreviewWorkspaceTabAdapter.adapterID,
-                          let adapter = CodexFilePreviewWorkspaceTabAdapter(
-                              restoring: route,
-                              within: workspaceURL
-                          ),
-                          previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
-                    adapters.append(adapter)
+                if route.adapterID == CodexFilesWorkspaceTabAdapter.adapterID {
+                    if let adapter = CodexFilesWorkspaceTabAdapter(
+                        restoring: route,
+                        within: workspaceURL
+                    ) {
+                        addFiles(adapter.session)
+                    } else {
+                        unavailableResourceKeys.insert(instance.resourceKey)
+                    }
+                } else if route.adapterID == CodexFilePreviewWorkspaceTabAdapter.adapterID {
+                    if let adapter = CodexFilePreviewWorkspaceTabAdapter(
+                        restoring: route,
+                        within: workspaceURL
+                    ) {
+                        if previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
+                            adapters.append(adapter)
+                        }
+                    } else {
+                        unavailableResourceKeys.insert(instance.resourceKey)
+                    }
                 }
-            } else if let adapter = CodexFilePreviewWorkspaceTabAdapter(
-                restoring: instance.resourceKey,
-                within: workspaceURL
-            ),
-            previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
-                adapters.append(adapter)
+            } else if instance.resourceKey.hasPrefix("\(CodexFilePreviewWorkspaceTabAdapter.adapterID):") {
+                if let adapter = CodexFilePreviewWorkspaceTabAdapter(
+                    restoring: instance.resourceKey,
+                    within: workspaceURL
+                ) {
+                    if previewKeys.insert(adapter.workspaceTabRegistration.resourceKey).inserted {
+                        adapters.append(adapter)
+                    }
+                } else {
+                    unavailableResourceKeys.insert(instance.resourceKey)
+                }
             }
         }
 
-        return .init(filesSession: filesSession, adapters: adapters)
+        return .init(
+            filesSession: filesSession,
+            adapters: adapters,
+            unavailableResourceKeys: unavailableResourceKeys
+        )
     }
 }

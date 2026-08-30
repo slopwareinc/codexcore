@@ -212,6 +212,74 @@ struct CodexFilesWorkspaceTabTests {
         )
     }
 
+    @Test func deletedWorkspaceFileTabsAreRetiredWithoutUndo() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-deleted-workspace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("todo.html")
+        try "<main>Todo</main>".write(to: file, atomically: true, encoding: .utf8)
+
+        let tabs = CodexWorkspaceTabs()
+        let filesID = tabs.open(
+            CodexFilesWorkspaceTabAdapter(workspaceURL: root),
+            from: .commandMenu
+        )
+        let previewAdapter = CodexFilePreviewWorkspaceTabAdapter(fileURL: file)
+        let previewID = tabs.open(previewAdapter, from: .transcript)
+        let resourceKeys = Set(try [filesID, previewID].map {
+            try #require(tabs.snapshot.instance(id: $0)?.resourceKey)
+        })
+
+        try FileManager.default.removeItem(at: root)
+        let reconciliation = CodexFilesWorkspaceTabAdapterRegistry.make(
+            snapshot: tabs.snapshot,
+            workspaceURL: root,
+            existingSession: nil,
+            onOpenFile: { _ in },
+            onSessionClosed: { _ in }
+        )
+
+        #expect(reconciliation.adapters.isEmpty)
+        #expect(reconciliation.unavailableResourceKeys == resourceKeys)
+
+        tabs.retireUnavailableResources(reconciliation.unavailableResourceKeys)
+
+        #expect(tabs.snapshot.instances.isEmpty)
+        #expect(tabs.snapshot.topology.right.orderedTabs.isEmpty)
+        #expect(!tabs.snapshot.topology.right.isOpen)
+        #expect(tabs.snapshot.topology.focusedPlacement == nil)
+        #expect(tabs.undoClose() == nil)
+    }
+
+    @Test func filePreviewFromPreviousWorkspaceIsRetiredOnWorkspaceSwitch() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-workspace-switch-\(UUID().uuidString)", isDirectory: true)
+        let firstRoot = parent.appendingPathComponent("first", isDirectory: true)
+        let secondRoot = parent.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let file = firstRoot.appendingPathComponent("todo.html")
+        try "<main>Todo</main>".write(to: file, atomically: true, encoding: .utf8)
+
+        let tabs = CodexWorkspaceTabs()
+        let adapter = CodexFilePreviewWorkspaceTabAdapter(fileURL: file)
+        let id = tabs.open(adapter, from: .transcript)
+        let resourceKey = try #require(tabs.snapshot.instance(id: id)?.resourceKey)
+        let reconciliation = CodexFilesWorkspaceTabAdapterRegistry.make(
+            snapshot: tabs.snapshot,
+            workspaceURL: secondRoot,
+            existingSession: nil,
+            onOpenFile: { _ in },
+            onSessionClosed: { _ in }
+        )
+
+        #expect(reconciliation.unavailableResourceKeys == Set([resourceKey]))
+        tabs.retireUnavailableResources(reconciliation.unavailableResourceKeys)
+        #expect(tabs.snapshot.instance(id: id) == nil)
+        #expect(!tabs.hasOpenWorkspaceTabs)
+    }
+
     @Test func transcriptFileReferenceOpensPreviewAndPersistsLineLocation() throws {
         let root = URL(fileURLWithPath: "/tmp/project")
         let file = root.appendingPathComponent("App.swift").standardizedFileURL

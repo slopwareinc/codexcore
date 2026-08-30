@@ -446,7 +446,8 @@ public struct CodexAgentSidePanel: View {
         )
         .frame(
             maxWidth: placement == .bottom ? .infinity : nil,
-            maxHeight: placement == .right ? .infinity : nil
+            maxHeight: placement == .right ? .infinity : nil,
+            alignment: .topLeading
         )
         .background(theme.colors.surface.opacity(theme.effects.surfaceOpacity))
         .accessibilityElement(children: .contain)
@@ -530,6 +531,7 @@ public struct CodexAgentSidePanel: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var panelWidth: CGFloat {
