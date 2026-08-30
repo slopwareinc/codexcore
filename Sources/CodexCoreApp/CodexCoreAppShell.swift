@@ -3,6 +3,24 @@ import AppKit
 import CodexCore
 import CodexCoreUI
 
+@MainActor
+enum CodexSidebarWidthPreference {
+    static let key = "codex.sidebar.expandedWidth"
+
+    static func load(from defaults: UserDefaults = .standard) -> Double {
+        let fallback = Double(CodexProjectSidebar.defaultExpandedWidth)
+        guard let stored = defaults.object(forKey: key) as? NSNumber else { return fallback }
+        return Double(CodexProjectSidebar.clampExpandedWidth(CGFloat(stored.doubleValue)))
+    }
+
+    @discardableResult
+    static func store(_ width: CGFloat, in defaults: UserDefaults = .standard) -> Double {
+        let clamped = Double(CodexProjectSidebar.clampExpandedWidth(width))
+        defaults.set(clamped, forKey: key)
+        return clamped
+    }
+}
+
 struct CodexCoreAppShell: View {
     @Bindable var model: CodexCoreAppModel
     @State private var isRenameSheetPresented = false
@@ -15,8 +33,11 @@ struct CodexCoreAppShell: View {
     @State private var projectNameDraft = ""
     @State private var projectSourceFoldersDraft: [String] = []
     @State private var sidebarOverlaySession = CodexSidebarOverlaySession()
-    @AppStorage("codex.sidebar.expandedWidth")
-    private var sidebarExpandedWidth: Double = Double(CodexProjectSidebar.defaultExpandedWidth)
+    // Keep the live layout value independent from UserDefaults notifications.
+    // AppKit flushes preferences while the app resigns active; observing that
+    // flush through @AppStorage can invalidate this entire view hierarchy while
+    // the window is simultaneously tearing down hover and focus state.
+    @State private var sidebarExpandedWidth = CodexSidebarWidthPreference.load()
 
     var body: some View {
         let sidebarSnapshot = model.sidebarSnapshot
@@ -212,7 +233,11 @@ struct CodexCoreAppShell: View {
             isThreadReady: model.isThreadReady,
             snapshot: snapshot,
             expandedWidth: width,
-            onResizeExpandedWidth: { sidebarExpandedWidth = Double($0) },
+            onResizeExpandedWidth: { width in
+                let persisted = CodexSidebarWidthPreference.store(width)
+                guard abs(sidebarExpandedWidth - persisted) > 0.5 else { return }
+                sidebarExpandedWidth = persisted
+            },
             onNewChat: { Task { await model.startNewChat() } },
             onOpenSearch: { model.selectAppRoute(.search) },
             onSelectRoute: { model.selectAppRoute($0) },
