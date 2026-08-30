@@ -419,6 +419,7 @@ public struct CodexChatWorkspaceView: View {
                 }
             }
         }
+        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: panel.isAgentPanelOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: workspaceTabs.snapshot.topology.bottom.isOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
@@ -761,13 +762,13 @@ public struct CodexChatWorkspaceView: View {
             onCloseBrowser: closeBrowserTab,
             showsCloseButton: showsCloseButton,
             onClose: {
-                if placement == .right {
-                    panel.isAgentPanelOpen = false
-                } else {
-                    withAnimation(.spring(
-                        response: theme.animations.springResponse,
-                        dampingFraction: theme.animations.springDamping
-                    )) {
+                withAnimation(.spring(
+                    response: theme.animations.springResponse,
+                    dampingFraction: theme.animations.springDamping
+                )) {
+                    if placement == .right {
+                        panel.isAgentPanelOpen = false
+                    } else {
                         workspaceTabs.setOpen(false, placement: placement)
                     }
                 }
@@ -1086,11 +1087,18 @@ public struct CodexChatWorkspaceView: View {
 
     private func showAgentPanel() {
         isCompactSummaryPanelPresented = false
-        panel.isAgentPanelOpen = true
+        withAnimation(.spring(
+            response: theme.animations.springResponse,
+            dampingFraction: theme.animations.springDamping
+        )) {
+            panel.isAgentPanelOpen = true
+        }
     }
 
     private func toggleAgentPanel() {
-        panel.isAgentPanelOpen.toggle()
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            panel.isAgentPanelOpen.toggle()
+        }
     }
 
     private func toggleSummaryPanel(panelState: CodexWorkspaceResponsivePanelState) {
@@ -1110,7 +1118,9 @@ public struct CodexChatWorkspaceView: View {
 
     private func openBrowserTab() {
         panel.openBrowser()
-        panel.isAgentPanelOpen = true
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            panel.isAgentPanelOpen = true
+        }
     }
 
     private func closeBrowserTab(_ id: String) {
@@ -1119,7 +1129,9 @@ public struct CodexChatWorkspaceView: View {
 
     private func openFilesTab() {
         panel.openFiles(workspacePath: workspacePath)
-        panel.isAgentPanelOpen = true
+        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
+            panel.isAgentPanelOpen = true
+        }
     }
 
 }

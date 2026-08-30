@@ -52,7 +52,6 @@ public struct CodexComposerBar: View {
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
     @State private var commandSelectorSelection = CodexComposerPaletteSelection()
-    @State private var allowsPalettePresentation = true
     @State private var isSlashPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
     @State private var isFileDropTargeted = false
@@ -272,30 +271,25 @@ public struct CodexComposerBar: View {
             onMentionQueryChanged?(query)
         }
         .onExitCommand {
-            if dismissActivePalette() { return }
             guard dictationState.isRecording else { return }
             dictationActions?.abort()
         }
-        #if canImport(AppKit)
-        .onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.didResignActiveNotification
-        )) { _ in
-            allowsPalettePresentation = false
+        .background {
+            #if canImport(AppKit)
+            CodexComposerPaletteKeyMonitor(
+                isEnabled: isAnyPaletteVisible,
+                onKeyDown: handlePaletteKey
+            )
+            #else
+            EmptyView()
+            #endif
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.didBecomeActiveNotification
-        )) { _ in
-            allowsPalettePresentation = true
-        }
-        #endif
     }
 
     @ViewBuilder
     private var paletteOverlay: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !allowsPalettePresentation {
-                EmptyView()
-            } else if isMCPStatusPalettePresented {
+            if isMCPStatusPalettePresented {
                 CodexComposerMCPStatusPalette(
                     model: mcpStatusPaletteModel,
                     onOpenDetails: onOpenMCPDetails,
@@ -326,7 +320,7 @@ public struct CodexComposerBar: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if allowsPalettePresentation, mentionQuery != nil, !mentionResults.isEmpty {
+            if mentionQuery != nil, !mentionResults.isEmpty {
                 CodexMentionPalette(results: mentionResults, onSelect: selectMention)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -384,6 +378,10 @@ public struct CodexComposerBar: View {
         activeSelectorRows.filter(\.isEnabled).map(\.id)
     }
 
+    private var isAnyPaletteVisible: Bool {
+        isMCPStatusPalettePresented || isSlashPaletteVisible || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
+    }
+
     private var mcpStatusPaletteModel: CodexMCPStatusPanelModel {
         CodexMCPStatusPanelModel(
             servers: mcpServers,
@@ -426,13 +424,43 @@ public struct CodexComposerBar: View {
         onSend()
     }
 
-    @discardableResult
-    private func selectHighlightedPaletteRow() -> Bool {
-        if isMCPStatusPalettePresented, onOpenMCPDetails != nil {
-            openMCPDetailsFromPalette()
-            return true
+    private func handlePaletteKey(_ key: CodexComposerPaletteKey) -> Bool {
+        guard isAnyPaletteVisible else { return false }
+
+        switch key {
+        case .moveDown:
+            if activeCommandSelector != nil {
+                commandSelectorSelection.moveDown(availableIDs: activeSelectableRowIDs)
+                return true
+            }
+            if isSlashPaletteVisible {
+                slashPaletteSelection.moveDown(availableIDs: filteredSlashCommandIDs)
+                return true
+            }
+        case .moveUp:
+            if activeCommandSelector != nil {
+                commandSelectorSelection.moveUp(availableIDs: activeSelectableRowIDs)
+                return true
+            }
+            if isSlashPaletteVisible {
+                slashPaletteSelection.moveUp(availableIDs: filteredSlashCommandIDs)
+                return true
+            }
+        case .select:
+            if isMCPStatusPalettePresented {
+                openMCPDetailsFromPalette()
+                return true
+            }
+            return selectHighlightedPaletteRow()
+        case .dismiss:
+            return dismissActivePalette()
         }
 
+        return false
+    }
+
+    @discardableResult
+    private func selectHighlightedPaletteRow() -> Bool {
         if activeCommandSelector != nil {
             let selectedID = commandSelectorSelection.selectedID ?? activeSelectorRows.first?.id
             guard let selectedID, let row = activeSelectorRows.first(where: { $0.id == selectedID }) else { return false }
@@ -663,6 +691,102 @@ private struct CodexComposerSelectorRow: Identifiable, Equatable {
         self.serviceTier = serviceTier
     }
 }
+
+private enum CodexComposerPaletteKey: Equatable {
+    case moveDown
+    case moveUp
+    case select
+    case dismiss
+}
+
+#if canImport(AppKit)
+private struct CodexComposerPaletteKeyMonitor: NSViewRepresentable {
+    var isEnabled: Bool
+    var onKeyDown: (CodexComposerPaletteKey) -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isEnabled: isEnabled, onKeyDown: onKeyDown)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.onKeyDown = onKeyDown
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.onKeyDown = onKeyDown
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var isEnabled: Bool
+        var onKeyDown: (CodexComposerPaletteKey) -> Bool
+        private var monitor: Any?
+
+        init(isEnabled: Bool, onKeyDown: @escaping (CodexComposerPaletteKey) -> Bool) {
+            self.isEnabled = isEnabled
+            self.onKeyDown = onKeyDown
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard
+                    let self,
+                    isEnabled,
+                    let key = Self.paletteKey(for: event)
+                else {
+                    return event
+                }
+
+                return onKeyDown(key) ? nil : event
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        deinit {
+            uninstall()
+        }
+
+        private static func paletteKey(for event: NSEvent) -> CodexComposerPaletteKey? {
+            let ignoredNavigationModifiers: NSEvent.ModifierFlags = [.function, .numericPad]
+            let modifiers = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(ignoredNavigationModifiers)
+
+            switch event.keyCode {
+            case 125:
+                guard modifiers.isEmpty else { return nil }
+                return .moveDown
+            case 126:
+                guard modifiers.isEmpty else { return nil }
+                return .moveUp
+            case 36, 76:
+                guard modifiers.isEmpty else { return nil }
+                return .select
+            case 53:
+                guard modifiers.isEmpty else { return nil }
+                return .dismiss
+            default:
+                return nil
+            }
+        }
+    }
+}
+#endif
 
 private struct ComposerAddMenu: View {
     let canUsePlanMode: Bool

@@ -103,7 +103,7 @@ final class CodexLineBuffer: @unchecked Sendable {
 
         while scanIndex < data.endIndex {
             if data[scanIndex] == 0x0A {
-                let lineByteCount = scanIndex - lineStart
+                let lineByteCount = data.distance(from: lineStart, to: scanIndex)
                 guard lineByteCount <= maximumLineByteCount else {
                     reset()
                     throw CodexTransportError.frameTooLarge(
@@ -118,11 +118,11 @@ final class CodexLineBuffer: @unchecked Sendable {
                     reset()
                     throw error
                 }
-                scanIndex += 1
+                scanIndex = data.index(after: scanIndex)
                 lineStart = scanIndex
             } else {
-                scanIndex += 1
-                let pendingByteCount = scanIndex - lineStart
+                scanIndex = data.index(after: scanIndex)
+                let pendingByteCount = data.distance(from: lineStart, to: scanIndex)
                 guard pendingByteCount <= maximumLineByteCount else {
                     reset()
                     throw CodexTransportError.frameTooLarge(
