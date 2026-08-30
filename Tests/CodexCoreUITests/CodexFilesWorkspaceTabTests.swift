@@ -1,9 +1,23 @@
+import Combine
 import Foundation
 import Testing
 @testable import CodexCoreUI
 
 @MainActor
 struct CodexFilesWorkspaceTabTests {
+    @Test func reconcilingTheInstalledFilesSessionDoesNotPublish() {
+        let panel = CodexWorkspacePanelState()
+        let session = CodexFilesSession(rootURL: URL(fileURLWithPath: "/tmp/project"))
+        #expect(panel.reconcileFilesSession(session))
+
+        var updateCount = 0
+        let observation = panel.objectWillChange.sink { updateCount += 1 }
+
+        #expect(!panel.reconcileFilesSession(session))
+        #expect(updateCount == 0)
+        withExtendedLifetime(observation) {}
+    }
+
     @Test func fileReferenceIdentityNormalizesPathsAndSeparatesRefs() {
         let working = CodexWorkspaceFileReference(
             fileURL: URL(fileURLWithPath: "/tmp/project/Sources/../Sources/App.swift")

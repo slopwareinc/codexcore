@@ -419,7 +419,6 @@ public struct CodexChatWorkspaceView: View {
                 }
             }
         }
-        .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: panel.isAgentPanelOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: workspaceTabs.snapshot.topology.bottom.isOpen)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
@@ -762,13 +761,13 @@ public struct CodexChatWorkspaceView: View {
             onCloseBrowser: closeBrowserTab,
             showsCloseButton: showsCloseButton,
             onClose: {
-                withAnimation(.spring(
-                    response: theme.animations.springResponse,
-                    dampingFraction: theme.animations.springDamping
-                )) {
-                    if placement == .right {
-                        panel.isAgentPanelOpen = false
-                    } else {
+                if placement == .right {
+                    panel.isAgentPanelOpen = false
+                } else {
+                    withAnimation(.spring(
+                        response: theme.animations.springResponse,
+                        dampingFraction: theme.animations.springDamping
+                    )) {
                         workspaceTabs.setOpen(false, placement: placement)
                     }
                 }
@@ -1028,7 +1027,7 @@ public struct CodexChatWorkspaceView: View {
                 panel?.filesSession = nil
             }
         )
-        panel.filesSession = fileAdapters.filesSession
+        panel.reconcileFilesSession(fileAdapters.filesSession)
         adapters.append(contentsOf: fileAdapters.adapters)
         adapters.append(contentsOf: CodexVisualizationWorkspaceTabAdapterRegistry.make(
             resources: effectiveThreadResourceInventory?.resources(of: .visualization) ?? [],
@@ -1087,18 +1086,11 @@ public struct CodexChatWorkspaceView: View {
 
     private func showAgentPanel() {
         isCompactSummaryPanelPresented = false
-        withAnimation(.spring(
-            response: theme.animations.springResponse,
-            dampingFraction: theme.animations.springDamping
-        )) {
-            panel.isAgentPanelOpen = true
-        }
+        panel.isAgentPanelOpen = true
     }
 
     private func toggleAgentPanel() {
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen.toggle()
-        }
+        panel.isAgentPanelOpen.toggle()
     }
 
     private func toggleSummaryPanel(panelState: CodexWorkspaceResponsivePanelState) {
@@ -1118,9 +1110,7 @@ public struct CodexChatWorkspaceView: View {
 
     private func openBrowserTab() {
         panel.openBrowser()
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
+        panel.isAgentPanelOpen = true
     }
 
     private func closeBrowserTab(_ id: String) {
@@ -1129,9 +1119,7 @@ public struct CodexChatWorkspaceView: View {
 
     private func openFilesTab() {
         panel.openFiles(workspacePath: workspacePath)
-        withAnimation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping)) {
-            panel.isAgentPanelOpen = true
-        }
+        panel.isAgentPanelOpen = true
     }
 
 }

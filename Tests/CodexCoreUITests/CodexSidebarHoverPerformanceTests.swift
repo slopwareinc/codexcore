@@ -151,6 +151,33 @@ struct CodexSidebarHoverPerformanceTests {
         #expect(view.actionControlsAreVisibleForTesting)
     }
 
+    @Test func scrollReconciliationDisablesHoverWhenWindowIsNotKey() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let view = SidebarChatRowContainerView(frame: NSRect(x: 24, y: 24, width: 260, height: 34))
+        window.contentView?.addSubview(view)
+        view.configure(
+            content: AnyView(Text("Task")),
+            actions: AnyView(Text("Actions")),
+            hoverColor: .gray.opacity(0.08),
+            selectionColor: .clear,
+            isSelected: false
+        )
+
+        view.setHoveredForTesting(true)
+        #expect(view.actionControlsAreVisibleForTesting)
+
+        // The test window is not key / active, so reconciling hover after scroll
+        // must drop hover state immediately and prevent infinite layout feedback loops.
+        view.reconcileHoverAfterScrollForTesting()
+        #expect(!view.actionControlsAreVisibleForTesting)
+    }
+
     @Test func idleRowsDoNotReserveTrailingStatusWidth() {
         #expect(
             !SidebarChatRowLayout.hasTrailingStatus(

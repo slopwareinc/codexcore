@@ -1,4 +1,5 @@
 import CodexCore
+import Combine
 import Foundation
 import SwiftUI
 import Testing
@@ -401,6 +402,22 @@ struct CodexWorkspaceTabsTests {
         tabs.activate(id)
         #expect(tabs.snapshot.instance(id: id)?.isMaterialized == true)
         #expect(tabs.content(for: id) != nil)
+    }
+
+    @Test func unchangedRegistrationDoesNotPublishAnotherWorkspaceUpdate() {
+        let tabs = CodexWorkspaceTabs()
+        let adapter = CodexPlanWorkspaceTabAdapter(plan: CodexPlanSummary(
+            steps: [TurnPlanStep(step: "Inspect", status: .inProgress)]
+        ))
+        _ = tabs.open(adapter, from: .summary)
+        tabs.register([adapter])
+
+        var updateCount = 0
+        let observation = tabs.objectWillChange.sink { updateCount += 1 }
+        tabs.register([adapter])
+
+        #expect(updateCount == 0)
+        withExtendedLifetime(observation) {}
     }
 
     @Test func registrationReplacementRejectsSupersededTranscriptReviewSource() throws {

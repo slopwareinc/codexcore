@@ -39,6 +39,15 @@ public final class CodexWorkspacePanelState: ObservableObject {
         workspaceTabs.restorationState
     }
 
+    /// Reconciles the Files adapter without publishing when registration
+    /// rediscovered the session that is already installed.
+    @discardableResult
+    package func reconcileFilesSession(_ session: CodexFilesSession?) -> Bool {
+        guard filesSession !== session else { return false }
+        filesSession = session
+        return true
+    }
+
     public func applyWorkspaceTabRestoration(
         _ restorationState: CodexWorkspaceTabRestorationState
     ) {

@@ -336,30 +336,42 @@ public final class CodexWorkspaceTabs: ObservableObject {
 
     package func register(_ adapters: [any CodexWorkspaceTabAdapter]) {
         let available = adapters.map(\.workspaceTabRegistration)
-        objectWillChange.send()
-        for index in snapshot.instances.indices {
-            let id = snapshot.instances[index].id
-            let route = snapshot.instances[index].restorableRoute
+        var nextSnapshot = snapshot
+        var availabilityOrContentChanged = false
+        for index in nextSnapshot.instances.indices {
+            let id = nextSnapshot.instances[index].id
+            let previousRegistration = registrations[id]
+            let route = nextSnapshot.instances[index].restorableRoute
             let registration = route.flatMap { route in
                 available.first { $0.durableRoute == route }
-            } ?? snapshot.instances[index].routeReplacementKey.flatMap { replacementKey in
+            } ?? nextSnapshot.instances[index].routeReplacementKey.flatMap { replacementKey in
                 available.first { $0.routeReplacementKey == replacementKey }
             } ?? available.first {
-                route == nil && $0.resourceKey == snapshot.instances[index].resourceKey
+                route == nil && $0.resourceKey == nextSnapshot.instances[index].resourceKey
             }
             if let registration {
                 registrations[id] = registration
-                snapshot.instances[index].title = registration.title
-                snapshot.instances[index].systemImage = registration.systemImage
-                snapshot.instances[index].restorableRoute = registration.durableRoute
-                snapshot.instances[index].routeReplacementKey = registration.routeReplacementKey
-                if snapshot.instances[index].isPinned {
-                    snapshot.instances[index].durableRoute = registration.durableRoute
+                availabilityOrContentChanged = availabilityOrContentChanged
+                    || previousRegistration == nil
+                    || previousRegistration?.contentRevision != registration.contentRevision
+                nextSnapshot.instances[index].title = registration.title
+                nextSnapshot.instances[index].systemImage = registration.systemImage
+                nextSnapshot.instances[index].restorableRoute = registration.durableRoute
+                nextSnapshot.instances[index].routeReplacementKey = registration.routeReplacementKey
+                if nextSnapshot.instances[index].isPinned {
+                    nextSnapshot.instances[index].durableRoute = registration.durableRoute
                 }
             } else {
+                availabilityOrContentChanged = availabilityOrContentChanged
+                    || previousRegistration != nil
                 registrations.removeValue(forKey: id)
-                snapshot.instances[index].isMaterialized = false
+                nextSnapshot.instances[index].isMaterialized = false
             }
+        }
+        if nextSnapshot != snapshot {
+            snapshot = nextSnapshot
+        } else if availabilityOrContentChanged {
+            objectWillChange.send()
         }
     }
 
