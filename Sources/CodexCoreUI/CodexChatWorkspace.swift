@@ -144,10 +144,12 @@ public struct CodexChatWorkspaceView: View {
     private let queuedFollowUps: [CodexComposerSubmission]
     private let mentionResults: [FuzzyFileSearchResult]
     private let attachedSkills: [CodexSlashCommand]
+    private let skillPlacements: [CodexComposerSkillPlacement]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
-    private let onSkillTagSelected: ((CodexSlashCommand) -> Void)?
+    private let onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)?
     private let onSkillTagRemoved: ((String) -> Void)?
+    private let onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
@@ -237,10 +239,12 @@ public struct CodexChatWorkspaceView: View {
         queuedFollowUps: [CodexComposerSubmission] = [],
         mentionResults: [FuzzyFileSearchResult] = [],
         attachedSkills: [CodexSlashCommand] = [],
+        skillPlacements: [CodexComposerSkillPlacement] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
-        onSkillTagSelected: ((CodexSlashCommand) -> Void)? = nil,
+        onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)? = nil,
         onSkillTagRemoved: ((String) -> Void)? = nil,
+        onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
@@ -331,10 +335,12 @@ public struct CodexChatWorkspaceView: View {
         self.queuedFollowUps = queuedFollowUps
         self.mentionResults = mentionResults
         self.attachedSkills = attachedSkills
+        self.skillPlacements = skillPlacements
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
         self.onSkillTagSelected = onSkillTagSelected
         self.onSkillTagRemoved = onSkillTagRemoved
+        self.onSkillPlacementsChanged = onSkillPlacementsChanged
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
@@ -650,10 +656,12 @@ public struct CodexChatWorkspaceView: View {
                         followUpHint: followUpHint,
                         mentionResults: mentionResults,
                         attachedSkills: attachedSkills,
+                        skillPlacements: skillPlacements,
                         onMentionQueryChanged: onMentionQueryChanged,
                         onMentionSelected: onMentionSelected,
                         onSkillTagSelected: onSkillTagSelected,
                         onSkillTagRemoved: onSkillTagRemoved,
+                        onSkillPlacementsChanged: onSkillPlacementsChanged,
                         onSend: onSend,
                         onInterrupt: onInterrupt,
                         dictationState: dictationState,

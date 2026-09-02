@@ -7,6 +7,7 @@ import AppKit
 
 public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     @Binding private var draft: String
     @Binding private var referencedFiles: [CodexReferencedFile]
@@ -32,10 +33,12 @@ public struct CodexComposerBar: View {
     private let followUpHint: String?
     private let mentionResults: [FuzzyFileSearchResult]
     private let attachedSkills: [CodexSlashCommand]
+    private let skillPlacements: [CodexComposerSkillPlacement]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
-    private let onSkillTagSelected: ((CodexSlashCommand) -> Void)?
+    private let onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)?
     private let onSkillTagRemoved: ((String) -> Void)?
+    private let onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
@@ -60,6 +63,7 @@ public struct CodexComposerBar: View {
     @State private var isMentionPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
     @State private var isFileDropTargeted = false
+    @State private var editorHeight: CGFloat = 30
 
     public init(
         draft: Binding<String>,
@@ -88,10 +92,12 @@ public struct CodexComposerBar: View {
         followUpHint: String? = nil,
         mentionResults: [FuzzyFileSearchResult] = [],
         attachedSkills: [CodexSlashCommand] = [],
+        skillPlacements: [CodexComposerSkillPlacement] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
-        onSkillTagSelected: ((CodexSlashCommand) -> Void)? = nil,
+        onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)? = nil,
         onSkillTagRemoved: ((String) -> Void)? = nil,
+        onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
@@ -133,10 +139,12 @@ public struct CodexComposerBar: View {
         self.followUpHint = followUpHint
         self.mentionResults = mentionResults
         self.attachedSkills = attachedSkills
+        self.skillPlacements = skillPlacements
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
         self.onSkillTagSelected = onSkillTagSelected
         self.onSkillTagRemoved = onSkillTagRemoved
+        self.onSkillPlacementsChanged = onSkillPlacementsChanged
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
@@ -174,13 +182,28 @@ public struct CodexComposerBar: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
-                if !attachedSkills.isEmpty {
-                    CodexComposerSkillTagStrip(skills: attachedSkills) { skillID in
-                        onSkillTagRemoved?(skillID)
+                #if canImport(AppKit)
+                CodexInlineComposerEditor(
+                    text: $draft,
+                    isFocused: Binding(
+                        get: { focused },
+                        set: { focused = $0 }
+                    ),
+                    skills: attachedSkills,
+                    placements: skillPlacements,
+                    placeholder: placeholder,
+                    maximumLines: isCompact ? 3 : 6,
+                    theme: theme,
+                    colorScheme: colorScheme,
+                    onPlacementsChanged: { onSkillPlacementsChanged?($0) },
+                    onRemoveSkill: { onSkillTagRemoved?($0) },
+                    onSubmit: handleSubmit,
+                    onHeightChanged: { height in
+                        if abs(editorHeight - height) > 0.5 { editorHeight = height }
                     }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
-
+                )
+                .frame(height: editorHeight)
+                #else
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
@@ -190,6 +213,7 @@ public struct CodexComposerBar: View {
                     .onSubmit(handleSubmit)
                     .padding(.leading, 6)
                     .padding(.vertical, isCompact ? 3 : 6)
+                #endif
 
                 if dictationState.isRecording, let dictationActions {
                     ComposerDictationFooter(
@@ -375,7 +399,10 @@ public struct CodexComposerBar: View {
     }
 
     private var invocationSkills: [CodexSlashCommand] {
-        slashCommands.filter { $0.skillName != nil && $0.skillPath != nil && $0.isEnabled }
+        let attachedIDs = Set(attachedSkills.map(\.id))
+        return slashCommands.filter {
+            $0.skillName != nil && $0.skillPath != nil && $0.isEnabled && !attachedIDs.contains($0.id)
+        }
     }
 
     private var filteredInvocationSkills: [CodexSlashCommand] {
@@ -741,8 +768,12 @@ public struct CodexComposerBar: View {
         activeCommandSelector = nil
         isMCPStatusPalettePresented = false
         mentionPaletteSelection.clear()
-        draft = CodexMentionQuery.removingQuery(from: draft)
-        onSkillTagSelected?(skill)
+        guard let atIndex = draft.lastIndex(of: "@") else { return }
+        let prefix = String(draft[..<atIndex])
+        let offset = prefix.utf16.count
+        draft = prefix + " "
+        onSkillTagSelected?(skill, offset)
+        focused = true
     }
 }
 
@@ -926,48 +957,6 @@ private struct ComposerModeChip: View {
         .buttonStyle(.plain)
         .accessibilityLabel(chip.clearAccessibilityLabel)
         .help(chip.clearAccessibilityLabel)
-    }
-}
-
-private struct CodexComposerSkillTagStrip: View {
-    @Environment(\.codexAgentTheme) private var theme
-
-    let skills: [CodexSlashCommand]
-    let onRemove: (String) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(skills) { skill in
-                    HStack(spacing: 5) {
-                        Image(systemName: skill.systemImage)
-                            .font(theme.fonts.caption)
-                        Text("@\(skill.title)")
-                            .font(theme.fonts.caption.weight(.semibold))
-                            .lineLimit(1)
-                        Button {
-                            onRemove(skill.id)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(theme.fonts.caption)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(skill.title)")
-                    }
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .padding(.horizontal, 8)
-                    .frame(height: 25)
-                    .background(
-                        theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity),
-                        in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                    )
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(skill.title) skill attached")
-                }
-            }
-            .padding(.horizontal, 6)
-        }
     }
 }
 

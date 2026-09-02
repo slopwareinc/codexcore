@@ -198,6 +198,16 @@ private struct CodexComposerSubmissionQueue: Equatable, Sendable {
     }
 }
 
+public struct CodexComposerSkillPlacement: Equatable, Hashable, Sendable {
+    public var skillID: String
+    public var utf16Offset: Int
+
+    public init(skillID: String, utf16Offset: Int) {
+        self.skillID = skillID
+        self.utf16Offset = max(0, utf16Offset)
+    }
+}
+
 public struct CodexComposerStateSession: Equatable, Sendable {
     private static let unassignedDraftKey = "__codex_unassigned_draft__"
 
@@ -205,6 +215,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     private var draftByThreadID: [String: String]
     private var referencedFilesByThreadID: [String: [CodexReferencedFile]]
     private var responseAnnotationsByThreadID: [String: [CodexResponseTextAnnotation]]
+    private var attachedSkillsByThreadID: [String: [CodexSlashCommand]]
+    private var skillPlacementsByThreadID: [String: [CodexComposerSkillPlacement]]
 
     public var draft: String {
         get { draft(for: activeThreadID) }
@@ -227,7 +239,22 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         queuedFollowUpSubmissions(for: activeThreadID).map(\.prompt)
     }
     public private(set) var mentionResults: [FuzzyFileSearchResult]
-    public private(set) var attachedSkills: [CodexSlashCommand]
+    public private(set) var attachedSkills: [CodexSlashCommand] {
+        get { attachedSkillsByThreadID[Self.draftKey(for: activeThreadID)] ?? [] }
+        set {
+            let key = Self.draftKey(for: activeThreadID)
+            if newValue.isEmpty { attachedSkillsByThreadID.removeValue(forKey: key) }
+            else { attachedSkillsByThreadID[key] = newValue }
+        }
+    }
+    public private(set) var skillPlacements: [CodexComposerSkillPlacement] {
+        get { skillPlacementsByThreadID[Self.draftKey(for: activeThreadID)] ?? [] }
+        set {
+            let key = Self.draftKey(for: activeThreadID)
+            if newValue.isEmpty { skillPlacementsByThreadID.removeValue(forKey: key) }
+            else { skillPlacementsByThreadID[key] = newValue }
+        }
+    }
     private var selectedMentionsByName: [String: FuzzyFileSearchResult]
     private var queuedFollowUpSubmissionsByThreadID: [String: CodexComposerSubmissionQueue]
 
@@ -253,10 +280,12 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         self.draftByThreadID = drafts
         self.referencedFilesByThreadID = referencedFilesByThreadID
         self.responseAnnotationsByThreadID = responseAnnotationsByThreadID
+        self.attachedSkillsByThreadID = attachedSkills.isEmpty ? [:] : [initialKey: attachedSkills]
+        let initialPlacements = attachedSkills.map { CodexComposerSkillPlacement(skillID: $0.id, utf16Offset: 0) }
+        self.skillPlacementsByThreadID = initialPlacements.isEmpty ? [:] : [initialKey: initialPlacements]
         self.sideChatDraft = sideChatDraft
         self.followUpBehavior = followUpBehavior
         self.mentionResults = mentionResults
-        self.attachedSkills = attachedSkills
         self.selectedMentionsByName = selectedMentionsByName
         self.queuedFollowUpSubmissionsByThreadID = [:]
         if !queuedFollowUps.isEmpty {
@@ -270,6 +299,23 @@ public struct CodexComposerStateSession: Equatable, Sendable {
 
     public var trimmedDraft: String {
         draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var submissionPrompt: String {
+        let result = NSMutableString(string: draft)
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        for placement in skillPlacements.sorted(by: { $0.utf16Offset > $1.utf16Offset }) {
+            let location = min(max(0, placement.utf16Offset), result.length)
+            guard location < result.length else { continue }
+            let next = result.character(at: location)
+            let previousIsWhitespace = location == 0
+                || UnicodeScalar(result.character(at: location - 1)).map(whitespace.contains) == true
+            if previousIsWhitespace,
+               UnicodeScalar(next).map(whitespace.contains) == true {
+                result.deleteCharacters(in: NSRange(location: location, length: 1))
+            }
+        }
+        return (result as String).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public func draft(for threadID: String?) -> String {
@@ -368,27 +414,10 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     }
 
     public mutating func consumeDraftForFollowUp() -> CodexComposerSubmission? {
-        let prompt = trimmedDraft
+        let prompt = submissionPrompt
         let files = referencedFiles
         let annotations = responseAnnotations
-        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
-        let submission = CodexComposerSubmission(
-            prompt: prompt,
-            referencedFiles: files,
-            responseAnnotations: annotations,
-            threadID: activeThreadID
-        )
-        draft = ""
-        referencedFiles = []
-        responseAnnotations = []
-        return submission
-    }
-
-    public mutating func consumeDraftForTurn() -> CodexComposerSubmission? {
-        let prompt = trimmedDraft
-        let files = referencedFiles
-        let annotations = responseAnnotations
-        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty || !attachedSkills.isEmpty else { return nil }
         let submission = CodexComposerSubmission(
             prompt: prompt,
             referencedFiles: files,
@@ -401,16 +430,40 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         referencedFiles = []
         responseAnnotations = []
         attachedSkills = []
+        skillPlacements = []
+        selectedMentionsByName = [:]
+        mentionResults = []
+        return submission
+    }
+
+    public mutating func consumeDraftForTurn() -> CodexComposerSubmission? {
+        let prompt = submissionPrompt
+        let files = referencedFiles
+        let annotations = responseAnnotations
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty || !attachedSkills.isEmpty else { return nil }
+        let submission = CodexComposerSubmission(
+            prompt: prompt,
+            referencedFiles: files,
+            responseAnnotations: annotations,
+            skills: attachedSkills,
+            mentions: mentionInputs(for: prompt),
+            threadID: activeThreadID
+        )
+        draft = ""
+        referencedFiles = []
+        responseAnnotations = []
+        attachedSkills = []
+        skillPlacements = []
         selectedMentionsByName = [:]
         mentionResults = []
         return submission
     }
 
     public mutating func consumeDraftForGoal() -> CodexComposerSubmission? {
-        let prompt = trimmedDraft
+        let prompt = submissionPrompt
         let files = referencedFiles
         let annotations = responseAnnotations
-        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty else { return nil }
+        guard !prompt.isEmpty || !files.isEmpty || !annotations.isEmpty || !attachedSkills.isEmpty else { return nil }
         let submission = CodexComposerSubmission(
             prompt: prompt,
             referencedFiles: files,
@@ -422,6 +475,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         referencedFiles = []
         responseAnnotations = []
         attachedSkills = []
+        skillPlacements = []
         return submission
     }
 
@@ -445,7 +499,17 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             !restoredAnnotations.contains(where: { $0.id == current.id })
         })
         setResponseAnnotations(restoredAnnotations, for: targetThreadID)
-        attachedSkills = submission.skills + attachedSkills
+        let targetKey = Self.draftKey(for: targetThreadID)
+        let restoredSkills = submission.skills + (attachedSkillsByThreadID[targetKey] ?? [])
+        if restoredSkills.isEmpty {
+            attachedSkillsByThreadID.removeValue(forKey: targetKey)
+            skillPlacementsByThreadID.removeValue(forKey: targetKey)
+        } else {
+            attachedSkillsByThreadID[targetKey] = restoredSkills
+            skillPlacementsByThreadID[targetKey] = restoredSkills.map {
+                .init(skillID: $0.id, utf16Offset: 0)
+            }
+        }
     }
 
     public mutating func enqueueFollowUp(_ prompt: String) {
@@ -525,23 +589,47 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         queuedFollowUpSubmissionsByThreadID[key] = queue
     }
 
-    public mutating func attachSkill(_ command: CodexSlashCommand) {
+    public mutating func attachSkill(
+        _ command: CodexSlashCommand,
+        atUTF16Offset offset: Int? = nil
+    ) {
         if trimmedDraft.isEmpty, let draftText = command.draftText {
             draft = draftText
         }
         guard let skillName = command.skillName, let skillPath = command.skillPath else { return }
         if !attachedSkills.contains(where: { $0.skillName == skillName && $0.skillPath == skillPath }) {
             attachedSkills.append(command)
+            skillPlacements.append(.init(
+                skillID: command.id,
+                utf16Offset: min(max(0, offset ?? draft.utf16.count), draft.utf16.count)
+            ))
         }
     }
 
     public mutating func removeAttachedSkill(id: String) {
         attachedSkills.removeAll { $0.id == id }
+        skillPlacements.removeAll { $0.skillID == id }
+    }
+
+    public mutating func updateSkillPlacements(_ placements: [CodexComposerSkillPlacement]) {
+        let attachedIDs = Set(attachedSkills.map(\.id))
+        var seen = Set<String>()
+        skillPlacements = placements.compactMap { placement in
+            guard attachedIDs.contains(placement.skillID),
+                  seen.insert(placement.skillID).inserted else { return nil }
+            return .init(
+                skillID: placement.skillID,
+                utf16Offset: min(max(0, placement.utf16Offset), draft.utf16.count)
+            )
+        }
+        for skill in attachedSkills where !seen.contains(skill.id) {
+            skillPlacements.append(.init(skillID: skill.id, utf16Offset: draft.utf16.count))
+        }
     }
 
     public mutating func routeSlashCommand(_ command: CodexSlashCommand) -> CodexComposerSlashCommandRoute {
         if command.skillName != nil, command.skillPath != nil {
-            attachSkill(command)
+            attachSkill(command, atUTF16Offset: 0)
             return route(activityTitle: "Skill attached", detail: command.title)
         }
 
@@ -593,6 +681,7 @@ public struct CodexComposerStateSession: Equatable, Sendable {
     public mutating func clearThreadState() {
         sideChatDraft = ""
         attachedSkills = []
+        skillPlacements = []
     }
 
     public mutating func discardThreadState(for threadID: String) {
@@ -600,6 +689,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         draftByThreadID.removeValue(forKey: key)
         referencedFilesByThreadID.removeValue(forKey: key)
         responseAnnotationsByThreadID.removeValue(forKey: key)
+        attachedSkillsByThreadID.removeValue(forKey: key)
+        skillPlacementsByThreadID.removeValue(forKey: key)
         queuedFollowUpSubmissionsByThreadID.removeValue(forKey: key)
     }
 

@@ -3609,14 +3609,19 @@ final class CodexCoreAppModel {
         }
     }
 
-    func attachComposerSkill(_ command: CodexSlashCommand) {
+    func attachComposerSkill(_ command: CodexSlashCommand, atUTF16Offset offset: Int? = nil) {
         syncComposerThreadID()
-        composerSession.attachSkill(command)
+        composerSession.attachSkill(command, atUTF16Offset: offset)
     }
 
     func removeComposerSkill(id: String) {
         syncComposerThreadID()
         composerSession.removeAttachedSkill(id: id)
+    }
+
+    func updateComposerSkillPlacements(_ placements: [CodexComposerSkillPlacement]) {
+        syncComposerThreadID()
+        composerSession.updateSkillPlacements(placements)
     }
 
     private func applySlashCommandHostAction(

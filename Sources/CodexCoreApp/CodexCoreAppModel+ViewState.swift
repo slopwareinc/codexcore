@@ -439,6 +439,10 @@ extension CodexCoreAppModel {
         composerSession.attachedSkills
     }
 
+    var composerSkillPlacements: [CodexComposerSkillPlacement] {
+        composerSession.skillPlacements
+    }
+
     var modelSelection: CodexModelSelection {
         get { configurationSession.modelSelection }
         set {
@@ -520,6 +524,7 @@ extension CodexCoreAppModel {
                !composerSession.trimmedDraft(for: currentThreadID).isEmpty
                    || !referencedFiles.isEmpty
                    || !responseAnnotations.isEmpty
+                   || !composerSession.attachedSkills.isEmpty
            ),
            !isSending || canSendFollowUp {
             return true
