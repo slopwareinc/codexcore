@@ -5,6 +5,14 @@ import Testing
 
 @MainActor
 struct CodexComposerPaletteOverlayTests {
+    @Test func genericInvocationQueryBecomesAStructuredTagWithoutPromptText() {
+        #expect(CodexMentionQuery.query(from: "Explain this with @Visu") == "Visu")
+        #expect(
+            CodexMentionQuery.removingQuery(from: "Explain this with @Visu")
+                == "Explain this with"
+        )
+    }
+
     @Test func repeatedComposerHeightPreferencesAreRenderNeutral() {
         #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 170) == nil)
         #expect(CodexComposerOverlayHeightReconciler.next(current: 170, proposed: 170.4) == nil)

@@ -535,6 +535,10 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         }
     }
 
+    public mutating func removeAttachedSkill(id: String) {
+        attachedSkills.removeAll { $0.id == id }
+    }
+
     public mutating func routeSlashCommand(_ command: CodexSlashCommand) -> CodexComposerSlashCommandRoute {
         if command.skillName != nil, command.skillPath != nil {
             attachSkill(command)

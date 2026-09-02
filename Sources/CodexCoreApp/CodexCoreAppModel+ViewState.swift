@@ -435,6 +435,10 @@ extension CodexCoreAppModel {
         composerSession.mentionResults
     }
 
+    var attachedSkills: [CodexSlashCommand] {
+        composerSession.attachedSkills
+    }
+
     var modelSelection: CodexModelSelection {
         get { configurationSession.modelSelection }
         set {

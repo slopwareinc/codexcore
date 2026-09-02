@@ -446,6 +446,10 @@ final class CodexSessionStateTests: XCTestCase {
         XCTAssertEqual(session.attachedSkills, [skill])
         XCTAssertEqual(session.draft, "  Inspect @Store.swift  ")
 
+        session.removeAttachedSkill(id: skill.id)
+        XCTAssertEqual(session.attachedSkills, [])
+        session.attachSkill(skill)
+
         session.draft = "  Inspect @Store.swift  "
         session.setMentionResults([mention])
         session.selectMention(mention)

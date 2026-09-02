@@ -143,8 +143,11 @@ public struct CodexChatWorkspaceView: View {
     private let followUpHint: String?
     private let queuedFollowUps: [CodexComposerSubmission]
     private let mentionResults: [FuzzyFileSearchResult]
+    private let attachedSkills: [CodexSlashCommand]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
+    private let onSkillTagSelected: ((CodexSlashCommand) -> Void)?
+    private let onSkillTagRemoved: ((String) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
@@ -233,8 +236,11 @@ public struct CodexChatWorkspaceView: View {
         followUpHint: String? = nil,
         queuedFollowUps: [CodexComposerSubmission] = [],
         mentionResults: [FuzzyFileSearchResult] = [],
+        attachedSkills: [CodexSlashCommand] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
+        onSkillTagSelected: ((CodexSlashCommand) -> Void)? = nil,
+        onSkillTagRemoved: ((String) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
@@ -314,8 +320,11 @@ public struct CodexChatWorkspaceView: View {
         self.followUpHint = followUpHint
         self.queuedFollowUps = queuedFollowUps
         self.mentionResults = mentionResults
+        self.attachedSkills = attachedSkills
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
+        self.onSkillTagSelected = onSkillTagSelected
+        self.onSkillTagRemoved = onSkillTagRemoved
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
@@ -630,8 +639,11 @@ public struct CodexChatWorkspaceView: View {
                         canUsePlanMode: canUsePlanMode,
                         followUpHint: followUpHint,
                         mentionResults: mentionResults,
+                        attachedSkills: attachedSkills,
                         onMentionQueryChanged: onMentionQueryChanged,
                         onMentionSelected: onMentionSelected,
+                        onSkillTagSelected: onSkillTagSelected,
+                        onSkillTagRemoved: onSkillTagRemoved,
                         onSend: onSend,
                         onInterrupt: onInterrupt,
                         dictationState: dictationState,
