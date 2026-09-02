@@ -175,6 +175,7 @@ public final class CodexInlineVisualizationCoordinator: ObservableObject {
         record.session.onFollowUpMessage = { [weak self] prompt, title in
             self?.confirmFollowUp(prompt: prompt, title: title)
         }
+        record.session.onExternalURL = { [weak self] url in self?.confirmExternalURL(url) }
         record.session.onLoadStateChanged = { [weak anchor] state in
             guard let anchor else { return }
             if case .failed(let message) = state {
@@ -246,6 +247,17 @@ public final class CodexInlineVisualizationCoordinator: ObservableObject {
         return candidates.first(where: { (try? policy.validate($0)) != nil })
             ?? candidates.first
             ?? URL(fileURLWithPath: path)
+    }
+
+    private func confirmExternalURL(_ url: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Open external link?"
+        alert.informativeText = url.absoluteString
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func presentFullscreen(key: String, title: String) {

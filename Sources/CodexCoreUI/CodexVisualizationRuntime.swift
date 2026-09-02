@@ -171,6 +171,7 @@ public final class CodexVisualizationSession: NSObject, ObservableObject {
     public var onWebViewChanged: ((WKWebView?) -> Void)?
     public var onPreferredHeightChanged: ((CGFloat) -> Void)?
     public var onFollowUpMessage: ((String, String?) -> Void)?
+    public var onExternalURL: ((URL) -> Void)?
     public var onLoadStateChanged: ((CodexVisualizationLoadState) -> Void)?
     private var loadTask: Task<Void, Never>?
     private var isVisible = false
@@ -298,6 +299,11 @@ extension CodexVisualizationSession: WKNavigationDelegate, WKUIDelegate {
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
+        if let url, url.scheme?.lowercased() == "https" {
+            decisionHandler(.cancel)
+            onExternalURL?(url)
+            return
+        }
         decisionHandler(url == nil || url?.scheme == "about" ? .allow : .cancel)
     }
 
