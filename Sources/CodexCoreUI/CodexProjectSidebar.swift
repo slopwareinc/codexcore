@@ -1462,6 +1462,10 @@ final class SidebarChatRowContainerView: NSView {
         reconcileHover(pointerLocationInWindow: pointerLocationInWindow)
     }
 
+    func reconcileHoverAfterScrollForTesting() {
+        reconcileHoverAfterScroll()
+    }
+
     private func removeScrollBoundsObserver() {
         if let scrollBoundsObserver {
             NotificationCenter.default.removeObserver(scrollBoundsObserver)
@@ -1489,14 +1493,14 @@ final class SidebarChatRowContainerView: NSView {
             object: contentView,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.reconcileHoverAfterScroll()
             }
         }
     }
 
     private func reconcileHoverAfterScroll() {
-        guard let window else {
+        guard let window, window.isKeyWindow, NSApp.isActive else {
             setHovered(false)
             return
         }

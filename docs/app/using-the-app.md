@@ -185,6 +185,8 @@ The composer supports:
 - click or hold microphone dictation, with insert, transcribe-and-send, and retry actions;
 - Goal and Plan modes;
 - file/folder attachments and mentions;
+- generic `@` skill mentions, rendered as atomic inline editor attachments and
+  submitted as structured skill inputs;
 - response text annotations with optional comments;
 - slash commands;
 - queued follow-ups, explicit steering, and turn interruption.
@@ -194,6 +196,13 @@ palette. Model, reasoning, speed, Goal, Plan, MCP, Status, and Side commands
 preserve any text already in the composer. Compact and Fork are offered only
 for an existing idle task with no other composer text. Skill commands attach
 the skill without replacing an existing prompt.
+
+Typing `@` searches both files and installed skills. Choosing a skill replaces
+the query at the caret with a TextKit-backed inline mention. The mention moves
+with surrounding edits, wraps with text, and deletes atomically with Backspace;
+its name is never inserted into the submitted prompt. The composer contains no
+skill-specific special case. The bundled Visualize skill uses this same path
+and its result renders inline in the conversation.
 
 While a turn is running, each send adds another follow-up card above the composer. Choose **Steer** to inject that exact message into the active turn, edit or remove it from the card, or leave the FIFO queue alone. A steered message becomes a new user bubble inside the active turn; it never edits or replaces the turn's original prompt. App-server persists the queue and starts messages in order whenever the thread becomes idle, so queued work survives app restarts and is shared across connected clients.
 

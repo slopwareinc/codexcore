@@ -202,6 +202,54 @@ final class ThreadResourceProjectionTests: XCTestCase {
         }
     }
 
+    func testVisualizationDirectivesAndFilesProjectAsTypedResources() {
+        let threadID: ThreadID = "fixture-thread"
+        let turnID: TurnID = "fixture-turn"
+        let turnKey = TurnKey(threadID: threadID, turnID: turnID)
+        let messageKey = ItemKey(threadID: threadID, turnID: turnID, itemID: "message")
+        let fileKey = ItemKey(threadID: threadID, turnID: turnID, itemID: "file")
+        let path = "/custom/codex-home/visualizations/2026/08/29/fixture-thread/path-probe.html"
+        let snapshot = CanonicalStateSnapshot(
+            revision: StateRevision(1),
+            threads: [threadID: CanonicalThread(id: threadID, turnOrder: [turnID])],
+            turns: [turnKey: CanonicalTurn(key: turnKey, itemOrder: [messageKey.itemID, fileKey.itemID])],
+            items: [
+                messageKey: CanonicalItem(
+                    key: messageKey,
+                    kind: .agentMessage,
+                    payload: ["text": .string(#"visualize{"path":"\#(path)","mode":"wide"}"#)],
+                    authority: .completed
+                ),
+                fileKey: CanonicalItem(
+                    key: fileKey,
+                    kind: .fileChange,
+                    payload: ["changes": .array([.dictionary(["path": .string(path)])])],
+                    authority: .completed
+                ),
+            ]
+        )
+
+        let inventory = CodexThreadResourceProjection.project(snapshot: snapshot, threadID: threadID)
+        let visualizations = inventory.resources.filter { $0.kind == .visualization }
+
+        XCTAssertEqual(visualizations.count, 1)
+        XCTAssertTrue(visualizations.allSatisfy { $0.metadata.path == path })
+        XCTAssertTrue(visualizations.contains { $0.metadata.statusDetail == "wide" })
+        XCTAssertTrue(inventory.resources.contains { $0.kind == .editedFile })
+    }
+
+    func testVisualizationDirectiveParserRejectsTraversalAndUnsafeNames() {
+        XCTAssertTrue(CodexVisualizationDirectiveProjection.directives(
+            in: #"visualize{"path":"../escape.html"}"#
+        ).isEmpty)
+        XCTAssertTrue(CodexVisualizationDirectiveProjection.directives(
+            in: #"visualize{"path":"/tmp/Unsafe Name.html"}"#
+        ).isEmpty)
+        XCTAssertEqual(CodexVisualizationDirectiveProjection.directives(
+            in: #"::codex-inline-vis{path="/safe/render-probe.html" title="Probe" mode="wide"}"#
+        ), [.init(path: "/safe/render-probe.html", title: "Probe", isWide: true)])
+    }
+
     private func fixtureSnapshot(revision: UInt64) -> CanonicalStateSnapshot {
         let threadID: ThreadID = "fixture-thread"
         let turnID: TurnID = "fixture-turn"

@@ -118,6 +118,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void
     var onRemoveResponseAnnotation: (String) -> Void
     var productToolRenderer: CodexProductToolRendererV2?
+    var inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator?
     var onOpenSubagent: (String) -> Void
     var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
     var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
@@ -160,6 +161,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: clipboardService,
             fileNavigationService: fileNavigationService,
             productToolRenderer: productToolRenderer,
+            inlineVisualizationCoordinator: inlineVisualizationCoordinator,
             onOpenSubagent: onOpenSubagent,
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
@@ -210,6 +212,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var fileNavigationService: any CodexTranscriptFileNavigationService =
             CodexNoopTranscriptFileNavigationService()
         private var productToolRenderer: CodexProductToolRendererV2?
+        private var inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator?
         private var responseAnnotations: [CodexResponseTextAnnotation] = []
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
@@ -328,6 +331,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             fileNavigationService: any CodexTranscriptFileNavigationService =
                 CodexNoopTranscriptFileNavigationService(),
             productToolRenderer: CodexProductToolRendererV2?,
+            inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator? = nil,
             onOpenSubagent: @escaping (String) -> Void,
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
@@ -370,6 +374,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.clipboardService = clipboardService
             self.fileNavigationService = fileNavigationService
             self.productToolRenderer = productToolRenderer
+            self.inlineVisualizationCoordinator = inlineVisualizationCoordinator
+            inlineVisualizationCoordinator?.setActiveThread(presentation.threadID)
             self.responseAnnotations = responseAnnotations
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
@@ -611,6 +617,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 swiftUITheme: swiftUITheme,
                 contentHorizontalOffset: contentHorizontalOffset,
                 productToolRenderer: productToolRenderer,
+                inlineVisualizationCoordinator: inlineVisualizationCoordinator,
+                threadID: currentPresentation?.threadID ?? "standalone",
                 canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
@@ -809,6 +817,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 forceReconfigureAll = false
             }
             currentSnapshot = projected
+            inlineVisualizationCoordinator?.retainOnly(
+                itemIDs: Set(projected.itemsByID.compactMap { $0.value.visualization == nil ? nil : $0.key }),
+                threadID: projected.threadID
+            )
             cachedTranscriptLayoutIndex = nil
             if !findQuery.isEmpty { rebuildFindMatches(preservingActiveItem: true) }
             diagnostics.insertedItemCount += nextIDs.subtracting(previousIDs).count

@@ -23,6 +23,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Embedding guide](ui/embedding.md)
 - [Activity presentation](ui/live-activity.md)
 - [Custom tool cards](ui/custom-tool-cards.md)
+- [Sandboxed visualizations](ui/visualizations.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)
 - [Design tokens and Liquid Glass](ui/design-tokens.md)
 
@@ -41,6 +42,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Products and module boundaries](reference/products.md)
 - [Support status](reference/support-status.md)
 - [Official transcript widget and state oracle](reference/official-transcript-widget-oracle.md)
+- [Official visualization harness audit](reference/official-visualization-harness.md)
 - [Development](contributing/development.md)
 - [Protocol upgrades](contributing/protocol-upgrades.md)
 - [Documentation conventions](contributing/documentation.md)

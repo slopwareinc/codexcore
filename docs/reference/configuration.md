@@ -31,6 +31,13 @@ Resolution order is explicit `codexBinaryPath`, `[codexcore].codex_binary_path` 
 
 Do not set `CODEX_HOME` expecting it to replace `CodexConfig.codexHome`; the SDK injects the selected home deliberately.
 
+The reference app stores visualization fragments below
+`<codexHome>/visualizations` and adds that directory to the runtime workspace
+roots. Changing `CodexConfig.codexHome` therefore moves new visualization
+output with the rest of the isolated runtime state. Embedded hosts may provide
+additional explicit visualization roots to `CodexChatWorkspaceView`; rendering
+never trusts an arbitrary path merely because it appeared in assistant text.
+
 `TRACE_DURATION` is a developer `just trace` option, not an SDK runtime-discovery variable. `launchArgumentsOverride` replaces normal app-server arguments but does not bypass the forced credential-store isolation override.
 
 ## Task model settings

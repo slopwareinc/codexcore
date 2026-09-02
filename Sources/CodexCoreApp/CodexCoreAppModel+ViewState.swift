@@ -109,7 +109,16 @@ extension CodexCoreAppModel {
     }
 
     var protocolWorkspaceRoots: [CodexSchemaAbsolutePathBuf] {
-        workspaceRoots.map { CodexSchemaAbsolutePathBuf(.string($0)) }
+        protocolRuntimeRoots(workspaceRoots)
+    }
+
+    func protocolRuntimeRoots(_ roots: [String]) -> [CodexSchemaAbsolutePathBuf] {
+        (roots + [codexHome.visualizationsDirectoryURL.path])
+            .reduce(into: [String]()) { result, path in
+                let normalized = CodexProjectSummary.normalizedPath(path)
+                if !result.contains(normalized) { result.append(normalized) }
+            }
+            .map { CodexSchemaAbsolutePathBuf(.string($0)) }
     }
 
     var sidebarSnapshot: CodexSidebarSnapshot {
@@ -426,6 +435,14 @@ extension CodexCoreAppModel {
         composerSession.mentionResults
     }
 
+    var attachedSkills: [CodexSlashCommand] {
+        composerSession.attachedSkills
+    }
+
+    var composerSkillPlacements: [CodexComposerSkillPlacement] {
+        composerSession.skillPlacements
+    }
+
     var modelSelection: CodexModelSelection {
         get { configurationSession.modelSelection }
         set {
@@ -507,6 +524,7 @@ extension CodexCoreAppModel {
                !composerSession.trimmedDraft(for: currentThreadID).isEmpty
                    || !referencedFiles.isEmpty
                    || !responseAnnotations.isEmpty
+                   || !composerSession.attachedSkills.isEmpty
            ),
            !isSending || canSendFollowUp {
             return true

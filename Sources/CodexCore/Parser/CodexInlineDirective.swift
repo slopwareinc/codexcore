@@ -22,6 +22,9 @@ public enum CodexInlineDirectiveParser {
     }()
 
     public static func parse(line: String) -> CodexInlineDirective? {
+        if let visualization = parseVisualization(line: line) {
+            return visualization
+        }
         // Most transcript lines are ordinary prose. Avoid entering the regex
         // engine when the first non-whitespace character is not a directive.
         guard let firstNonWhitespace = line.firstIndex(where: { !$0.isWhitespace }),
@@ -38,6 +41,40 @@ public enum CodexInlineDirectiveParser {
             attributes: parseAttributes(String(line[bodyRange])),
             range: line.startIndex..<line.endIndex
         )
+    }
+
+    private static func parseVisualization(line: String) -> CodexInlineDirective? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let prefix = "visualize"
+        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix("") else { return nil }
+        let payloadStart = trimmed.index(trimmed.startIndex, offsetBy: prefix.count)
+        let payloadEnd = trimmed.index(before: trimmed.endIndex)
+        guard payloadStart < payloadEnd,
+              let data = String(trimmed[payloadStart..<payloadEnd]).data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = object["path"] as? String,
+              isSafeVisualizationPath(path) else { return nil }
+        var attributes = ["path": path]
+        if let title = object["title"] as? String { attributes["title"] = title }
+        if let mode = object["mode"] as? String { attributes["mode"] = mode }
+        return .init(
+            name: "codex-inline-vis",
+            attributes: attributes,
+            range: line.startIndex..<line.endIndex
+        )
+    }
+
+    private static func isSafeVisualizationPath(_ path: String) -> Bool {
+        guard !path.isEmpty,
+              path.utf8.count <= 4_096,
+              !path.contains("\n"),
+              !path.contains("\r"),
+              !path.split(separator: "/", omittingEmptySubsequences: false).contains("..")
+        else { return false }
+        return URL(fileURLWithPath: path).lastPathComponent.range(
+            of: #"^[a-z0-9]+(?:-[a-z0-9]+)*\.html$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     public static func split(text: String) -> [(text: String, directive: CodexInlineDirective?)] {

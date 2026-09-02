@@ -2,6 +2,14 @@ import XCTest
 @testable import CodexCore
 
 final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
+    func testVisualizationRootMovesWithConfiguredCodexHome() {
+        let home = CodexHome(path: "/private/tmp/custom-codex-home")
+        XCTAssertEqual(
+            home.visualizationsDirectoryURL.path,
+            "/private/tmp/custom-codex-home/visualizations"
+        )
+    }
+
     func testPrepareForLaunchCreatesAProtectedCustomDirectory() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -17,6 +25,13 @@ final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
         XCTAssertTrue(
             FileManager.default.fileExists(
                 atPath: directory.path,
+                isDirectory: &isDirectory
+            )
+        )
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: home.visualizationsDirectoryURL.path,
                 isDirectory: &isDirectory
             )
         )

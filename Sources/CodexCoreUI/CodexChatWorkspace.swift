@@ -10,6 +10,13 @@ private struct CodexComposerOverlayHeightKey: PreferenceKey {
     }
 }
 
+enum CodexComposerOverlayHeightReconciler {
+    static func next(current: CGFloat, proposed: CGFloat) -> CGFloat? {
+        guard proposed > 0, abs(current - proposed) > 0.5 else { return nil }
+        return proposed
+    }
+}
+
 public struct CodexWorkspaceResponsivePanelState: Equatable, Sendable {
     /// Preserves the transcript's 736-point reading measure plus its standard
     /// horizontal gutters while a tool panel is docked beside it.
@@ -96,6 +103,7 @@ public struct CodexChatWorkspaceView: View {
     private let subagents: [CodexSubagentState]
     private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspacePath: String
+    private let visualizationRoots: [URL]
     private let chatTitle: String
     private let currentThreadID: String?
     private let rateLimitBannerMessage: String?
@@ -135,8 +143,13 @@ public struct CodexChatWorkspaceView: View {
     private let followUpHint: String?
     private let queuedFollowUps: [CodexComposerSubmission]
     private let mentionResults: [FuzzyFileSearchResult]
+    private let attachedSkills: [CodexSlashCommand]
+    private let skillPlacements: [CodexComposerSkillPlacement]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
+    private let onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)?
+    private let onSkillTagRemoved: ((String) -> Void)?
+    private let onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
@@ -173,6 +186,7 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @StateObject private var inlineVisualizationFrames: CodexInlineVisualizationCoordinator
 
     /// Creates a workspace and routes the Subagents surface through the
     /// canonical presentation coordinator when one is supplied.
@@ -182,6 +196,7 @@ public struct CodexChatWorkspaceView: View {
         subagents: [CodexSubagentState] = [],
         subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspacePath: String,
+        visualizationRoots: [URL] = [],
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
         panel: CodexWorkspacePanelState = CodexWorkspacePanelState(),
@@ -223,8 +238,13 @@ public struct CodexChatWorkspaceView: View {
         followUpHint: String? = nil,
         queuedFollowUps: [CodexComposerSubmission] = [],
         mentionResults: [FuzzyFileSearchResult] = [],
+        attachedSkills: [CodexSlashCommand] = [],
+        skillPlacements: [CodexComposerSkillPlacement] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
+        onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)? = nil,
+        onSkillTagRemoved: ((String) -> Void)? = nil,
+        onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
@@ -261,6 +281,17 @@ public struct CodexChatWorkspaceView: View {
         self.subagents = subagents
         self.subagentCoordinator = subagentCoordinator
         self.workspacePath = workspacePath
+        self.visualizationRoots = visualizationRoots
+        var inlineRoots = visualizationRoots
+        if !workspacePath.isEmpty {
+            inlineRoots.append(URL(fileURLWithPath: workspacePath, isDirectory: true))
+        }
+        self._inlineVisualizationFrames = StateObject(
+            wrappedValue: CodexInlineVisualizationCoordinator(
+                allowedRoots: inlineRoots,
+                onFollowUpMessage: onSteerQueuedFollowUp
+            )
+        )
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
         self._panel = ObservedObject(wrappedValue: panel)
@@ -303,8 +334,13 @@ public struct CodexChatWorkspaceView: View {
         self.followUpHint = followUpHint
         self.queuedFollowUps = queuedFollowUps
         self.mentionResults = mentionResults
+        self.attachedSkills = attachedSkills
+        self.skillPlacements = skillPlacements
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
+        self.onSkillTagSelected = onSkillTagSelected
+        self.onSkillTagRemoved = onSkillTagRemoved
+        self.onSkillPlacementsChanged = onSkillPlacementsChanged
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
@@ -467,6 +503,7 @@ public struct CodexChatWorkspaceView: View {
         return ZStack(alignment: .topTrailing) {
             CodexTranscriptViewV2(
                 presentationStore: presentationStore,
+                inlineVisualizationCoordinator: inlineVisualizationFrames,
                 contentHorizontalOffset: -contentShift,
                 bottomContentInset: composerOverlayHeight + 20,
                 supplementalTurns: supplementalTranscriptTurns,
@@ -618,8 +655,13 @@ public struct CodexChatWorkspaceView: View {
                         canUsePlanMode: canUsePlanMode,
                         followUpHint: followUpHint,
                         mentionResults: mentionResults,
+                        attachedSkills: attachedSkills,
+                        skillPlacements: skillPlacements,
                         onMentionQueryChanged: onMentionQueryChanged,
                         onMentionSelected: onMentionSelected,
+                        onSkillTagSelected: onSkillTagSelected,
+                        onSkillTagRemoved: onSkillTagRemoved,
+                        onSkillPlacementsChanged: onSkillPlacementsChanged,
                         onSend: onSend,
                         onInterrupt: onInterrupt,
                         dictationState: dictationState,
@@ -654,8 +696,11 @@ public struct CodexChatWorkspaceView: View {
             }
         }
         .onPreferenceChange(CodexComposerOverlayHeightKey.self) { height in
-            guard height > 0 else { return }
-            composerOverlayHeight = height
+            guard let next = CodexComposerOverlayHeightReconciler.next(
+                current: composerOverlayHeight,
+                proposed: height
+            ) else { return }
+            composerOverlayHeight = next
         }
     }
 
@@ -846,7 +891,11 @@ public struct CodexChatWorkspaceView: View {
             if let sideChatID = resource.metadata.sourceID {
                 openPanelTab(sideChatID, from: request.opener)
             }
-        case .generatedImage, .visualization, .artifact, .mcpResource, .mcpApp, .unknown:
+        case .visualization:
+            // Visualizations are transcript-owned, matching the official app.
+            // They are never mounted as workspace tabs.
+            break
+        case .generatedImage, .artifact, .mcpResource, .mcpApp, .unknown:
             // These adapters are supplied by later workspace slices. Keep the
             // typed request observable to the host rather than duplicating a
             // preview host here.
@@ -987,7 +1036,8 @@ public struct CodexChatWorkspaceView: View {
                 panel?.filesSession = nil
             }
         )
-        panel.filesSession = fileAdapters.filesSession
+        workspaceTabs.retireUnavailableResources(fileAdapters.unavailableResourceKeys)
+        panel.reconcileFilesSession(fileAdapters.filesSession)
         adapters.append(contentsOf: fileAdapters.adapters)
         workspaceTabs.register(adapters)
     }

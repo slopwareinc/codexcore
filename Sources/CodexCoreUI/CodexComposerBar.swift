@@ -7,6 +7,7 @@ import AppKit
 
 public struct CodexComposerBar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     @Binding private var draft: String
     @Binding private var referencedFiles: [CodexReferencedFile]
@@ -31,8 +32,13 @@ public struct CodexComposerBar: View {
     private let canUsePlanMode: Bool
     private let followUpHint: String?
     private let mentionResults: [FuzzyFileSearchResult]
+    private let attachedSkills: [CodexSlashCommand]
+    private let skillPlacements: [CodexComposerSkillPlacement]
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
+    private let onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)?
+    private let onSkillTagRemoved: ((String) -> Void)?
+    private let onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)?
     private let onSend: () -> Void
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
@@ -52,9 +58,12 @@ public struct CodexComposerBar: View {
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
     @State private var activeCommandSelector: CodexComposerCommandSelector?
     @State private var commandSelectorSelection = CodexComposerPaletteSelection()
+    @State private var mentionPaletteSelection = CodexComposerPaletteSelection()
     @State private var isSlashPaletteDismissed = false
+    @State private var isMentionPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
     @State private var isFileDropTargeted = false
+    @State private var editorHeight: CGFloat = 30
 
     public init(
         draft: Binding<String>,
@@ -82,8 +91,13 @@ public struct CodexComposerBar: View {
         canUsePlanMode: Bool = true,
         followUpHint: String? = nil,
         mentionResults: [FuzzyFileSearchResult] = [],
+        attachedSkills: [CodexSlashCommand] = [],
+        skillPlacements: [CodexComposerSkillPlacement] = [],
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
+        onSkillTagSelected: ((CodexSlashCommand, Int) -> Void)? = nil,
+        onSkillTagRemoved: ((String) -> Void)? = nil,
+        onSkillPlacementsChanged: (([CodexComposerSkillPlacement]) -> Void)? = nil,
         onSend: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
@@ -124,8 +138,13 @@ public struct CodexComposerBar: View {
         self.canUsePlanMode = canUsePlanMode
         self.followUpHint = followUpHint
         self.mentionResults = mentionResults
+        self.attachedSkills = attachedSkills
+        self.skillPlacements = skillPlacements
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
+        self.onSkillTagSelected = onSkillTagSelected
+        self.onSkillTagRemoved = onSkillTagRemoved
+        self.onSkillPlacementsChanged = onSkillPlacementsChanged
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
@@ -142,43 +161,6 @@ public struct CodexComposerBar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if isMCPStatusPalettePresented {
-                CodexComposerMCPStatusPalette(
-                    model: mcpStatusPaletteModel,
-                    onOpenDetails: onOpenMCPDetails,
-                    onRefresh: onRefreshMCPServers,
-                    onClose: {
-                        isMCPStatusPalettePresented = false
-                    }
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if let activeCommandSelector, !activeSelectorRows.isEmpty {
-                CodexComposerInlineSelectorPalette(
-                    title: activeCommandSelector.title,
-                    rows: activeSelectorRows,
-                    selectedID: commandSelectorSelection.selectedID,
-                    onSelect: selectActiveSelectorRow
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if let slashQuery, isSlashPaletteVisible {
-                CodexSlashCommandPalette(
-                    commands: filteredSlashCommands,
-                    query: slashQuery,
-                    selectedCommandID: slashPaletteSelection.selectedID,
-                    onSelect: selectSlashCommand
-                )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-
-            if mentionQuery != nil, !mentionResults.isEmpty {
-                CodexMentionPalette(results: mentionResults, onSelect: selectMention)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-
             VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
                 if let errorMessage = dictationState.errorMessage {
                     ComposerDictationErrorBanner(
@@ -200,6 +182,28 @@ public struct CodexComposerBar: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
+                #if canImport(AppKit)
+                CodexInlineComposerEditor(
+                    text: $draft,
+                    isFocused: Binding(
+                        get: { focused },
+                        set: { focused = $0 }
+                    ),
+                    skills: attachedSkills,
+                    placements: skillPlacements,
+                    placeholder: placeholder,
+                    maximumLines: isCompact ? 3 : 6,
+                    theme: theme,
+                    colorScheme: colorScheme,
+                    onPlacementsChanged: { onSkillPlacementsChanged?($0) },
+                    onRemoveSkill: { onSkillTagRemoved?($0) },
+                    onSubmit: handleSubmit,
+                    onHeightChanged: { height in
+                        if abs(editorHeight - height) > 0.5 { editorHeight = height }
+                    }
+                )
+                .frame(height: editorHeight)
+                #else
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.fonts.chat)
@@ -209,6 +213,7 @@ public struct CodexComposerBar: View {
                     .onSubmit(handleSubmit)
                     .padding(.leading, 6)
                     .padding(.vertical, isCompact ? 3 : 6)
+                #endif
 
                 if dictationState.isRecording, let dictationActions {
                     ComposerDictationFooter(
@@ -272,6 +277,16 @@ public struct CodexComposerBar: View {
                 onDrop: handleFileDrop
             )
         }
+        .overlay(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                paletteOverlay
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 320)
+            .offset(y: -328)
+            .zIndex(10)
+        }
         .onAppear {
             reconcilePaletteSelections()
             consumeFocusRequest()
@@ -283,6 +298,7 @@ public struct CodexComposerBar: View {
         }
         .onChange(of: draft) { _, _ in
             isSlashPaletteDismissed = false
+            isMentionPaletteDismissed = false
             reconcilePaletteSelections()
         }
         .onChange(of: filteredSlashCommandIDs) { _, _ in
@@ -296,6 +312,10 @@ public struct CodexComposerBar: View {
         }
         .onChange(of: mentionQuery) { _, query in
             onMentionQueryChanged?(query)
+            reconcilePaletteSelections()
+        }
+        .onChange(of: mentionSelectableIDs) { _, _ in
+            reconcilePaletteSelections()
         }
         .onExitCommand {
             guard dictationState.isRecording else { return }
@@ -313,6 +333,55 @@ public struct CodexComposerBar: View {
         }
     }
 
+    @ViewBuilder
+    private var paletteOverlay: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isMCPStatusPalettePresented {
+                CodexComposerMCPStatusPalette(
+                    model: mcpStatusPaletteModel,
+                    onOpenDetails: onOpenMCPDetails,
+                    onRefresh: onRefreshMCPServers,
+                    onClose: {
+                        isMCPStatusPalettePresented = false
+                    }
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let activeCommandSelector, !activeSelectorRows.isEmpty {
+                CodexComposerInlineSelectorPalette(
+                    title: activeCommandSelector.title,
+                    rows: activeSelectorRows,
+                    selectedID: commandSelectorSelection.selectedID,
+                    onSelect: selectActiveSelectorRow
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let slashQuery, isSlashPaletteVisible {
+                CodexSlashCommandPalette(
+                    commands: filteredSlashCommands,
+                    query: slashQuery,
+                    selectedCommandID: slashPaletteSelection.selectedID,
+                    onSelect: selectSlashCommand
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if isMentionPaletteVisible {
+                CodexMentionPalette(
+                    skills: filteredInvocationSkills,
+                    files: Array(mentionResults.prefix(8)),
+                    selectedID: mentionPaletteSelection.selectedID,
+                    onSelectSkill: selectSkillTag,
+                    onSelectFile: selectMention
+                )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func handleFileDrop(_ urls: [URL]) {
         onFilesDropped?(urls)
     }
@@ -327,6 +396,33 @@ public struct CodexComposerBar: View {
 
     private var mentionQuery: String? {
         CodexMentionQuery.query(from: draft)
+    }
+
+    private var invocationSkills: [CodexSlashCommand] {
+        let attachedIDs = Set(attachedSkills.map(\.id))
+        return slashCommands.filter {
+            $0.skillName != nil && $0.skillPath != nil && $0.isEnabled && !attachedIDs.contains($0.id)
+        }
+    }
+
+    private var filteredInvocationSkills: [CodexSlashCommand] {
+        guard let mentionQuery else { return [] }
+        let query = mentionQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return invocationSkills }
+        return invocationSkills.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.detail.localizedCaseInsensitiveContains(query)
+                || $0.skillName?.localizedCaseInsensitiveContains(query) == true
+        }
+    }
+
+    private var mentionSelectableIDs: [String] {
+        filteredInvocationSkills.map { "skill:\($0.id)" }
+            + mentionResults.prefix(8).map { "file:\($0.id)" }
+    }
+
+    private var isMentionPaletteVisible: Bool {
+        mentionQuery != nil && !isMentionPaletteDismissed && !mentionSelectableIDs.isEmpty
     }
 
     private var filteredSlashCommands: [CodexSlashCommand] {
@@ -363,7 +459,8 @@ public struct CodexComposerBar: View {
     }
 
     private var isAnyPaletteVisible: Bool {
-        isMCPStatusPalettePresented || isSlashPaletteVisible || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
+        isMCPStatusPalettePresented || isSlashPaletteVisible || isMentionPaletteVisible
+            || (activeCommandSelector != nil && !activeSelectorRows.isEmpty)
     }
 
     private var mcpStatusPaletteModel: CodexMCPStatusPanelModel {
@@ -421,6 +518,10 @@ public struct CodexComposerBar: View {
                 slashPaletteSelection.moveDown(availableIDs: filteredSlashCommandIDs)
                 return true
             }
+            if isMentionPaletteVisible {
+                mentionPaletteSelection.moveDown(availableIDs: mentionSelectableIDs)
+                return true
+            }
         case .moveUp:
             if activeCommandSelector != nil {
                 commandSelectorSelection.moveUp(availableIDs: activeSelectableRowIDs)
@@ -430,10 +531,17 @@ public struct CodexComposerBar: View {
                 slashPaletteSelection.moveUp(availableIDs: filteredSlashCommandIDs)
                 return true
             }
+            if isMentionPaletteVisible {
+                mentionPaletteSelection.moveUp(availableIDs: mentionSelectableIDs)
+                return true
+            }
         case .select:
             if isMCPStatusPalettePresented {
                 openMCPDetailsFromPalette()
                 return true
+            }
+            if isMentionPaletteVisible {
+                return selectHighlightedMention()
             }
             return selectHighlightedPaletteRow()
         case .dismiss:
@@ -463,6 +571,24 @@ public struct CodexComposerBar: View {
     }
 
     @discardableResult
+    private func selectHighlightedMention() -> Bool {
+        guard let selectedID = mentionPaletteSelection.selectedID ?? mentionSelectableIDs.first else {
+            return false
+        }
+        if selectedID.hasPrefix("skill:"),
+           let skill = filteredInvocationSkills.first(where: { "skill:\($0.id)" == selectedID }) {
+            selectSkillTag(skill)
+            return true
+        }
+        if selectedID.hasPrefix("file:"),
+           let file = mentionResults.prefix(8).first(where: { "file:\($0.id)" == selectedID }) {
+            selectMention(file)
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
     private func dismissActivePalette() -> Bool {
         if isMCPStatusPalettePresented {
             isMCPStatusPalettePresented = false
@@ -478,6 +604,12 @@ public struct CodexComposerBar: View {
         if isSlashPaletteVisible {
             isSlashPaletteDismissed = true
             slashPaletteSelection.clear()
+            return true
+        }
+
+        if isMentionPaletteVisible {
+            isMentionPaletteDismissed = true
+            mentionPaletteSelection.clear()
             return true
         }
 
@@ -501,6 +633,12 @@ public struct CodexComposerBar: View {
             commandSelectorSelection.reconcile(availableIDs: activeSelectableRowIDs)
         } else {
             commandSelectorSelection.clear()
+        }
+
+        if isMentionPaletteVisible {
+            mentionPaletteSelection.reconcile(availableIDs: mentionSelectableIDs)
+        } else {
+            mentionPaletteSelection.clear()
         }
     }
 
@@ -624,6 +762,18 @@ public struct CodexComposerBar: View {
         isMCPStatusPalettePresented = false
         draft = CodexMentionQuery.applyingSelection(result.fileName, to: draft)
         onMentionSelected?(result)
+    }
+
+    private func selectSkillTag(_ skill: CodexSlashCommand) {
+        activeCommandSelector = nil
+        isMCPStatusPalettePresented = false
+        mentionPaletteSelection.clear()
+        guard let atIndex = draft.lastIndex(of: "@") else { return }
+        let prefix = String(draft[..<atIndex])
+        let offset = prefix.utf16.count
+        draft = prefix + " "
+        onSkillTagSelected?(skill, offset)
+        focused = true
     }
 }
 
@@ -1007,51 +1157,59 @@ public enum CodexMentionQuery {
         guard let atIndex = draft.lastIndex(of: "@") else { return draft }
         return String(draft[..<atIndex]) + "@\(fileName) "
     }
+
+    /// Removes a trailing invocation query after it has become a structured
+    /// composer tag. The tag, not hidden prompt text, carries the invocation.
+    public static func removingQuery(from draft: String) -> String {
+        guard let atIndex = draft.lastIndex(of: "@") else { return draft }
+        return String(draft[..<atIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 private struct CodexMentionPalette: View {
     @Environment(\.codexAgentTheme) private var theme
 
-    let results: [FuzzyFileSearchResult]
-    let onSelect: (FuzzyFileSearchResult) -> Void
+    let skills: [CodexSlashCommand]
+    let files: [FuzzyFileSearchResult]
+    let selectedID: String?
+    let onSelectSkill: (CodexSlashCommand) -> Void
+    let onSelectFile: (FuzzyFileSearchResult) -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Files")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 4)
-
-                ForEach(results.prefix(8)) { result in
-                    Button {
-                        onSelect(result)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: result.matchType == .directory ? "folder" : "doc.text")
-                                .font(theme.fonts.label)
-                                .foregroundStyle(theme.colors.textTertiary)
-                                .frame(width: 18)
-                            Text(result.fileName)
-                                .font(theme.fonts.caption.weight(.semibold))
-                                .foregroundStyle(theme.colors.textPrimary)
-                            Text(result.path)
-                                .font(theme.fonts.caption)
-                                .foregroundStyle(theme.colors.textTertiary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 0)
+                if !skills.isEmpty {
+                    sectionLabel("Plugins and skills")
+                    ForEach(skills) { skill in
+                        Button { onSelectSkill(skill) } label: {
+                            row(
+                                id: "skill:\(skill.id)",
+                                systemImage: skill.systemImage,
+                                title: skill.title,
+                                detail: skill.detail,
+                                badge: skill.scopeBadge
+                            )
                         }
-                        .frame(height: 29)
-                        .padding(.horizontal, 10)
-                        .background(
-                            result.id == results.first?.id ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
-                            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
-                        )
+                        .buttonStyle(.plain)
+                        .help(skill.detail)
                     }
-                    .buttonStyle(.plain)
-                    .help(result.absolutePath)
+                }
+
+                if !files.isEmpty {
+                    sectionLabel("Files")
+                    ForEach(files) { file in
+                        Button { onSelectFile(file) } label: {
+                            row(
+                                id: "file:\(file.id)",
+                                systemImage: file.matchType == .directory ? "folder" : "doc.text",
+                                title: file.fileName,
+                                detail: file.path,
+                                badge: nil
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(file.absolutePath)
+                    }
                 }
             }
             .padding(theme.spacing.rowGap)
@@ -1059,6 +1217,49 @@ private struct CodexMentionPalette: View {
         .frame(maxWidth: 736, alignment: .leading)
         .frame(maxHeight: 280, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(theme.fonts.caption)
+            .foregroundStyle(theme.colors.textTertiary)
+            .padding(.horizontal, 10)
+            .padding(.top, 4)
+    }
+
+    private func row(
+        id: String,
+        systemImage: String,
+        title: String,
+        detail: String,
+        badge: String?
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(theme.fonts.label)
+                .foregroundStyle(theme.colors.textTertiary)
+                .frame(width: 18)
+            Text(title)
+                .font(theme.fonts.caption.weight(.semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+            Text(detail)
+                .font(theme.fonts.caption)
+                .foregroundStyle(theme.colors.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let badge {
+                Text(badge)
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+        }
+        .frame(height: 29)
+        .padding(.horizontal, 10)
+        .background(
+            id == selectedID ? theme.colors.surfaceElevated.opacity(theme.effects.glassOpacity) : .clear,
+            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+        )
     }
 }
 
@@ -1073,7 +1274,7 @@ private struct CodexSlashCommandPalette: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(sectionNames, id: \.self) { section in
                         if section != sectionNames.first {
                             Text(section)
@@ -1132,7 +1333,7 @@ private struct CodexSlashCommandPalette: View {
                             }
         }
         .frame(maxWidth: 736, alignment: .leading)
-        .frame(maxHeight: 320, alignment: .top)
+        .frame(height: preferredHeight, alignment: .top)
         .codexGlass(RoundedRectangle(cornerRadius: theme.radii.composer, style: .continuous), role: .panel)
     }
 
@@ -1142,6 +1343,12 @@ private struct CodexSlashCommandPalette: View {
             names.append(command.section)
         }
         return names
+    }
+
+    private var preferredHeight: CGFloat {
+        let rowHeight = CGFloat(commands.count) * 33
+        let sectionHeight = CGFloat(max(0, sectionNames.count - 1)) * 25
+        return min(320, max(48, rowHeight + sectionHeight + 16))
     }
 }
 

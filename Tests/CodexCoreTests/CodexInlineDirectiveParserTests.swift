@@ -23,6 +23,13 @@ struct CodexInlineDirectiveParserTests {
 
         let empty = try #require(CodexInlineDirectiveParser.parse(line: "::archive-thread{}"))
         #expect(empty.attributes.isEmpty)
+
+        let visualization = try #require(CodexInlineDirectiveParser.parse(
+            line: #"visualize{"path":"/outputs/render-probe.html","mode":"wide","title":"Probe"}"#
+        ))
+        #expect(visualization.name == "codex-inline-vis")
+        #expect(visualization.attributes["path"] == "/outputs/render-probe.html")
+        #expect(visualization.attributes["mode"] == "wide")
     }
 
     @Test func rejectsInlineMentionsAndSplitsDirectiveLinesInOrder() {

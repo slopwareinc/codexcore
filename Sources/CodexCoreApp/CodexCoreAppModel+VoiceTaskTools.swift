@@ -601,8 +601,10 @@ extension CodexCoreAppModel {
     }
 
     private func workspaceRoots(containing cwd: String) -> [String] {
-        recentProjects.first(where: { $0.contains(workspacePath: cwd) })?.sourceFolders
+        let roots = recentProjects.first(where: { $0.contains(workspacePath: cwd) })?.sourceFolders
             ?? [CodexProjectSummary.normalizedPath(cwd)]
+        let visualizationRoot = codexHome.visualizationsDirectoryURL.path
+        return roots.contains(visualizationRoot) ? roots : roots + [visualizationRoot]
     }
 
     private static let threadTaskToolNames: Set<String> = [

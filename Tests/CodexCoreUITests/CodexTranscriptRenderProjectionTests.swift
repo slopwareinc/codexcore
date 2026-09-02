@@ -661,6 +661,33 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(item.action == nil)
     }
 
+    @Test func visualizationDirectiveBecomesAnInlineTranscriptItemInsteadOfRawText() async throws {
+        let path = "/outputs/render-probe.html"
+        let turn = CodexTurnV2(
+            id: "turn",
+            finalAnswer: .init(
+                id: "final",
+                text: #"visualize{"path":"\#(path)","title":"Probe","mode":"wide"}"#,
+                isStreaming: false
+            ),
+            status: .done(durationMs: 1)
+        )
+        let snapshot = try await CodexTranscriptRenderProjector().project(
+            presentation: .init(threadID: "thread", transcript: .init(turns: [turn])),
+            availableWidth: 860,
+            theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        )
+        let item = try #require(snapshot.itemsByID.values.first { $0.visualization != nil })
+        #expect(item.visualization?.path == path)
+        #expect(item.visualization?.title == "Probe")
+        #expect(item.visualization?.isWide == true)
+        #expect(item.visualization?.variant == .inline)
+        #expect(item.directive == nil)
+        #expect(item.action == nil)
+        #expect(item.measuredHeight == 240 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
+        #expect(item.copyText?.contains("visualize") == true)
+    }
+
     @Test func independentThreadCommunicationRendersBidirectionalNavigation() async throws {
         let source = CodexThreadReferenceV2(hostID: "local", threadID: "source-thread")
         let target = CodexThreadReferenceV2(hostID: "remote-host", threadID: "target-thread")

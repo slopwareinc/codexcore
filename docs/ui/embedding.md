@@ -43,6 +43,26 @@ CodexChatWorkspaceView(
 
 This is intentionally only the minimal initializer path. Add model selection, permissions, panels, MCP state, side chat, subagents, and host actions as your product supports them.
 
+Pass explicit visualization roots when the host allows assistant-authored HTML
+outside the repository:
+
+```swift
+CodexChatWorkspaceView(
+    presentationStore: presentationStore,
+    workspacePath: workspacePath,
+    visualizationRoots: [codex.codexHome.visualizationsDirectoryURL],
+    draft: $draft,
+    isSending: false,
+    canSend: true,
+    onSend: submit,
+    onInterrupt: interrupt,
+    onDisconnect: disconnect
+)
+```
+
+Roots are path capabilities, not discovery hints. A visualization outside the
+workspace and these roots is rejected even when its directive is well formed.
+
 `onOpenThread` is for independent task references produced by `create_thread`,
 `read_thread`, `send_message_to_thread`, and received delegation messages. It
 must navigate the host's main task workspace. Keep `onOpenSubagent` separate: it

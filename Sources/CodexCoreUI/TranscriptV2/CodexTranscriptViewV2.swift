@@ -53,6 +53,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let threadID: String
     private let presentationStore: CodexPresentationStore?
     private let productToolRenderer: CodexProductToolRendererV2?
+    private let inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator?
     private let emptyState: EmptyState
     private let contentHorizontalOffset: CGFloat
     private let bottomContentInset: CGFloat
@@ -79,6 +80,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     public init(
         presentationStore: CodexPresentationStore,
         productToolRenderer: CodexProductToolRendererV2? = nil,
+        inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
         supplementalTurns: [CodexTurnV2] = [],
@@ -103,6 +105,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.threadID = "unassigned"
         self.presentationStore = presentationStore
         self.productToolRenderer = productToolRenderer
+        self.inlineVisualizationCoordinator = inlineVisualizationCoordinator
         self.contentHorizontalOffset = contentHorizontalOffset
         self.supplementalTurns = supplementalTurns
         self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
@@ -130,6 +133,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         transcript: CodexTranscriptV2,
         threadID: String = "standalone",
         productToolRenderer: CodexProductToolRendererV2? = nil,
+        inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator? = nil,
         contentHorizontalOffset: CGFloat = 0,
         bottomContentInset: CGFloat = 170,
         supplementalTurns: [CodexTurnV2] = [],
@@ -154,6 +158,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.threadID = threadID
         self.presentationStore = nil
         self.productToolRenderer = productToolRenderer
+        self.inlineVisualizationCoordinator = inlineVisualizationCoordinator
         self.contentHorizontalOffset = contentHorizontalOffset
         self.supplementalTurns = supplementalTurns
         self.supplementalPresentedAtByTurnID = supplementalPresentedAtByTurnID
@@ -195,6 +200,7 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 onUpsertResponseAnnotation: onUpsertResponseAnnotation,
                 onRemoveResponseAnnotation: onRemoveResponseAnnotation,
                 productToolRenderer: productToolRenderer,
+                inlineVisualizationCoordinator: inlineVisualizationCoordinator,
                 onOpenSubagent: onOpenSubagent,
                 onOpenThread: onOpenThread,
                 onOpenReview: resolvedOpenReview,

@@ -444,7 +444,18 @@ final class CodexSessionStateTests: XCTestCase {
         session.attachSkill(skill)
         session.attachSkill(skill)
         XCTAssertEqual(session.attachedSkills, [skill])
+        XCTAssertEqual(session.skillPlacements, [
+            .init(skillID: skill.id, utf16Offset: session.draft.utf16.count)
+        ])
         XCTAssertEqual(session.draft, "  Inspect @Store.swift  ")
+
+        session.removeAttachedSkill(id: skill.id)
+        XCTAssertEqual(session.attachedSkills, [])
+        XCTAssertEqual(session.skillPlacements, [])
+        session.attachSkill(skill, atUTF16Offset: 4)
+        XCTAssertEqual(session.skillPlacements, [.init(skillID: skill.id, utf16Offset: 4)])
+        session.updateSkillPlacements([.init(skillID: skill.id, utf16Offset: 8)])
+        XCTAssertEqual(session.skillPlacements, [.init(skillID: skill.id, utf16Offset: 8)])
 
         session.draft = "  Inspect @Store.swift  "
         session.setMentionResults([mention])
@@ -559,6 +570,29 @@ final class CodexSessionStateTests: XCTestCase {
             systemImage: "map"
         ))
         XCTAssertEqual(planRoute.hostActions, [.enablePlanMode])
+    }
+
+    func testInlineSkillPlacementsStayScopedToTheirComposerThread() {
+        let skill = CodexSlashCommand(
+            id: "skill:visualize",
+            title: "Visualize",
+            detail: "Create an inline visual",
+            systemImage: "sparkles",
+            section: "Skills",
+            skillName: "visualize",
+            skillPath: "/skills/visualize/SKILL.md"
+        )
+        var session = CodexComposerStateSession(activeThreadID: "thread-a")
+        session.draft = "Show this "
+        session.attachSkill(skill, atUTF16Offset: 5)
+
+        session.setActiveThreadID("thread-b")
+        XCTAssertEqual(session.attachedSkills, [])
+        XCTAssertEqual(session.skillPlacements, [])
+
+        session.setActiveThreadID("thread-a")
+        XCTAssertEqual(session.attachedSkills, [skill])
+        XCTAssertEqual(session.skillPlacements, [.init(skillID: skill.id, utf16Offset: 5)])
     }
 
 }

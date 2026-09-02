@@ -820,7 +820,37 @@ private extension CodexThreadResourceProjector {
                 origin: origin
             ), true)
 
-        case .agentMessage, .userMessage, .reasoning, .commandExecution,
+        case .agentMessage:
+            for directive in CodexVisualizationDirectiveProjection.directives(
+                in: string(payload["text"])
+                    ?? string(payload["content"])
+                    ?? string(payload["message"])
+                    ?? ""
+            ) {
+                append(.init(
+                    id: "visualization:\(origin.threadID.rawValue):\(directive.path)",
+                    kind: .visualization,
+                    title: directive.title ?? directive.path.lastPathComponent,
+                    detail: directive.path,
+                    status: status,
+                    origin: origin,
+                    metadata: .init(
+                        path: directive.path,
+                        mimeType: "text/html",
+                        statusDetail: directive.isWide ? "wide" : nil
+                    )
+                ), true)
+            }
+            projectOutputLike(
+                item: item,
+                origin: origin,
+                status: status,
+                append: append,
+                malformedCount: &malformedCount,
+                includeGenericOutput: false
+            )
+
+        case .userMessage, .reasoning, .commandExecution,
              .hookPrompt, .sleep, .contextCompaction, .unknown:
             projectOutputLike(
                 item: item,
@@ -975,10 +1005,8 @@ private extension CodexThreadResourceProjector {
         if includeGenericOutput,
            candidates.allSatisfy({ payload[$0] == nil }),
            let tool = string(payload["tool"]),
-           (tool.localizedCaseInsensitiveContains("visual") ||
-            tool.localizedCaseInsensitiveContains("artifact")) {
-            let kind: CodexThreadResourceKind = tool.localizedCaseInsensitiveContains("visual")
-                ? .visualization : .artifact
+           tool.localizedCaseInsensitiveContains("artifact") {
+            let kind: CodexThreadResourceKind = .artifact
             append(.init(
                 id: "\(kind.rawValue):\(origin.stableID)",
                 kind: kind,
@@ -1066,7 +1094,7 @@ private extension CodexThreadResourceProjector {
             let source = path ?? url
             guard source != nil else { return nil }
             return .init(
-                id: "visualization:\(origin.stableID):\(source ?? "")",
+                id: "visualization:\(origin.threadID.rawValue):\(source ?? "")",
                 kind: .visualization,
                 title: title ?? "Visualization",
                 detail: source,
