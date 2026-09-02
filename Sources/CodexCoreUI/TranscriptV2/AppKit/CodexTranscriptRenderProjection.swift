@@ -170,9 +170,22 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openThread(CodexThreadReferenceV2)
     case openURL(String)
     case openFile(path: String, line: Int?)
-    case openVisualization(path: String)
     case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
+}
+
+struct CodexTranscriptVisualizationRender: Sendable, Equatable {
+    enum Variant: Sendable, Equatable {
+        case inline
+        case live
+    }
+
+    var path: String
+    var title: String
+    var isWide: Bool
+    var isExpandable: Bool
+    var sourceThreadID: String?
+    var variant: Variant
 }
 
 struct CodexTranscriptApprovalRender: Sendable, Equatable {
@@ -186,7 +199,6 @@ struct CodexTranscriptDirectiveRender: Sendable, Equatable {
         case gitAction(verb: String, branch: String?, cwd: String?)
         case pullRequest(url: String, branch: String?, isDraft: Bool)
         case codeComment(title: String, body: String, file: String, start: Int?, end: Int?, priority: Int?)
-        case visualization(path: String, title: String?, isWide: Bool)
         case unknown(name: String)
     }
 
@@ -300,6 +312,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
+    var visualization: CodexTranscriptVisualizationRender? = nil
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
@@ -627,6 +640,7 @@ actor CodexTranscriptRenderProjector {
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
+                    visualization: draft.visualization,
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
@@ -1216,6 +1230,7 @@ private extension CodexTranscriptRenderProjector {
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
+        var visualization: CodexTranscriptVisualizationRender?
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
@@ -1243,6 +1258,7 @@ private extension CodexTranscriptRenderProjector {
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
+            visualization: CodexTranscriptVisualizationRender? = nil,
             directive: CodexTranscriptDirectiveRender? = nil,
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
@@ -1270,6 +1286,7 @@ private extension CodexTranscriptRenderProjector {
             self.code = code
             self.footer = footer
             self.productTool = productTool
+            self.visualization = visualization
             self.directive = directive
             self.approval = approval
             self.action = action
@@ -1423,16 +1440,28 @@ private extension CodexTranscriptRenderProjector {
                 cacheHits: &cacheHits, cacheMisses: &cacheMisses
             ) { Self.prepareMarkdown(body, font: theme.bodyFont, color: theme.textSecondary, theme: theme) }
             fixedHeight = nil
-        case "codex-inline-vis":
+        case "codex-inline-vis", "codex-live-vis":
             let path = attributes["path"] ?? attributes["file"] ?? ""
-            let title = attributes["title"]?.nilIfBlank
+            let title = attributes["title"]?.nilIfBlank ?? "Interactive visualization"
             let isWide = attributes["mode"] == "wide"
-            render = .init(
-                kind: .visualization(path: path, title: title, isWide: isWide),
-                raw: raw
+            let visualization = CodexTranscriptVisualizationRender(
+                path: path,
+                title: title,
+                isWide: isWide,
+                isExpandable: attributes["expandable"] != "false",
+                sourceThreadID: attributes["threadId"] ?? attributes["threadID"],
+                variant: directive.name == "codex-live-vis" ? .live : .inline
             )
-            action = path.isEmpty ? nil : .openVisualization(path: path)
-            label = title ?? "Interactive visualization"
+            return ItemDraft(
+                id: itemID,
+                fingerprint: "visualization:\(raw)",
+                visualization: visualization,
+                copyText: raw,
+                accessibilityLabel: title,
+                maxWidthKind: isWide ? .full : .card,
+                fixedHeight: 240,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            )
         default:
             render = .init(kind: .unknown(name: directive.name), raw: raw)
             action = nil

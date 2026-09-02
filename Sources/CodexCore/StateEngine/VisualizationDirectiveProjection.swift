@@ -10,22 +10,13 @@ enum CodexVisualizationDirectiveProjection {
     static func directives(in text: String) -> [CodexVisualizationDirective] {
         CodexInlineDirectiveParser.split(text: text).compactMap { partition in
             guard let directive = partition.directive,
-                  directive.name == "codex-inline-vis" else { return nil }
+                  directive.name == "codex-inline-vis" || directive.name == "codex-live-vis" else { return nil }
             return make(
                 path: directive.attributes["path"] ?? directive.attributes["file"],
                 title: directive.attributes["title"],
                 isWide: directive.attributes["mode"] == "wide"
             )
         }
-    }
-
-    static func isVisualizationHTMLPath(_ path: String) -> Bool {
-        let normalized = path.replacingOccurrences(of: "\\", with: "/")
-        guard normalized.lowercased().hasSuffix(".html") else { return false }
-        return normalized.contains("/visualizations/")
-            || normalized.hasPrefix("visualizations/")
-            || normalized.hasPrefix(".codex/visualizations/")
-            || normalized.hasPrefix(".codexcore/visualizations/")
     }
 
     private static func make(

@@ -235,7 +235,7 @@ final class ThreadResourceProjectionTests: XCTestCase {
         XCTAssertEqual(visualizations.count, 1)
         XCTAssertTrue(visualizations.allSatisfy { $0.metadata.path == path })
         XCTAssertTrue(visualizations.contains { $0.metadata.statusDetail == "wide" })
-        XCTAssertFalse(inventory.resources.contains { $0.kind == .editedFile })
+        XCTAssertTrue(inventory.resources.contains { $0.kind == .editedFile })
     }
 
     func testVisualizationDirectiveParserRejectsTraversalAndUnsafeNames() {

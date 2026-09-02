@@ -661,7 +661,7 @@ struct CodexTranscriptRenderProjectionTests {
         #expect(item.action == nil)
     }
 
-    @Test func visualizationDirectiveBecomesAnOpenableCardInsteadOfRawText() async throws {
+    @Test func visualizationDirectiveBecomesAnInlineTranscriptItemInsteadOfRawText() async throws {
         let path = "/outputs/render-probe.html"
         let turn = CodexTurnV2(
             id: "turn",
@@ -677,15 +677,14 @@ struct CodexTranscriptRenderProjectionTests {
             availableWidth: 860,
             theme: CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
         )
-        let item = try #require(snapshot.itemsByID.values.first { $0.directive != nil })
-        guard case .visualization(let renderedPath, let title, let isWide) = item.directive?.kind else {
-            Issue.record("Expected a visualization render item")
-            return
-        }
-        #expect(renderedPath == path)
-        #expect(title == "Probe")
-        #expect(isWide)
-        #expect(item.action == .openVisualization(path: path))
+        let item = try #require(snapshot.itemsByID.values.first { $0.visualization != nil })
+        #expect(item.visualization?.path == path)
+        #expect(item.visualization?.title == "Probe")
+        #expect(item.visualization?.isWide == true)
+        #expect(item.visualization?.variant == .inline)
+        #expect(item.directive == nil)
+        #expect(item.action == nil)
+        #expect(item.measuredHeight == 240 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
         #expect(item.copyText?.contains("visualize") == true)
     }
 

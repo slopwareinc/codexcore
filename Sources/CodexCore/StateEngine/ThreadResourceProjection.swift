@@ -712,18 +712,6 @@ private extension CodexThreadResourceProjector {
                         continue
                     }
                     emitted = true
-                    if CodexVisualizationDirectiveProjection.isVisualizationHTMLPath(path) {
-                        append(.init(
-                            id: "visualization:\(origin.threadID.rawValue):\(path)",
-                            kind: .visualization,
-                            title: path.lastPathComponent,
-                            detail: path,
-                            status: status,
-                            origin: origin,
-                            metadata: .init(path: path, mimeType: "text/html")
-                        ), true)
-                        continue
-                    }
                     append(.init(
                         id: "edited-file:\(origin.stableID):\(path)",
                         kind: .editedFile,
@@ -1017,10 +1005,8 @@ private extension CodexThreadResourceProjector {
         if includeGenericOutput,
            candidates.allSatisfy({ payload[$0] == nil }),
            let tool = string(payload["tool"]),
-           (tool.localizedCaseInsensitiveContains("visual") ||
-            tool.localizedCaseInsensitiveContains("artifact")) {
-            let kind: CodexThreadResourceKind = tool.localizedCaseInsensitiveContains("visual")
-                ? .visualization : .artifact
+           tool.localizedCaseInsensitiveContains("artifact") {
+            let kind: CodexThreadResourceKind = .artifact
             append(.init(
                 id: "\(kind.rawValue):\(origin.stableID)",
                 kind: kind,

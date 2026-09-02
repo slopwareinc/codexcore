@@ -257,6 +257,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
     private var footerActionControlsInstalled = false
     private var agentChipHostCreationCount = 0
     private var hostedView: NSView?
+    private var inlineVisualizationAnchor: CodexInlineVisualizationAnchorView?
+    private weak var inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator?
     private var item: CodexTranscriptRenderItem?
     private var appKitTheme: CodexTranscriptAppKitTheme?
     private var swiftUITheme = CodexAgentTheme.officialDark
@@ -600,6 +602,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         lastReportedPreferredHeight = nil
         hostedView?.removeFromSuperview()
         hostedView = nil
+        if let inlineVisualizationAnchor {
+            inlineVisualizationCoordinator?.detach(inlineVisualizationAnchor)
+            inlineVisualizationAnchor.removeFromSuperview()
+        }
+        inlineVisualizationAnchor = nil
+        inlineVisualizationCoordinator = nil
         clearGlassBackground()
         clearDiffTabs()
         closeAgentPreview()
@@ -658,6 +666,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme,
         contentHorizontalOffset: CGFloat,
         productToolRenderer: CodexProductToolRendererV2?,
+        inlineVisualizationCoordinator: CodexInlineVisualizationCoordinator? = nil,
+        threadID: String = "standalone",
         canOpenReview: Bool = false,
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
@@ -677,6 +687,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
         if !preservesIdentity { lastReportedPreferredHeight = nil }
+        if let inlineVisualizationAnchor {
+            self.inlineVisualizationCoordinator?.detach(inlineVisualizationAnchor)
+            inlineVisualizationAnchor.removeFromSuperview()
+            self.inlineVisualizationAnchor = nil
+        }
+        self.inlineVisualizationCoordinator = inlineVisualizationCoordinator
         self.item = item
         self.appKitTheme = appKitTheme
         self.swiftUITheme = swiftUITheme
@@ -744,7 +760,27 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         }
         if textControlsInstalled { selectableTextView.isSelectable = item.allowsTextSelection }
 
-        if let footer = item.footer {
+        if let visualization = item.visualization,
+           let inlineVisualizationCoordinator {
+            let anchor = CodexInlineVisualizationAnchorView(frame: .zero)
+            anchor.setAccessibilityLabel(item.accessibilityLabel)
+            inlineVisualizationAnchor = anchor
+            view.addSubview(anchor)
+            inlineVisualizationCoordinator.attach(
+                visualization,
+                itemID: item.id,
+                threadID: threadID,
+                to: anchor,
+                onHeightChange: { [weak self] height in
+                    guard let self, self.item?.id == item.id else { return }
+                    self.preferredHeightChanged?(
+                        item.id,
+                        item.revision,
+                        height + item.bottomSpacing
+                    )
+                }
+            )
+        } else if let footer = item.footer {
             ensureFooterControls()
             configureFooter(footer, item: item, theme: appKitTheme)
         } else if let approval = item.approval {
@@ -1081,7 +1117,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         } else if actionControlInstalled {
             actionButton.frame = contentFrame
         }
-        if let hostedView {
+        if let inlineVisualizationAnchor {
+            inlineVisualizationAnchor.frame = contentFrame
+        } else if let hostedView {
             hostedView.frame = contentFrame
             hostedView.layoutSubtreeIfNeeded()
             let preferredHeight = max(44, ceil(hostedView.fittingSize.height))
@@ -1268,8 +1306,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         case .pullRequest(_, let branch, let isDraft):
             return "PR" + (branch.map { " · \($0)" } ?? "") + (isDraft ? " · draft" : "")
         case .codeComment(let title, _, _, _, _, _): return title
-        case .visualization(_, let title, let isWide):
-            return (title ?? "Interactive visualization") + (isWide ? " · wide" : "")
         case .unknown(let name): return "<\(name)>"
         }
     }
@@ -1286,14 +1322,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             }
         case .pullRequest: "arrow.up.right.square"
         case .codeComment: "text.bubble"
-        case .visualization: "chart.xyaxis.line"
         case .unknown: "ellipsis.curlybraces"
         }
     }
 
     private static func directiveTint(_ kind: CodexTranscriptDirectiveRender.Kind, theme: CodexTranscriptAppKitTheme) -> NSColor {
         if case .codeComment(_, _, _, _, _, let priority) = kind, let priority, priority <= 1 { return theme.danger }
-        if case .visualization = kind { return theme.accent }
         if case .unknown = kind { return theme.textTertiary }
         return theme.success
     }
@@ -1302,7 +1336,6 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         switch kind {
         case .createdThread(_, let pendingID) where pendingID != nil: "Thread pending"
         case .unknown: raw
-        case .visualization(let path, _, _): path
         default: directiveLabel(kind)
         }
     }

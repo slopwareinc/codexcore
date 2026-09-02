@@ -37,31 +37,10 @@ struct CodexVisualizationWorkspaceTests {
         #expect(document.contains("default-src 'none'"))
         #expect(document.contains("connect-src blob: data:"))
         #expect(document.contains("form-action 'none'"))
+        #expect(document.contains("ResizeObserver"))
+        #expect(document.contains("codexVisualizationHeight"))
         #expect(!document.contains("allow-same-origin"))
         #expect(!document.contains("allow-top-navigation"))
-    }
-
-    @Test func hiddenFramesStayUnmaterializedAndLRUEvictsOldestSession() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let policy = CodexVisualizationPathPolicy(allowedRoots: [root])
-        let store = CodexVisualizationFrameStore(maximumFrameCount: 2)
-        var sessions: [CodexVisualizationSession] = []
-        for index in 0..<3 {
-            let url = root.appendingPathComponent("probe-\(index).html")
-            try Data("<p>\(index)</p>".utf8).write(to: url)
-            let reference = CodexVisualizationReference(
-                fileURL: url,
-                title: "Probe \(index)",
-                origin: .init(threadID: "thread", turnID: TurnID("turn-\(index)"))
-            )
-            sessions.append(store.session(for: reference, policy: policy))
-        }
-
-        #expect(store.frameCount == 2)
-        #expect(sessions.allSatisfy { $0.state == .unloaded })
-        #expect(sessions.allSatisfy { $0.webView == nil })
-        #expect(sessions.allSatisfy { $0.loadCount == 0 })
     }
 
     @Test func fragmentLoaderReadsTheInteractiveProbeWithoutExecutingIt() async throws {
@@ -84,47 +63,38 @@ struct CodexVisualizationWorkspaceTests {
         #expect(loaded == fragment)
     }
 
-    @Test func visualizationAdapterRestoresOnlyWhileSourceRemainsAllowed() throws {
+    @Test func transcriptAnchorReusesItsRetainedFrame() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let url = root.appendingPathComponent("restore-probe.html")
-        try Data("<p>restore</p>".utf8).write(to: url)
-        let resource = CodexThreadResource(
-            id: "visualization:thread/turn/item:\(url.path)",
-            kind: .visualization,
-            title: "Restore probe",
-            origin: .init(threadID: "thread", turnID: "turn", itemID: "item"),
-            metadata: .init(path: url.path, mimeType: "text/html")
+        let url = root.appendingPathComponent("retained-probe.html")
+        try Data("<p>retained</p>".utf8).write(to: url)
+        let coordinator = CodexInlineVisualizationCoordinator(allowedRoots: [root])
+        let itemID = CodexTranscriptRenderItemID(rawValue: "visualization-item")
+        let render = CodexTranscriptVisualizationRender(
+            path: url.path,
+            title: "Retained probe",
+            isWide: false,
+            isExpandable: true,
+            sourceThreadID: nil,
+            variant: .inline
         )
-        let store = CodexVisualizationFrameStore()
-        let adapter = try #require(CodexVisualizationWorkspaceTabAdapter(
-            resource: resource,
-            workspaceURL: root,
-            visualizationRoots: [root],
-            frameStore: store
-        ))
-        let route = try #require(adapter.workspaceTabRegistration.durableRoute)
-        let liveAdapters = CodexVisualizationWorkspaceTabAdapterRegistry.make(
-            resources: [resource],
-            snapshot: CodexWorkspaceTabs().snapshot,
-            workspaceURL: root,
-            visualizationRoots: [root],
-            frameStore: store
-        )
+        let firstAnchor = CodexInlineVisualizationAnchorView(frame: .init(x: 0, y: 0, width: 600, height: 240))
+        coordinator.attach(render, itemID: itemID, threadID: "thread", to: firstAnchor) { _ in }
+        for _ in 0..<100 where coordinator.sessionsForTesting.first?.webView == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let session = try #require(coordinator.sessionsForTesting.first)
+        let webView = try #require(session.webView)
+        #expect(session.loadCount == 1)
 
-        #expect(liveAdapters.count == 1)
-        #expect(CodexVisualizationWorkspaceTabAdapter(
-            route: route,
-            workspaceURL: root,
-            visualizationRoots: [root],
-            frameStore: store
-        ) != nil)
-        #expect(CodexVisualizationWorkspaceTabAdapter(
-            route: route,
-            workspaceURL: URL(fileURLWithPath: "/private/tmp/unrelated-workspace"),
-            visualizationRoots: [],
-            frameStore: store
-        ) == nil)
+        coordinator.detach(firstAnchor)
+        let secondAnchor = CodexInlineVisualizationAnchorView(frame: firstAnchor.frame)
+        coordinator.attach(render, itemID: itemID, threadID: "thread", to: secondAnchor) { _ in }
+
+        #expect(coordinator.frameCountForTesting == 1)
+        #expect(session.webView === webView)
+        #expect(webView.superview === secondAnchor)
+        #expect(session.loadCount == 1)
     }
 
     private func temporaryDirectory() throws -> URL {

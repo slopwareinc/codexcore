@@ -17,3 +17,6 @@ and New Tab open the same projected thread resources without duplicating lifecyc
   switch and fallback chain.
 - Preview tabs are intentionally non-durable; restoration remains lazy and availability-
   checked.
+- Transcript-native rich content is not a workspace surface. In particular,
+  visualization directives stay inline and use a transcript-owned retained
+  frame coordinator; they must not register a workspace-tab adapter.
