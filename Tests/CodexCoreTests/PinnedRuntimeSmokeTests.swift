@@ -10,9 +10,8 @@ final class PinnedRuntimeSmokeTests: XCTestCase {
             throw XCTSkip("Run scripts/smoke-runtime.sh to exercise the pinned app-server")
         }
         let binary = try XCTUnwrap(ProcessInfo.processInfo.environment["CODEX_BINARY"])
-        let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("codexcore-smoke-\(UUID().uuidString)", isDirectory: true)
-            .resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let home = CodexHome(path: root.appendingPathComponent("home").path)
