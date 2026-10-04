@@ -34,6 +34,9 @@ public struct MarkdownFence {
                 cursor += 1
             }
 
+            // An unterminated outer fence owns the rest of the document. Do not
+            // rescan every following line looking for nested fences.
+            if cursor == lines.count { break }
             index += 1
         }
 
@@ -95,7 +98,7 @@ public struct MarkdownFenceTracker {
     }
 }
 
-private struct MarkdownFenceOpening {
+struct MarkdownFenceOpening {
     let marker: Character
     let length: Int
 

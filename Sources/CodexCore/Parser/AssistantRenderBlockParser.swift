@@ -297,8 +297,7 @@ final class AssistantRenderBlockParser {
 
             if inFence {
                 if let fc = fenceChar {
-                    let closeLen = trimmed.prefix(while: { $0 == fc }).count
-                    if closeLen >= fenceLen && trimmed.dropFirst(closeLen).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if MarkdownFenceTracker.isClosing(trimmed, marker: fc, minLength: fenceLen) {
                         let lineEnd = lineStart + line.utf16.count
                         let code = codeLines.joined(separator: "\n")
                         let language = fenceLanguage.isEmpty ? nil : fenceLanguage
@@ -311,18 +310,13 @@ final class AssistantRenderBlockParser {
                 }
                 codeLines.append(line)
             } else {
-                let firstChar = trimmed.first
-                if let fc = firstChar, fc == "`" || fc == "~" {
-                    let fl = trimmed.prefix(while: { $0 == fc }).count
-                    if fl >= 3 {
-                        fenceChar = fc
-                        fenceLen = fl
-                        fenceStart = lineStart
-                        fenceLanguage = String(trimmed.dropFirst(fl)).trimmingCharacters(in: .whitespacesAndNewlines)
-                        inFence = true
-                        codeLines.removeAll()
-                        continue
-                    }
+                if let opening = MarkdownFenceOpening(line: trimmed) {
+                    fenceChar = opening.marker
+                    fenceLen = opening.length
+                    fenceStart = lineStart
+                    fenceLanguage = String(trimmed.dropFirst(opening.length)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    inFence = true
+                    codeLines.removeAll()
                 }
             }
         }

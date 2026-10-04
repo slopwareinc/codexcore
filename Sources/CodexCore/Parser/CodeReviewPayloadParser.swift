@@ -105,78 +105,42 @@ enum CodeReviewPayloadParser {
         )
     }
 
-    private static func extractFencedJSONCandidates(_ text: String) -> [String] {
-        var candidates: [String] = []
-        for fence in MarkdownFence.parseAll(in: text) {
-            appendJSONCandidates(
-                from: fence.content,
-                language: fence.language.lowercased(),
-                to: &candidates
-            )
-        }
-        return candidates
+    private static func extractFencedJSONCandidates(_ text: String) -> AnySequence<String> {
+        AnySequence(MarkdownFence.parseAll(in: text).lazy
+            .filter { $0.language.isEmpty || $0.language.lowercased() == "json" }
+            .flatMap { fence -> AnySequence<String> in
+                let content = fence.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if content.hasPrefix("{"), content.hasSuffix("}") {
+                    return AnySequence(CollectionOfOne(content))
+                }
+                return extractJSONObjectCandidates(content)
+            })
     }
 
-    private static func appendJSONCandidates(from content: String, language: String, to candidates: inout [String]) {
-        guard language.isEmpty || language == "json" else { return }
-
-        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedContent.hasPrefix("{") && trimmedContent.hasSuffix("}") {
-            candidates.append(trimmedContent)
-        } else {
-            candidates.append(contentsOf: extractJSONObjectCandidates(trimmedContent))
-        }
-    }
-
-    private static func extractJSONObjectCandidates(_ text: String) -> [String] {
+    private static func extractJSONObjectCandidates(_ text: String) -> AnySequence<String> {
         let bytes = Array(text.utf8)
-        var searchIndex = 0
-        var candidates: [String] = []
-
-        while searchIndex < bytes.count,
-              let absoluteStart = bytes[searchIndex...].firstIndex(of: 123) {
-            var depth = 0
-            var inString = false
-            var isEscaped = false
-
-            for index in absoluteStart..<bytes.count {
-                let byte = bytes[index]
-                if inString {
-                    if isEscaped {
-                        isEscaped = false
-                        continue
-                    }
-                    if byte == 92 {
-                        isEscaped = true
-                    } else if byte == 34 {
-                        inString = false
-                    }
-                    continue
-                }
-
-                if byte == 34 {
-                    inString = true
-                } else if byte == 123 {
-                    depth += 1
-                } else if byte == 125 {
-                    if depth == 0 {
-                        break
-                    }
-                    depth -= 1
-                    if depth == 0 {
-                        candidates.append(String(
-                            decoding: bytes[absoluteStart...index],
-                            as: UTF8.self
-                        ))
-                        break
-                    }
-                }
+        var openings: [Int] = []
+        var ranges: [Range<Int>] = []
+        var inString = false
+        var escaped = false
+        for (index, byte) in bytes.enumerated() {
+            if inString {
+                // A raw newline makes a JSON string invalid; recover at the next line.
+                if byte == 10 { inString = false; escaped = false; openings.removeAll(); continue }
+                if escaped { escaped = false }
+                else if byte == 92 { escaped = true }
+                else if byte == 34 { inString = false }
+                continue
             }
-
-            searchIndex = absoluteStart + 1
+            if byte == 123 { openings.append(index) }
+            else if byte == 34, !openings.isEmpty { inString = true }
+            else if byte == 125, let start = openings.popLast() { ranges.append(start..<(index + 1)) }
         }
-
-        return candidates
+        // Preserve outer/earlier-object precedence and materialize only candidates
+        // the decoder actually asks for, rather than copying every nested object.
+        return AnySequence(ranges.sorted { $0.lowerBound < $1.lowerBound }.lazy.map {
+            String(decoding: bytes[$0], as: UTF8.self)
+        })
     }
 
     private static func normalizePath(_ path: String) -> String {
