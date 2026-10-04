@@ -83,10 +83,33 @@ public struct CodexHome: Sendable, Hashable, CustomStringConvertible {
             ).absoluteURL.path
         }
 
-        self.path = URL(fileURLWithPath: absolutePath, isDirectory: true)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
+        self.path = Self.resolveExistingAncestors(
+            URL(fileURLWithPath: absolutePath, isDirectory: true).standardizedFileURL
+        ).path
+    }
+
+    /// Foundation may leave symlinks unresolved when the final directory does
+    /// not exist. Resolve the existing prefix first, then append missing names
+    /// without creating anything. Launch still traverses with O_NOFOLLOW.
+    private static func resolveExistingAncestors(_ url: URL) -> URL {
+        var ancestor = url
+        var missingComponents: [String] = []
+        while ancestor.path != "/",
+              !FileManager.default.fileExists(atPath: ancestor.path) {
+            missingComponents.append(ancestor.lastPathComponent)
+            ancestor.deleteLastPathComponent()
+        }
+        // NSURL can abbreviate /private/tmp back to /tmp even after resolving
+        // symlinks. POSIX realpath returns the physical path that O_NOFOLLOW
+        // needs, without that Foundation presentation normalization.
+        guard let resolved = ancestor.path.withCString({ Darwin.realpath($0, nil) }) else {
+            return url // Preparation reports the filesystem failure safely.
+        }
+        defer { free(resolved) }
+        let physicalAncestor = URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+        return missingComponents.reversed().reduce(physicalAncestor) {
+            $0.appendingPathComponent($1, isDirectory: true)
+        }
     }
 
     /// Creates and opens every path component without following symbolic

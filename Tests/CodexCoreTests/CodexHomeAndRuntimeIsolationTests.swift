@@ -2,6 +2,31 @@ import XCTest
 @testable import CodexCore
 
 final class CodexHomeAndRuntimeIsolationTests: XCTestCase {
+    func testMissingHomeResolvesAnExistingSymlinkAncestorWithoutCreatingIt() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let physical = root.appendingPathComponent("physical", isDirectory: true)
+        try FileManager.default.createDirectory(at: physical, withIntermediateDirectories: false)
+        let alias = root.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: physical)
+        let expected = physical.appendingPathComponent("nested/home", isDirectory: true)
+        let home = CodexHome(path: alias.appendingPathComponent("nested/home").path)
+
+        XCTAssertEqual(home.path, expected.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expected.path))
+        try home.prepareForLaunch()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expected.path))
+    }
+
+    func testNewHomeUnderMacOSTemporaryAliasCanLaunch() throws {
+        let leaf = "codexcore-temp-alias-\(UUID().uuidString)"
+        let home = CodexHome(path: "/tmp/\(leaf)/home")
+        defer { try? FileManager.default.removeItem(atPath: "/private/tmp/\(leaf)") }
+        XCTAssertEqual(home.path, "/private/tmp/\(leaf)/home")
+        try home.prepareForLaunch()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: home.path))
+    }
+
     func testPrepareForLaunchCreatesAProtectedCustomDirectory() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

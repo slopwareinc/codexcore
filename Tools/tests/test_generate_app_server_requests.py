@@ -60,6 +60,16 @@ class RequestParameterShapeTests(unittest.TestCase):
 
 
 class ResponseMappingTests(unittest.TestCase):
+    def test_parameterless_rollout_compress_response(self) -> None:
+        self.assertEqual(
+            response_type(
+                "rollout/compress", None,
+                {"RolloutCompressResponse": {}},
+                {"RolloutCompressResponse": "CodexSchemaRolloutCompressResponse"},
+            ),
+            "CodexSchemaRolloutCompressResponse",
+        )
+
     def test_default_response_stem(self) -> None:
         definitions = {"ThreadListResponse": {}}
         self.assertEqual(

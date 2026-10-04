@@ -17,7 +17,9 @@ final class CodexFacadeTests: XCTestCase {
     }
 
     func testCodexHomeIsAValueAndDoesNotCreateItsDirectory() {
-        let candidate = FileManager.default.temporaryDirectory
+        // Use the physical prefix for path equality; alias normalization has
+        // separate coverage in CodexHomeAndRuntimeIsolationTests.
+        let candidate = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent(
                 "codexcore-home-\(UUID().uuidString)",
                 isDirectory: true

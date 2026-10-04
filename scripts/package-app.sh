@@ -35,6 +35,17 @@ cp "${bin_dir}/codex-core-app" "${macos_dir}/CodexCore"
 cp "${repo_root}/Sources/CodexCoreApp/Info.plist" "${contents_dir}/Info.plist"
 cp "${themed_icon_master}" "${resources_dir}/CodexAppIconMaster.png"
 
+# SwiftPM links parsers statically but ships their queries in separate resource
+# bundles. Copy those bundles into the app so file previews work after moving
+# the app away from .build. Never ship test fixture bundles.
+for resource_bundle in "${bin_dir}"/TreeSitter*.bundle "${bin_dir}/CodexCore_CodexCoreApp.bundle"; do
+    if [[ ! -d "${resource_bundle}" ]]; then
+        echo "error: missing SwiftPM resource bundle: ${resource_bundle}" >&2
+        exit 1
+    fi
+    ditto "${resource_bundle}" "${resources_dir}/$(basename "${resource_bundle}")"
+done
+
 build_number="${CODEXCORE_BUILD_NUMBER:-$(git -C "${repo_root}" rev-list --count HEAD)}"
 if [[ ! "${build_number}" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
     echo "error: CODEXCORE_BUILD_NUMBER must contain one to three dot-separated integers" >&2
@@ -110,6 +121,9 @@ validate_archive() (
     trap 'rm -rf "${extraction_dir}"' EXIT
     ditto -x -k "${archive_path}" "${extraction_dir}"
     codesign --verify --deep --strict "${extraction_dir}/CodexCore.app"
+    # Run the relocated executable, rather than testing against .build where
+    # missing app resources can be masked by adjacent package bundles.
+    "${extraction_dir}/CodexCore.app/Contents/MacOS/CodexCore" --check-resources
 )
 
 create_archive

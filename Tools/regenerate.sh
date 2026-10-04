@@ -20,12 +20,20 @@ trap 'rm -rf "$SCHEMA_DIR"' EXIT
 generate_app_server_schema "$SCHEMA_DIR"
 generate_app_server_swift \
     "$SCHEMA_DIR" \
-    "$ROOT/Sources/CodexCore/Generated/AppServerProtocolMethods.swift" \
-    "$ROOT/Sources/CodexCore/Generated/AppServerSchemaTypes.swift" \
-    "$ROOT/Sources/CodexCore/Client/CodexSessionCommands.swift"
+    "$SCHEMA_DIR/AppServerProtocolMethods.swift" \
+    "$SCHEMA_DIR/AppServerSchemaTypes.swift" \
+    "$SCHEMA_DIR/CodexSessionCommands.swift"
 
-"$CODEX_BIN" --version > "$ROOT/Tools/UPSTREAM_VERSION"
-generate_pinned_runtime_swift \
-    "$ROOT/Sources/CodexCore/Generated/PinnedRuntimeVersion.swift"
+# Stage every output before touching committed files. A newly added method
+# that the generator cannot map must leave the previous bindings and pin intact.
+"$CODEX_BIN" --version > "$SCHEMA_DIR/UPSTREAM_VERSION"
+python3 "$ROOT/Tools/generate_pinned_runtime_version.py" \
+    --version-file "$SCHEMA_DIR/UPSTREAM_VERSION" \
+    --out "$SCHEMA_DIR/PinnedRuntimeVersion.swift"
+for file in AppServerProtocolMethods.swift AppServerSchemaTypes.swift PinnedRuntimeVersion.swift; do
+    cp "$SCHEMA_DIR/$file" "$ROOT/Sources/CodexCore/Generated/$file"
+done
+cp "$SCHEMA_DIR/CodexSessionCommands.swift" "$ROOT/Sources/CodexCore/Client/CodexSessionCommands.swift"
+cp "$SCHEMA_DIR/UPSTREAM_VERSION" "$ROOT/Tools/UPSTREAM_VERSION"
 
 echo "Regenerated from $("$CODEX_BIN" --version)."

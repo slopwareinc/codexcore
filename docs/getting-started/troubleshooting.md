@@ -2,7 +2,7 @@
 
 ## Runtime not found or version mismatch
 
-CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` when the error names another path. The current SDK accepts `codex-cli` 0.148.x through 0.150.x; exact 0.150.1 matches the generated types, while other accepted versions produce a warning. Generated project and Bedrock request factories require 0.149.0 or newer; timeline, MCP event-stream, and realtime-item APIs require 0.150.1 or newer. Do not suppress the check.
+CodexCore resolves the runtime in this order: `CodexConfig.codexBinaryPath`, the selected home's `[codexcore].codex_binary_path`, `CODEX_BINARY`, `CODEX_BIN`, `codex` on `PATH`, then Codex app bundles. `codex --version` checks only the PATH candidate, so inspect `~/.codexcore/config.toml` when the error names another path. The current SDK accepts `codex-cli` 0.148.x through 0.160.x; exact 0.160.0 matches the generated types, while other accepted versions produce a warning. Generated project and Bedrock request factories require 0.149.0 or newer; timeline, MCP event-stream, and realtime-item APIs require 0.150.1 or newer. Do not suppress the check.
 
 ## The app asks me to sign in again
 
@@ -33,7 +33,7 @@ unredacted, review the file before sharing it.
 
 ## Paginated thread operations fail
 
-In Codex `0.148.0`, paginated threads support fork, `thread/read(includeTurns: true)`, and durable history replacement through `thread/revert`. The legacy `thread/rollback` method remains a separate full-history operation. Existing threads retain their server-declared history mode.
+In Codex `0.148.0`, paginated threads support fork, `thread/read(includeTurns: true)`, and durable history replacement through `thread/revert`. Codex 0.160.0 removes `thread/rollback`; the generated SDK exposes `thread/revert` for paginated history. Existing threads retain their server-declared history mode.
 
 ## Build fails in generated files
 

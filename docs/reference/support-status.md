@@ -1,6 +1,6 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.13.0` with `codex-cli 0.148.0` or newer and types generated from `0.150.1`. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (development), accepting `codex-cli 0.148.x`–`0.160.x` and generating types from `0.160.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
 
 | Status | Meaning |
 | --- | --- |
@@ -26,7 +26,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.13.0` w
 | Thread sections, appearance, and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; Settings edits synchronized icons/colors and sidebar rows render them without extra requests. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |
 | Paginated fork, full `thread/read`, and durable revert | Supported | Stable 0.148.0 exposes `thread/revert`; CodexCore invalidates stale detail and retains replacement cursors. |
-| Paginated legacy rollback | Unsupported | `thread/rollback` remains the separate legacy full-history operation. |
+| Legacy rollback | Removed upstream | Codex 0.160.0 removes `thread/rollback`; use `thread/revert` for paginated history. |
 | Canonical state, snapshots, scoped observations | Supported | Observation signals are coalesced invalidations; consumers reread state. |
 | Approvals, user input, MCP elicitation, dynamic-tool requests | Supported | The host must provide policy/UI or resolve pending inbox requests. |
 | Dynamic-tool declaration | Conditional | Public thread-start seam currently accepts a raw generated schema wrapper, not the handwritten typed helper. |
@@ -47,7 +47,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.13.0` w
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |
-| Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. |
+| Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. Packaged archives validate all bundled grammar queries after relocation. |
 | Workspace terminal | Supported | Interactive Ghostty terminal in the workspace side panel. |
 | Embedded browser | Supported (manual) | WKWebView navigation only; not agent browser-tool integration. |
 | Plugin, skill, app, and MCP management | Supported | Browse and detail views use app-server inventory; install/uninstall, enable/disable, marketplace add/upgrade, and MCP OAuth actions route through the integration control plane. The public SDK also exposes paginated server-side plugin search. |

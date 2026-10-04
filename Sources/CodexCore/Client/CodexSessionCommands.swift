@@ -70,6 +70,41 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func userVerificationStatus(
+        _ params: CodexSchemaUserVerificationStatusParams
+    ) -> CodexAppServerRequest<CodexSchemaUserVerificationStatusResponse> {
+        .required(method: .userVerificationStatus, params: params)
+    }
+}
+extension CodexRequest {
+    public static func userVerificationEnroll(
+        _ params: CodexSchemaUserVerificationEnrollParams
+    ) -> CodexAppServerRequest<CodexSchemaUserVerificationEnrollResponse> {
+        .required(method: .userVerificationEnroll, params: params)
+    }
+}
+extension CodexRequest {
+    public static func userVerificationDelete(
+        _ params: CodexSchemaUserVerificationDeleteParams
+    ) -> CodexAppServerRequest<CodexSchemaUserVerificationDeleteResponse> {
+        .required(method: .userVerificationDelete, params: params)
+    }
+}
+extension CodexRequest {
+    public static func userVerificationVerify(
+        _ params: CodexSchemaUserVerificationVerifyParams
+    ) -> CodexAppServerRequest<CodexSchemaUserVerificationVerifyResponse> {
+        .required(method: .userVerificationVerify, params: params)
+    }
+}
+extension CodexRequest {
+    public static func userVerificationCancel(
+        _ params: CodexSchemaUserVerificationCancelParams
+    ) -> CodexAppServerRequest<CodexSchemaUserVerificationCancelResponse> {
+        .required(method: .userVerificationCancel, params: params)
+    }
+}
+extension CodexRequest {
     static func threadStart(
         _ params: CodexSchemaThreadStartParams
     ) -> CodexAppServerRequest<CodexSchemaThreadStartResponse> {
@@ -203,6 +238,27 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func threadAttachmentAdd(
+        _ params: CodexSchemaThreadAttachmentAddParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadAttachmentAddResponse> {
+        .required(method: .threadAttachmentAdd, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadAttachmentList(
+        _ params: CodexSchemaThreadAttachmentListParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadAttachmentListResponse> {
+        .required(method: .threadAttachmentList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func threadAttachmentRemove(
+        _ params: CodexSchemaThreadAttachmentRemoveParams
+    ) -> CodexAppServerRequest<CodexSchemaThreadAttachmentRemoveResponse> {
+        .required(method: .threadAttachmentRemove, params: params)
+    }
+}
+extension CodexRequest {
     public static func threadSectionMove(
         _ params: CodexSchemaThreadSectionMoveParams
     ) -> CodexAppServerRequest<CodexSchemaThreadSectionMoveResponse> {
@@ -224,8 +280,20 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func memoryStatus(
+        _ params: CodexSchemaMemoryStatusParams
+    ) -> CodexAppServerRequest<CodexSchemaMemoryStatusResponse> {
+        .required(method: .memoryStatus, params: params)
+    }
+}
+extension CodexRequest {
     public static func memoryReset() -> CodexAppServerRequest<CodexSchemaMemoryResetResponse> {
         .omitted(method: .memoryReset)
+    }
+}
+extension CodexRequest {
+    public static func rolloutCompress() -> CodexAppServerRequest<CodexSchemaRolloutCompressResponse> {
+        .omitted(method: .rolloutCompress)
     }
 }
 extension CodexRequest {
@@ -275,13 +343,6 @@ extension CodexRequest {
         _ params: CodexSchemaThreadBackgroundTerminalsTerminateParams
     ) -> CodexAppServerRequest<CodexSchemaThreadBackgroundTerminalsTerminateResponse> {
         .required(method: .threadBackgroundTerminalsTerminate, params: params)
-    }
-}
-extension CodexRequest {
-    public static func threadRollback(
-        _ params: CodexSchemaThreadRollbackParams
-    ) -> CodexAppServerRequest<CodexSchemaThreadRollbackResponse> {
-        .required(method: .threadRollback, params: params)
     }
 }
 extension CodexRequest {
@@ -488,6 +549,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func pluginReconcile(
+        _ params: CodexSchemaPluginReconcileParams
+    ) -> CodexAppServerRequest<CodexSchemaPluginReconcileResponse> {
+        .required(method: .pluginReconcile, params: params)
+    }
+}
+extension CodexRequest {
     public static func pluginRead(
         _ params: CodexSchemaPluginReadParams
     ) -> CodexAppServerRequest<CodexSchemaPluginReadResponse> {
@@ -649,6 +717,13 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
+    public static func turnSettingsUpdate(
+        _ params: CodexSchemaTurnSettingsUpdateParams
+    ) -> CodexAppServerRequest<CodexSchemaTurnSettingsUpdateResponse> {
+        .required(method: .turnSettingsUpdate, params: params)
+    }
+}
+extension CodexRequest {
     static func turnSteer(
         _ params: CodexSchemaTurnSteerParams
     ) -> CodexAppServerRequest<CodexSchemaTurnSteerResponse> {
@@ -723,6 +798,21 @@ extension CodexRequest {
         _ params: CodexSchemaModelListParams
     ) -> CodexAppServerRequest<CodexSchemaModelListResponse> {
         .required(method: .modelList, params: params)
+    }
+}
+extension CodexRequest {
+    public static func accountGatewayOAuthRead() -> CodexAppServerRequest<CodexSchemaGatewayOAuthReadResponse> {
+        .omitted(method: .accountGatewayOAuthRead)
+    }
+}
+extension CodexRequest {
+    public static func accountGatewayOAuthLogin() -> CodexAppServerRequest<CodexSchemaGatewayOAuthLoginResponse> {
+        .omitted(method: .accountGatewayOAuthLogin)
+    }
+}
+extension CodexRequest {
+    public static func accountGatewayOAuthCancel() -> CodexAppServerRequest<CodexSchemaGatewayOAuthCancelResponse> {
+        .omitted(method: .accountGatewayOAuthCancel)
     }
 }
 extension CodexRequest {
@@ -932,8 +1022,12 @@ extension CodexRequest {
     }
 }
 extension CodexRequest {
-    public static func accountRateLimitsRead() -> CodexAppServerRequest<CodexSchemaGetAccountRateLimitsResponse> {
-        .omitted(method: .accountRateLimitsRead)
+    public static func accountRateLimitsRead(
+        _ params: CodexNullableRequestParameters<
+            CodexSchemaGetAccountRateLimitsParams
+        > = .omitted
+    ) -> CodexAppServerRequest<CodexSchemaGetAccountRateLimitsResponse> {
+        .nullable(method: .accountRateLimitsRead, params: params)
     }
 }
 extension CodexRequest {
@@ -1115,9 +1209,14 @@ extension CodexRequest {
     }
 }
 public extension CodexRequest {
-    static let generatedMethodCount = 152
+    static let generatedMethodCount = 166
     static let supportedMethods: Set<CodexAppServerClientMethod> = [
         .serverDiagnostics,
+        .userVerificationStatus,
+        .userVerificationEnroll,
+        .userVerificationDelete,
+        .userVerificationVerify,
+        .userVerificationCancel,
         .threadStart,
         .threadResume,
         .threadFork,
@@ -1137,10 +1236,15 @@ public extension CodexRequest {
         .threadQueueReorder,
         .threadQueueStart,
         .threadMetadataUpdate,
+        .threadAttachmentAdd,
+        .threadAttachmentList,
+        .threadAttachmentRemove,
         .threadSectionMove,
         .threadSettingsUpdate,
         .threadMemoryModeSet,
+        .memoryStatus,
         .memoryReset,
+        .rolloutCompress,
         .threadUnarchive,
         .threadCompactStart,
         .threadShellCommand,
@@ -1148,7 +1252,6 @@ public extension CodexRequest {
         .threadBackgroundTerminalsClean,
         .threadBackgroundTerminalsList,
         .threadBackgroundTerminalsTerminate,
-        .threadRollback,
         .threadRevert,
         .threadList,
         .projectList,
@@ -1178,6 +1281,7 @@ public extension CodexRequest {
         .pluginList,
         .pluginSearch,
         .pluginInstalled,
+        .pluginReconcile,
         .pluginRead,
         .pluginSkillRead,
         .pluginShareSave,
@@ -1201,6 +1305,7 @@ public extension CodexRequest {
         .pluginInstall,
         .pluginUninstall,
         .turnStart,
+        .turnSettingsUpdate,
         .turnSteer,
         .turnInterrupt,
         .threadRealtimeStart,
@@ -1212,6 +1317,9 @@ public extension CodexRequest {
         .threadRealtimeListVoices,
         .reviewStart,
         .modelList,
+        .accountGatewayOAuthRead,
+        .accountGatewayOAuthLogin,
+        .accountGatewayOAuthCancel,
         .modelProviderCapabilitiesRead,
         .experimentalFeatureList,
         .permissionProfileList,
@@ -1272,11 +1380,14 @@ public extension CodexRequest {
     ]
     static let omittedParameterMethods: Set<CodexAppServerClientMethod> = [
         .memoryReset,
+        .rolloutCompress,
+        .accountGatewayOAuthRead,
+        .accountGatewayOAuthLogin,
+        .accountGatewayOAuthCancel,
         .remoteControlStatusRead,
         .configMCPServerReload,
         .windowsSandboxReadiness,
         .accountLogout,
-        .accountRateLimitsRead,
         .accountWorkspaceMessagesRead,
         .externalAgentConfigImportReadHistories,
         .configRequirementsRead,
@@ -1284,6 +1395,7 @@ public extension CodexRequest {
     static let nullableParameterMethods: Set<CodexAppServerClientMethod> = [
         .remoteControlEnable,
         .remoteControlDisable,
+        .accountRateLimitsRead,
         .accountUsageRead,
     ]
     static let specializedMethods: Set<CodexAppServerClientMethod> = [

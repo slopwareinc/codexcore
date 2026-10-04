@@ -23,7 +23,7 @@ let home = CodexHome(path: "/absolute/path/to/isolated-home")
 let codex = try await Codex(config: .init(codexHome: home))
 ```
 
-The path is normalized and must not resolve to `~/.codex` or any of its descendants.
+The path is normalized through its existing ancestors without creating the home. New homes under macOS aliases such as `/tmp` and `/var` resolve to physical paths before launch. The home must not resolve to `~/.codex` or any of its descendants; launch still rejects symlink replacement during traversal.
 
 ## Pin a runtime in config
 

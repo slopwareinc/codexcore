@@ -19,6 +19,7 @@ Protocol upgrades are exact-runtime migrations, not dependency-range bumps.
    ```bash
    CODEX_BINARY=/absolute/path/to/codex Tools/check_drift.sh
    python3 -m unittest discover Tools/tests
+   scripts/smoke-runtime.sh
    swift build --target CodexCoreApp
    swift test
    ```
@@ -32,3 +33,8 @@ it only when the SDK starts depending on a field or method the older runtime
 does not serve.
 
 Generated output must be reproducible. A clean drift check is required before merge.
+
+Regeneration stages every output before replacing committed bindings and the
+runtime pin. A generator failure must leave the previous outputs intact. Drift
+checks reject an override whose version differs from `Tools/UPSTREAM_VERSION`;
+use regeneration when intentionally migrating to another runtime.
