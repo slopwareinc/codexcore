@@ -417,9 +417,20 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
         try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
 
-        let loadedImage = await CodexPluginImageRepository.image(for: temporaryURL)
-        XCTAssertNotNil(loadedImage)
-        XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+        let loadedImages = await withTaskGroup(of: NSImage?.self) { group in
+            for _ in 0..<16 {
+                group.addTask { await CodexPluginImageRepository.image(for: temporaryURL) }
+            }
+            var images: [NSImage] = []
+            for await image in group {
+                if let image { images.append(image) }
+            }
+            return images
+        }
+        XCTAssertEqual(loadedImages.count, 16)
+        let first = try XCTUnwrap(loadedImages.first)
+        XCTAssertTrue(loadedImages.allSatisfy { $0 === first })
+        XCTAssertTrue(CodexPluginImageRepository.cachedImage(for: temporaryURL) === first)
     }
 
     func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {

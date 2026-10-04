@@ -5,38 +5,41 @@ import SwiftUI
 
 @MainActor
 enum CodexPluginImageRepository {
-    private static let cache = NSCache<NSURL, NSImage>()
+    private static let cache: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.countLimit = 128
+        return cache
+    }()
+    private static var inFlight: [URL: Task<NSImage?, Never>] = [:]
 
     static func image(for url: URL) async -> NSImage? {
-        if let cached = cache.object(forKey: url as NSURL) { return cached }
-        let image: NSImage?
-        if url.isFileURL {
-            // AppKit image decoding is synchronous. Keep it out of the main
-            // actor so a cold local marketplace asset cannot block scrolling.
-            image = await loadLocalImage(from: url)
-        } else {
-            var request = URLRequest(url: url)
-            request.cachePolicy = .returnCacheDataElseLoad
-            request.timeoutInterval = 20
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true else {
-                return nil
-            }
-            image = NSImage(data: data)
+        if let cached = cachedImage(for: url) { return cached }
+        if let task = inFlight[url] { return await task.value }
+        let task = Task.detached(priority: .utility) {
+            await loadImage(from: url)
         }
+        inFlight[url] = task
+        let image = await task.value
+        inFlight[url] = nil
         guard let image else { return nil }
         cache.setObject(image, forKey: url as NSURL)
         return image
     }
 
-    static func cachedOrLocalImage(for url: URL) -> NSImage? {
+    static func cachedImage(for url: URL) -> NSImage? {
         cache.object(forKey: url as NSURL)
     }
 
-    nonisolated private static func loadLocalImage(from url: URL) async -> NSImage? {
-        await Task.detached(priority: .utility) {
-            NSImage(contentsOf: url)
-        }.value
+    nonisolated private static func loadImage(from url: URL) async -> NSImage? {
+        if url.isFileURL { return NSImage(contentsOf: url) }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+        request.timeoutInterval = 20
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true else {
+            return nil
+        }
+        return NSImage(data: data)
     }
 }
 
@@ -55,7 +58,7 @@ struct CodexPluginIconView: View {
 
     private var cachedImage: NSImage? {
         guard let url, url.isFileURL else { return nil }
-        return CodexPluginImageRepository.cachedOrLocalImage(for: url)
+        return CodexPluginImageRepository.cachedImage(for: url)
     }
 
     var body: some View {
@@ -78,7 +81,9 @@ struct CodexPluginIconView: View {
         .task(id: url) {
             image = nil
             guard let url else { return }
-            image = await CodexPluginImageRepository.image(for: url)
+            let loaded = await CodexPluginImageRepository.image(for: url)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
         .accessibilityHidden(true)
     }
