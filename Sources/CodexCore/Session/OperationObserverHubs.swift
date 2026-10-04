@@ -566,6 +566,7 @@ enum CodexGlobalOperationObserverError: Error, Sendable, Equatable {
 struct CodexGlobalOperationObserverHub<Event: Sendable> {
     private struct Entry {
         let connectionEpoch: UInt64
+        let accepts: @Sendable (Event) -> Bool
         let continuation: AsyncThrowingStream<Event, Error>.Continuation
     }
 
@@ -577,6 +578,7 @@ struct CodexGlobalOperationObserverHub<Event: Sendable> {
     mutating func observe(
         connectionEpoch: UInt64,
         bufferingPolicy: AsyncThrowingStream<Event, Error>.Continuation.BufferingPolicy = .bufferingNewest(1),
+        accepts: @escaping @Sendable (Event) -> Bool = { _ in true },
         onTermination: (@Sendable (UInt64) -> Void)? = nil
     ) -> (id: UInt64, events: AsyncThrowingStream<Event, Error>) {
         precondition(nextID < UInt64.max, "Global operation observation space exhausted")
@@ -584,7 +586,7 @@ struct CodexGlobalOperationObserverHub<Event: Sendable> {
         nextID += 1
         let pair = AsyncThrowingStream<Event, Error>.makeStream(bufferingPolicy: bufferingPolicy)
         pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
-        entries[id] = Entry(connectionEpoch: connectionEpoch, continuation: pair.continuation)
+        entries[id] = Entry(connectionEpoch: connectionEpoch, accepts: accepts, continuation: pair.continuation)
         return (id, pair.stream)
     }
 
@@ -592,7 +594,7 @@ struct CodexGlobalOperationObserverHub<Event: Sendable> {
     mutating func publish(connectionEpoch: UInt64, event: Event) -> Int {
         var delivered = 0
         var terminated: [UInt64] = []
-        for (id, entry) in entries where entry.connectionEpoch == connectionEpoch {
+        for (id, entry) in entries where entry.connectionEpoch == connectionEpoch && entry.accepts(event) {
             switch entry.continuation.yield(event) {
             case .enqueued, .dropped:
                 delivered += 1
@@ -627,13 +629,13 @@ struct CodexGlobalOperationObserverHub<Event: Sendable> {
     }
 
     @discardableResult
-    mutating func disconnect(connectionEpoch: UInt64) -> Int {
+    mutating func disconnect(connectionEpoch: UInt64, error: Error? = nil) -> Int {
         let ids = entries.compactMap { id, entry in
             entry.connectionEpoch == connectionEpoch ? id : nil
         }
         for id in ids {
             entries.removeValue(forKey: id)?.continuation.finish(
-                throwing: CodexGlobalOperationObserverError.disconnected(
+                throwing: error ?? CodexGlobalOperationObserverError.disconnected(
                     connectionEpoch: connectionEpoch
                 )
             )
