@@ -120,6 +120,21 @@ public enum CodexJSONCoercion {
         }
     }
 
+    /// Flat scalar lookup for compatibility decoders that must ignore nested values.
+    package static func flatString(
+        in object: [String: CodexJSONValue],
+        keys: [String],
+        trimmingWhitespace: Bool = false
+    ) -> String? {
+        for key in keys {
+            guard let value = flatString(from: object[key]) else { continue }
+            if trimmingWhitespace {
+                if let trimmed = value.nilIfBlank { return trimmed }
+            } else { return value }
+        }
+        return nil
+    }
+
     public static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
         for key in keys {
             guard let string = string(from: object[key])?.nilIfBlank else { continue }
@@ -156,7 +171,7 @@ public enum CodexJSONCoercion {
         case .int(let int):
             return int
         case .double(let double):
-            return Int(double)
+            return Int(exactly: double.rounded(.towardZero))
         case .string(let string):
             return Int(string)
         case .bool(let bool):

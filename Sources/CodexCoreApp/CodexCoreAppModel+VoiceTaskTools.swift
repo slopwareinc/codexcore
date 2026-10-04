@@ -724,7 +724,7 @@ private extension CodexJSONValue {
         guard case .dictionary(let object) = self else { return nil }
         switch object[key] {
         case .int(let value): return value
-        case .double(let value): return Int(value)
+        case .double(let value): return CodexJSONCoercion.int(from: .double(value))
         case .string(let value): return Int(value)
         default: return nil
         }

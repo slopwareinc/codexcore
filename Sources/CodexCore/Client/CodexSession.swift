@@ -85,13 +85,16 @@ public struct CodexReconnectPolicy: Sendable, Equatable {
         maximumAttempts: 1
     )
 
-    fileprivate func delayMilliseconds(forAttempt attempt: Int) -> UInt64 {
+    func delayMilliseconds(forAttempt attempt: Int) -> UInt64 {
         guard attempt > 1, initialDelayMilliseconds > 0 else {
             return attempt > 0 ? initialDelayMilliseconds : 0
         }
         let exponent = Double(attempt - 1)
         let delay = Double(initialDelayMilliseconds) * pow(multiplier, exponent)
-        return min(maximumDelayMilliseconds, UInt64(min(delay, Double(UInt64.max))))
+        guard delay.isFinite, delay < Double(maximumDelayMilliseconds) else {
+            return maximumDelayMilliseconds
+        }
+        return UInt64(exactly: delay.rounded(.towardZero)) ?? maximumDelayMilliseconds
     }
 }
 
@@ -774,7 +777,7 @@ public actor CodexSession:
         self.serverRequestHandler = serverRequestHandler
         self.reconnectSleep = { milliseconds in
             guard milliseconds > 0 else { return }
-            try? await Task.sleep(for: .milliseconds(Int64(milliseconds)))
+            try? await Task.sleep(for: .milliseconds(Int64(clamping: milliseconds)))
         }
     }
 
