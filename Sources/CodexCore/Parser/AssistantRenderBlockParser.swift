@@ -60,9 +60,11 @@ final class AssistantRenderBlockParser {
         guard !text.isEmpty else { return [] }
 
         var spans: [(start: Int, end: Int, segment: MessageSegmentInternal)] = []
+        // All span offsets use UTF-16, matching NSString and NSRegularExpression.
+        let units = Array(text.utf16)
         let codeFences = findCodeFences(text)
         let codeFenceRanges = codeFences.map { ($0.start, $0.end) }
-        let inlineCodeRanges = findInlineCodeSpans(text, excludedRanges: codeFenceRanges)
+        let inlineCodeRanges = findInlineCodeSpans(units, excludedRanges: codeFenceRanges)
         let opaqueRanges = codeFenceRanges + inlineCodeRanges
 
         let nsText = text as NSString
@@ -106,7 +108,7 @@ final class AssistantRenderBlockParser {
             spans.append((fence.start, fence.end, .codeBlock(language: fence.language, code: fence.code)))
         }
 
-        for mathSpan in findMathSpans(text, excludedRanges: opaqueRanges) {
+        for mathSpan in findMathSpans(nsText, units: units, excludedRanges: opaqueRanges) {
             let overlaps = spans.contains(where: { mathSpan.start < $0.end && mathSpan.end > $0.start })
             if overlaps { continue }
             spans.append(mathSpan)
@@ -156,26 +158,24 @@ final class AssistantRenderBlockParser {
     // MARK: - Math Spans Helper
 
     private func findMathSpans(
-        _ text: String,
+        _ text: NSString,
+        units: [UInt16],
         excludedRanges: [(Int, Int)]
     ) -> [(start: Int, end: Int, segment: MessageSegmentInternal)] {
-        let bytes = Array(text.utf8)
         var spans: [(start: Int, end: Int, segment: MessageSegmentInternal)] = []
         var cursor = 0
 
-        while cursor < bytes.count {
+        while cursor < units.count {
             if let found = excludedRanges.first(where: { cursor >= $0.0 && cursor < $0.1 }) {
                 cursor = found.1
                 continue
             }
 
-            if bytes[cursor] == 92 && !isEscaped(bytes, index: cursor) { // '\\'
-                let remaining = bytes[cursor...]
+            if units[cursor] == 92 && !isEscaped(units, index: cursor) { // '\\'
+                let remaining = units[cursor...]
                 if remaining.starts(with: [92, 91]) { // "\\["
-                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [92, 93], allowNewlines: true) { // "\\]"
-                        let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
-                        let endIdx = text.index(text.startIndex, offsetBy: closeStart)
-                        let latex = String(text[startIdx..<endIdx])
+                    if let closeStart = findClosingMathDelimiter(units, start: cursor + 2, delimiter: [92, 93], allowNewlines: true) { // "\\]"
+                        let latex = text.substring(with: NSRange(location: cursor + 2, length: closeStart - cursor - 2))
                         if !latex.isEmpty {
                             spans.append((cursor, closeStart + 2, .displayMath(latex: latex)))
                             cursor = closeStart + 2
@@ -183,10 +183,8 @@ final class AssistantRenderBlockParser {
                         }
                     }
                 } else if remaining.starts(with: [92, 40]) { // "\\("
-                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [92, 41], allowNewlines: false) { // "\\)"
-                        let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
-                        let endIdx = text.index(text.startIndex, offsetBy: closeStart)
-                        let latex = String(text[startIdx..<endIdx])
+                    if let closeStart = findClosingMathDelimiter(units, start: cursor + 2, delimiter: [92, 41], allowNewlines: false) { // "\\)"
+                        let latex = text.substring(with: NSRange(location: cursor + 2, length: closeStart - cursor - 2))
                         if !latex.isEmpty && !latex.contains("\n") {
                             spans.append((cursor, closeStart + 2, .inlineMath(latex: latex)))
                             cursor = closeStart + 2
@@ -196,31 +194,29 @@ final class AssistantRenderBlockParser {
                 }
             }
 
-            if bytes[cursor] == 36 && !isEscaped(bytes, index: cursor) { // '$'
-                if cursor + 1 < bytes.count && bytes[cursor + 1] == 36 { // "$$"
-                    if let closeStart = findClosingMathDelimiter(bytes, start: cursor + 2, delimiter: [36, 36], allowNewlines: true) {
-                        let startIdx = text.index(text.startIndex, offsetBy: cursor + 2)
-                        let endIdx = text.index(text.startIndex, offsetBy: closeStart)
-                        let latex = String(text[startIdx..<endIdx])
+            if units[cursor] == 36 && !isEscaped(units, index: cursor) { // '$'
+                if cursor + 1 < units.count && units[cursor + 1] == 36 { // "$$"
+                    if let closeStart = findClosingMathDelimiter(units, start: cursor + 2, delimiter: [36, 36], allowNewlines: true) {
+                        let latex = text.substring(with: NSRange(location: cursor + 2, length: closeStart - cursor - 2))
                         if !latex.isEmpty {
                             spans.append((cursor, closeStart + 2, .displayMath(latex: latex)))
                             cursor = closeStart + 2
                             continue
                         }
                     }
-                } else if cursor + 1 < bytes.count && !Character(UnicodeScalar(bytes[cursor + 1])).isWhitespace {
+                } else if cursor + 1 < units.count && !isWhitespace(units[cursor + 1]) {
                     var search = cursor + 1
                     var closeStart: Int? = nil
 
-                    while search < bytes.count {
-                        if bytes[search] == 10 { // '\n'
+                    while search < units.count {
+                        if units[search] == 10 { // '\n'
                             break
                         }
-                        if bytes[search] == 36 && !isEscaped(bytes, index: search) && (search == cursor + 1 || bytes[search - 1] != 36) {
-                            let previous = bytes[search - 1]
-                            let nextIsDigit = (search + 1 < bytes.count) && Character(UnicodeScalar(bytes[search + 1])).isNumber
+                        if units[search] == 36 && !isEscaped(units, index: search) && (search == cursor + 1 || units[search - 1] != 36) {
+                            let previous = units[search - 1]
+                            let nextIsDigit = (search + 1 < units.count) && isNumber(units[search + 1])
 
-                            if !Character(UnicodeScalar(previous)).isWhitespace && !nextIsDigit {
+                            if !isWhitespace(previous) && !nextIsDigit {
                                 closeStart = search
                                 break
                             }
@@ -229,9 +225,7 @@ final class AssistantRenderBlockParser {
                     }
 
                     if let closeStart = closeStart {
-                        let startIdx = text.index(text.startIndex, offsetBy: cursor + 1)
-                        let endIdx = text.index(text.startIndex, offsetBy: closeStart)
-                        let latex = String(text[startIdx..<endIdx])
+                        let latex = text.substring(with: NSRange(location: cursor + 1, length: closeStart - cursor - 1))
                         if !latex.isEmpty {
                             spans.append((cursor, closeStart + 1, .inlineMath(latex: latex)))
                             cursor = closeStart + 1
@@ -245,15 +239,15 @@ final class AssistantRenderBlockParser {
         return spans
     }
 
-    private func findClosingMathDelimiter(_ bytes: [UInt8], start: Int, delimiter: [UInt8], allowNewlines: Bool) -> Int? {
+    private func findClosingMathDelimiter(_ units: [UInt16], start: Int, delimiter: [UInt16], allowNewlines: Bool) -> Int? {
         var cursor = start
 
-        while cursor + delimiter.count <= bytes.count {
-            if !allowNewlines && bytes[cursor] == 10 {
+        while cursor + delimiter.count <= units.count {
+            if !allowNewlines && units[cursor] == 10 {
                 return nil
             }
 
-            if bytes[cursor..<(cursor + delimiter.count)] == delimiter[...] && !isEscaped(bytes, index: cursor) {
+            if units[cursor..<(cursor + delimiter.count)] == delimiter[...] && !isEscaped(units, index: cursor) {
                 return cursor
             }
             cursor += 1
@@ -261,17 +255,25 @@ final class AssistantRenderBlockParser {
         return nil
     }
 
+    private func isWhitespace(_ unit: UInt16) -> Bool {
+        UnicodeScalar(unit).map { Character($0).isWhitespace } ?? false
+    }
+
+    private func isNumber(_ unit: UInt16) -> Bool {
+        UnicodeScalar(unit).map { Character($0).isNumber } ?? false
+    }
+
     private func overlapsRange(start: Int, end: Int, ranges: [(Int, Int)]) -> Bool {
         ranges.contains(where: { start < $0.1 && end > $0.0 })
     }
 
-    private func isEscaped(_ bytes: [UInt8], index: Int) -> Bool {
+    private func isEscaped(_ units: [UInt16], index: Int) -> Bool {
         if index == 0 { return false }
         var slashCount = 0
         var cursor = index
         while cursor > 0 {
             cursor -= 1
-            if bytes[cursor] == 92 {
+            if units[cursor] == 92 {
                 slashCount += 1
             } else {
                 break
@@ -289,7 +291,7 @@ final class AssistantRenderBlockParser {
         var codeLines: [String] = []
         var inFence = false
 
-        let linesWithOffsets = lineByteOffsets(text)
+        let linesWithOffsets = lineUTF16Offsets(text)
         for (lineStart, line) in linesWithOffsets {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -327,7 +329,7 @@ final class AssistantRenderBlockParser {
         return results
     }
 
-    private func lineByteOffsets(_ text: String) -> [(offset: Int, line: String)] {
+    private func lineUTF16Offsets(_ text: String) -> [(offset: Int, line: String)] {
         let lines = text.components(separatedBy: "\n")
         var result: [(offset: Int, line: String)] = []
         var offset = 0
@@ -338,34 +340,33 @@ final class AssistantRenderBlockParser {
         return result
     }
 
-    private func findInlineCodeSpans(_ text: String, excludedRanges: [(Int, Int)]) -> [(Int, Int)] {
-        let bytes = Array(text.utf8)
+    private func findInlineCodeSpans(_ units: [UInt16], excludedRanges: [(Int, Int)]) -> [(Int, Int)] {
         var spans: [(Int, Int)] = []
         var cursor = 0
 
-        while cursor < bytes.count {
+        while cursor < units.count {
             if let found = excludedRanges.first(where: { cursor >= $0.0 && cursor < $0.1 }) {
                 cursor = found.1
                 continue
             }
 
-            if bytes[cursor] != 96 {
+            if units[cursor] != 96 {
                 cursor += 1
                 continue
             }
 
-            let openerLen = bytes[cursor...].prefix(while: { $0 == 96 }).count
+            let openerLen = units[cursor...].prefix(while: { $0 == 96 }).count
             var search = cursor + openerLen
             var closingEnd: Int? = nil
 
-            while search < bytes.count {
+            while search < units.count {
                 if let found = excludedRanges.first(where: { search >= $0.0 && search < $0.1 }) {
                     search = found.1
                     continue
                 }
 
-                if bytes[search] == 96 {
-                    let runLen = bytes[search...].prefix(while: { $0 == 96 }).count
+                if units[search] == 96 {
+                    let runLen = units[search...].prefix(while: { $0 == 96 }).count
                     if runLen == openerLen {
                         closingEnd = search + runLen
                         break
