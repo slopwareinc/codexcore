@@ -359,6 +359,21 @@ private extension ProtocolStateAdapter {
             let value: CodexSchemaThreadNameUpdatedNotification = try decodeNotification(method, params)
             return .state([.threadNameReplaced(id: .init(value.threadID), name: value.threadName)])
 
+        case .threadAttachmentUpdated:
+            let value: CodexSchemaThreadAttachmentUpdatedNotification = try decodeNotification(method, params)
+            // The event has identity, not the attachment payload. Preserve the
+            // invalidation fact so hosts can refresh through attachment/list.
+            return .state([.threadUpsert(CanonicalThread(
+                id: .init(value.threadID),
+                metadata: .init(extensions: [method.rawValue: .dictionary(params)])
+            ))])
+
+        case .accountGatewayOAuthChanged:
+            let _: CodexSchemaGatewayOAuthChangedNotification = try decodeNotification(method, params)
+            return .state([.accountPatched(CanonicalAccountPatch(
+                extensions: [method.rawValue: .dictionary(params)]
+            ))])
+
         case .threadGoalUpdated:
             guard let threadID = params.string(at: "threadId"),
                   let rawGoal = params.object(at: "goal") else {
@@ -663,6 +678,14 @@ private extension ProtocolStateAdapter {
 
         case .modelVerification:
             let value: CodexSchemaModelVerificationNotification = try decodeNotification(method, params)
+            return .state([.turnExtensionReplaced(
+                turn: TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID)),
+                key: method.rawValue,
+                value: .dictionary(params)
+            )])
+
+        case .modelProviderAuthRecoveryStarted, .modelProviderAuthRecoveryCompleted:
+            let value: CodexSchemaAuthRecoveryNotification = try decodeNotification(method, params)
             return .state([.turnExtensionReplaced(
                 turn: TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID)),
                 key: method.rawValue,
@@ -1426,30 +1449,6 @@ private extension ProtocolStateAdapter {
             ))
             return .state(mutations)
 
-        case .threadRollback:
-            let value: CodexSchemaThreadRollbackResponse = try decodeResponse(context, result)
-            let decoded = try threadMutations(
-                value.thread,
-                rawThread: result.object(at: "thread"),
-                isLoaded: true,
-                itemPolicy: .authoritativeReplacement,
-                turnsCoverageOverride: .full
-            )
-            guard case .threadSnapshotReplaced(let thread)? = decoded.first else {
-                throw ProtocolStateAdapterError.malformedResponse(
-                    method: context.method.rawValue,
-                    message: "internal thread snapshot conversion failed"
-                )
-            }
-            var turns: [CanonicalTurn] = []
-            var items: [CanonicalItem] = []
-            for mutation in decoded.dropFirst() {
-                guard case .turnSnapshot(let turn, let turnItems, _) = mutation else { continue }
-                turns.append(turn)
-                items.append(contentsOf: turnItems)
-            }
-            return .state([.threadRollbackReplaced(thread: thread, turns: turns, items: items)])
-
         case .threadRevert:
             let value: CodexSchemaThreadRevertResponse = try decodeResponse(context, result)
             var mutations = try threadMutations(
@@ -1594,6 +1593,8 @@ private extension ProtocolStateAdapter {
                     threadID: threadID,
                     turnID: turnID,
                     authority: .completed,
+                    startedAt: entry.startedAtMs.map { .init(Int64($0)) },
+                    completedAt: entry.completedAtMs.map { .init(Int64($0)) },
                     rawOverride: rawEntries[safe: index]?.object(at: "item")
                 )
                 grouped[turnID, default: []].append(item)
@@ -1795,7 +1796,7 @@ private extension ProtocolStateAdapter {
         do {
             let decodable: CodexJSONValue = switch context.method {
             case .threadStart, .threadResume, .threadFork, .threadUnarchive,
-                 .threadRollback, .threadRevert, .threadMetadataUpdate, .threadRead, .threadList,
+                 .threadRevert, .threadMetadataUpdate, .threadRead, .threadList,
                  .threadSearch, .threadTurnsList, .threadItemsList, .turnStart:
                 ProtocolFileChangeSanitizer.sanitize(result)
             default:

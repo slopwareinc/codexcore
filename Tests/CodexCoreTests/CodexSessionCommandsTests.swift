@@ -8,7 +8,35 @@ final class CodexSessionCommandsTests: XCTestCase {
         XCTAssertEqual(CodexRequest.supportedMethods, expected)
         XCTAssertEqual(
             CodexRequest.nullableParameterMethods,
-            [.remoteControlEnable, .remoteControlDisable, .accountUsageRead]
+            [.remoteControlEnable, .remoteControlDisable, .accountUsageRead, .accountRateLimitsRead]
+        )
+    }
+
+    func testLiveTurnSettingsPreserveServiceTierOmissionClearingAndReplacement() throws {
+        for field: CodexAppServerOptionalField<String> in [.omitted, .null, .value("default")] {
+            let params = CodexSchemaTurnSettingsUpdateParams(
+                serviceTier: field, threadID: "thread-1", turnID: "turn-1"
+            )
+            let encoded = try XCTUnwrap(CodexRequest.turnSettingsUpdate(params).encodeParameters())
+            var expected: [String: CodexJSONValue] = [
+                "threadId": .string("thread-1"), "turnId": .string("turn-1"),
+            ]
+            switch field {
+            case .omitted: break
+            case .null: expected["serviceTier"] = .null
+            case .value(let value): expected["serviceTier"] = .string(value)
+            }
+            XCTAssertEqual(encoded, .dictionary(expected))
+            XCTAssertEqual(try encoded.decode(CodexSchemaTurnSettingsUpdateParams.self), params)
+        }
+    }
+
+    func testRateLimitReadPreservesOmittedNullAndFeatureParameters() throws {
+        XCTAssertNil(try CodexRequest.accountRateLimitsRead().encodeParameters())
+        XCTAssertEqual(try CodexRequest.accountRateLimitsRead(.null).encodeParameters(), .null)
+        XCTAssertEqual(
+            try CodexRequest.accountRateLimitsRead(.value(.init(supportsLunaReserve: true))).encodeParameters(),
+            .dictionary(["supportsLunaReserve": .bool(true)])
         )
     }
 

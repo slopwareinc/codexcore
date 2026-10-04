@@ -87,6 +87,10 @@ public enum CodexRequest {}
 
 # Methods whose response definition does not share the generated parameter stem.
 RESPONSE_DEFINITION_OVERRIDES = {
+    "rollout/compress": "RolloutCompressResponse",
+    "account/gatewayOAuth/read": "GatewayOAuthReadResponse",
+    "account/gatewayOAuth/login": "GatewayOAuthLoginResponse",
+    "account/gatewayOAuth/cancel": "GatewayOAuthCancelResponse",
     "memory/reset": "MemoryResetResponse",
     "remoteControl/status/read": "RemoteControlStatusReadResponse",
     "config/mcpServer/reload": "McpServerRefreshResponse",

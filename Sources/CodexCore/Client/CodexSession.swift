@@ -2242,7 +2242,7 @@ private extension CodexSession {
 
         let itemPolicy: CanonicalItemCollectionMergePolicy
         switch method {
-        case .threadStart, .threadFork, .threadRollback:
+        case .threadStart, .threadFork:
             itemPolicy = .authoritativeReplacement
         case .threadRead:
             itemPolicy = object["includeTurns"] == .bool(true)

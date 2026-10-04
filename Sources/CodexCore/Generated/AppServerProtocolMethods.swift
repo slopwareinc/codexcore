@@ -4,6 +4,11 @@ import Foundation
 public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable {
     case initialize = "initialize"
     case serverDiagnostics = "server/diagnostics"
+    case userVerificationStatus = "userVerification/status"
+    case userVerificationEnroll = "userVerification/enroll"
+    case userVerificationDelete = "userVerification/delete"
+    case userVerificationVerify = "userVerification/verify"
+    case userVerificationCancel = "userVerification/cancel"
     case threadStart = "thread/start"
     case threadResume = "thread/resume"
     case threadFork = "thread/fork"
@@ -23,10 +28,15 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadQueueReorder = "thread/queue/reorder"
     case threadQueueStart = "thread/queue/start"
     case threadMetadataUpdate = "thread/metadata/update"
+    case threadAttachmentAdd = "thread/attachment/add"
+    case threadAttachmentList = "thread/attachment/list"
+    case threadAttachmentRemove = "thread/attachment/remove"
     case threadSectionMove = "thread/section/move"
     case threadSettingsUpdate = "thread/settings/update"
     case threadMemoryModeSet = "thread/memoryMode/set"
+    case memoryStatus = "memory/status"
     case memoryReset = "memory/reset"
+    case rolloutCompress = "rollout/compress"
     case threadUnarchive = "thread/unarchive"
     case threadCompactStart = "thread/compact/start"
     case threadShellCommand = "thread/shellCommand"
@@ -34,7 +44,6 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadBackgroundTerminalsClean = "thread/backgroundTerminals/clean"
     case threadBackgroundTerminalsList = "thread/backgroundTerminals/list"
     case threadBackgroundTerminalsTerminate = "thread/backgroundTerminals/terminate"
-    case threadRollback = "thread/rollback"
     case threadRevert = "thread/revert"
     case threadList = "thread/list"
     case projectList = "project/list"
@@ -64,6 +73,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case pluginList = "plugin/list"
     case pluginSearch = "plugin/search"
     case pluginInstalled = "plugin/installed"
+    case pluginReconcile = "plugin/reconcile"
     case pluginRead = "plugin/read"
     case pluginSkillRead = "plugin/skill/read"
     case pluginShareSave = "plugin/share/save"
@@ -87,6 +97,7 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case pluginInstall = "plugin/install"
     case pluginUninstall = "plugin/uninstall"
     case turnStart = "turn/start"
+    case turnSettingsUpdate = "turn/settings/update"
     case turnSteer = "turn/steer"
     case turnInterrupt = "turn/interrupt"
     case threadRealtimeStart = "thread/realtime/start"
@@ -98,6 +109,9 @@ public enum CodexAppServerClientMethod: String, CaseIterable, Codable, Sendable 
     case threadRealtimeListVoices = "thread/realtime/listVoices"
     case reviewStart = "review/start"
     case modelList = "model/list"
+    case accountGatewayOAuthRead = "account/gatewayOAuth/read"
+    case accountGatewayOAuthLogin = "account/gatewayOAuth/login"
+    case accountGatewayOAuthCancel = "account/gatewayOAuth/cancel"
     case modelProviderCapabilitiesRead = "modelProvider/capabilities/read"
     case experimentalFeatureList = "experimentalFeature/list"
     case permissionProfileList = "permissionProfile/list"
@@ -167,6 +181,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadReverted = "thread/reverted"
     case skillsChanged = "skills/changed"
     case threadNameUpdated = "thread/name/updated"
+    case threadAttachmentUpdated = "thread/attachment/updated"
     case threadGoalUpdated = "thread/goal/updated"
     case threadGoalCleared = "thread/goal/cleared"
     case threadQueueChanged = "thread/queue/changed"
@@ -202,6 +217,7 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case mcpServerStartupStatusUpdated = "mcpServer/startupStatus/updated"
     case mcpServerEventStreamNotification = "mcpServer/event/stream/notification"
     case accountUpdated = "account/updated"
+    case accountGatewayOAuthChanged = "account/gatewayOAuth/changed"
     case accountRateLimitsUpdated = "account/rateLimits/updated"
     case appListUpdated = "app/list/updated"
     case remoteControlStatusChanged = "remoteControl/status/changed"
@@ -214,6 +230,8 @@ public enum CodexAppServerNotificationMethod: String, CaseIterable, Codable, Sen
     case threadCompacted = "thread/compacted"
     case modelRerouted = "model/rerouted"
     case modelVerification = "model/verification"
+    case modelProviderAuthRecoveryStarted = "modelProvider/authRecoveryStarted"
+    case modelProviderAuthRecoveryCompleted = "modelProvider/authRecoveryCompleted"
     case turnModerationMetadata = "turn/moderationMetadata"
     case modelSafetyBufferingUpdated = "model/safetyBuffering/updated"
     case warning = "warning"
@@ -251,7 +269,7 @@ public enum CodexAppServerServerRequestMethod: String, CaseIterable, Codable, Se
     case execCommandApproval = "execCommandApproval"
 }
 public enum CodexAppServerProtocolInventory {
-    public static let clientMethodCount = 153
-    public static let notificationMethodCount = 79
+    public static let clientMethodCount = 167
+    public static let notificationMethodCount = 83
     public static let serverRequestMethodCount = 11
 }

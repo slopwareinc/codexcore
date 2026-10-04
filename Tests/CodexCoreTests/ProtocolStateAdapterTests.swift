@@ -4,12 +4,12 @@ import XCTest
 final class ProtocolStateAdapterTests: XCTestCase {
     private let adapter = ProtocolStateAdapter()
 
-    func testGA150NotificationDispositionInventoryIsExhaustive() throws {
+    func testGA160NotificationDispositionInventoryIsExhaustive() throws {
         XCTAssertEqual(
             CodexAppServerNotificationMethod.allCases.count,
             CodexAppServerProtocolInventory.notificationMethodCount
         )
-        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 79)
+        XCTAssertEqual(CodexAppServerProtocolInventory.notificationMethodCount, 83)
         XCTAssertEqual(
             Set(CodexAppServerNotificationMethod.allCases.map(\.rawValue)).count,
             CodexAppServerNotificationMethod.allCases.count
@@ -32,13 +32,13 @@ final class ProtocolStateAdapterTests: XCTestCase {
         }
     }
 
-    func testEveryGA150StateNotificationHasAValidFixtureAndProducesAMutation() throws {
+    func testEveryGA160StateNotificationHasAValidFixtureAndProducesAMutation() throws {
         let fixtures = try stateNotificationFixtures()
         let stateMethods = Set(CodexAppServerNotificationMethod.allCases.filter {
             expectedDisposition(for: $0) == .state
         })
 
-        XCTAssertEqual(fixtures.count, 45)
+        XCTAssertEqual(fixtures.count, 49)
         XCTAssertEqual(
             Set(fixtures.keys),
             stateMethods,
@@ -46,7 +46,7 @@ final class ProtocolStateAdapterTests: XCTestCase {
         )
 
         for method in CodexAppServerNotificationMethod.allCases where stateMethods.contains(method) {
-            let params = try XCTUnwrap(fixtures[method], "Missing 0.150.1 GA fixture for \(method.rawValue)")
+            let params = try XCTUnwrap(fixtures[method], "Missing 0.160.0 GA fixture for \(method.rawValue)")
             let adaptation = try adapter.adaptNotification(method: method, params: params)
 
             XCTAssertEqual(adaptation.disposition, .state, method.rawValue)
@@ -583,27 +583,23 @@ final class ProtocolStateAdapterTests: XCTestCase {
         XCTAssertEqual(policy, .authoritativeReplacement)
     }
 
-    func testRollbackResponseUsesTheOnlyDestructiveThreadSnapshotMutation() throws {
-        let resumeObject = try objectFixture(resumeResponseJSON(includeItemsCursor: true))
-        let thread = try XCTUnwrap(resumeObject["thread"])
+    func testItemHistoryPagePreservesProducerTiming() throws {
         let adaptation = try adapter.adaptResponse(
-            ProtocolResponseContext(
-                method: .threadRollback,
-                requestParams: ["threadId": .string("thread-1")],
-                connectionEpoch: 1
-            ),
-            result: .dictionary(["thread": thread])
+            .init(method: .threadItemsList,
+                  requestParams: ["threadId": .string("thread-1"), "turnId": .string("turn-1")],
+                  connectionEpoch: 1),
+            result: valueFixture(#"{"data":[{"turnId":"turn-1","item":{"type":"agentMessage","id":"item-1","text":"Hello"},"startedAtMs":1700000000001,"completedAtMs":1700000000020}],"nextCursor":null}"#)
         )
-
-        guard case .threadRollbackReplaced(let snapshot, let turns, let items) = try XCTUnwrap(
-            adaptation.mutations.first
-        ) else {
-            return XCTFail("Expected authoritative rollback replacement")
+        guard case .turnSnapshot(_, let items, _) = try XCTUnwrap(adaptation.mutations.first) else {
+            return XCTFail("Expected item history snapshot")
         }
-        XCTAssertEqual(snapshot.id, "thread-1")
-        XCTAssertTrue(turns.isEmpty)
-        XCTAssertTrue(items.isEmpty)
-        XCTAssertEqual(adaptation.mutations.count, 1)
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.startedAt, ProtocolMilliseconds(1_700_000_000_001))
+        XCTAssertEqual(item.completedAt, ProtocolMilliseconds(1_700_000_000_020))
+    }
+
+    func testRemovedRollbackMethodIsNotAdvertised() {
+        XCTAssertNil(CodexAppServerClientMethod(rawValue: "thread/rollback"))
     }
 
     func testPaginatedRevertResponseEvictsStaleDetailAndInstallsNewCursors() throws {
@@ -919,6 +915,8 @@ final class ProtocolStateAdapterTests: XCTestCase {
              .itemReasoningSummaryTextDelta, .itemReasoningSummaryPartAdded,
              .itemReasoningTextDelta, .threadCompacted,
              .modelRerouted, .modelVerification, .turnModerationMetadata,
+             .threadAttachmentUpdated, .accountGatewayOAuthChanged,
+             .modelProviderAuthRecoveryStarted, .modelProviderAuthRecoveryCompleted,
              .modelSafetyBufferingUpdated:
             .state
 
@@ -969,6 +967,18 @@ final class ProtocolStateAdapterTests: XCTestCase {
         let reviewCompleted = #"{"action":{"type":"mcpToolCall","server":"fixture-server","toolName":"fixture-tool"},"completedAtMs":2,"decisionSource":"agent","review":{"status":"approved"},"reviewId":"review-1","startedAtMs":1,"threadId":"thread-1","turnId":"turn-1"}"#
 
         return [
+            .threadAttachmentUpdated: try objectFixture(
+                #"{"threadId":"thread-1","attachmentId":"a-1","attachmentType":"pull_request","identityKey":"pr-1","operation":"created"}"#
+            ),
+            .accountGatewayOAuthChanged: try objectFixture(
+                #"{"providerId":"openai","status":"loggedOut"}"#
+            ),
+            .modelProviderAuthRecoveryStarted: try objectFixture(
+                #"{"threadId":"thread-1","turnId":"turn-1","provider":"openai","message":"Refreshing credentials"}"#
+            ),
+            .modelProviderAuthRecoveryCompleted: try objectFixture(
+                #"{"threadId":"thread-1","turnId":"turn-1","provider":"openai","message":"Credentials refreshed"}"#
+            ),
             .error: try objectFixture(
                 #"{"error":{"message":"fixture error"},"threadId":"thread-1","turnId":"turn-1","willRetry":false}"#
             ),

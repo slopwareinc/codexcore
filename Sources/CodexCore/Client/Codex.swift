@@ -160,8 +160,8 @@ private struct CodexSemanticVersion: Sendable, Hashable, Comparable {
 }
 
 /// `CodexPinnedRuntime` records the exact runtime used to generate the protocol
-/// types. CodexCore 0.13.0 accepts the 0.148 runtime floor and the generated
-/// 0.150 line; callers of newer generated methods must use their source runtime.
+/// types. CodexCore 0.14.0 accepts the 0.148 runtime floor and the generated
+/// 0.160 line; callers of newer generated methods must use their source runtime.
 public enum CodexSupportedRuntime {
     fileprivate static let minimumVersion = CodexSemanticVersion(major: 0, minor: 148, patch: 0)
 
@@ -562,8 +562,8 @@ public final class Codex: Sendable {
 
     /// Internal for focused parser tests. The real CLI currently prints
     /// `codex-cli <version>`; line and whitespace normalization tolerates shell
-    /// wrappers and harmless diagnostics. A patch-only difference is accepted
-    /// and returned as a warning; major/minor differences remain hard failures.
+    /// wrappers and harmless diagnostics. Versions within the supported range are accepted
+    /// with a warning when they differ from the generated pin.
     static func validatePinnedRuntimeVersionOutput(
         _ output: String,
         executablePath: String

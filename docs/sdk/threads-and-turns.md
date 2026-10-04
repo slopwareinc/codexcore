@@ -169,4 +169,4 @@ their corresponding `observe…` methods.
 
 ## History modes
 
-The server owns each thread's declared `legacy` or `paginated` history mode; a new thread with no requested mode uses the server declaration. Resume supports both modes and paginated resume backfills history. Paginated threads support fork and durable `thread/revert`; legacy `thread/rollback` remains separate. A missing or unknown declared mode is a protocol violation—never infer it from cursors or migrate an existing thread from a new-chat preference.
+The server owns each thread's declared `legacy` or `paginated` history mode; a new thread with no requested mode uses the server declaration. Resume supports both modes and paginated resume backfills history. Paginated threads support fork and durable `thread/revert`; `thread/rollback` was removed in 0.160.0 and is no longer exposed. A missing or unknown declared mode is a protocol violation—never infer it from cursors or migrate an existing thread from a new-chat preference.

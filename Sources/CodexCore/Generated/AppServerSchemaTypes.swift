@@ -75,6 +75,46 @@ public struct CodexSchemaAccountRateLimitsUpdatedNotification: Codable, Sendable
         self.rateLimits = rateLimits
     }
 }
+public enum CodexSchemaAccountRoutingOverride: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case nOCONSTRAINT
+    case us
+    case usCr
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaAccountRoutingOverride] = [
+        .nOCONSTRAINT,
+        .us,
+        .usCr,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "NO_CONSTRAINT": self = .nOCONSTRAINT
+        case "us": self = .us
+        case "us_cr": self = .usCr
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .nOCONSTRAINT: "NO_CONSTRAINT"
+        case .us: "us"
+        case .usCr: "us_cr"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 public struct CodexSchemaAccountTokenUsageDailyBucket: Codable, Sendable, Equatable {
     public var startDate: String
     public var tokens: Int
@@ -310,6 +350,8 @@ public struct CodexSchemaAppConfig: Codable, Sendable, Equatable {
     public var defaultToolsEnabled: Bool?
     public var destructiveEnabled: Bool?
     public var enabled: Bool?
+    public var links: CodexSchemaAppLinksConfig?
+    public var omitToolsFrom: [CodexSchemaToolExposureSurface]?
     public var openWorldEnabled: Bool?
     public var tools: CodexSchemaAppToolsConfig?
 
@@ -319,16 +361,20 @@ public struct CodexSchemaAppConfig: Codable, Sendable, Equatable {
         case defaultToolsEnabled = "default_tools_enabled"
         case destructiveEnabled = "destructive_enabled"
         case enabled
+        case links
+        case omitToolsFrom = "omit_tools_from"
         case openWorldEnabled = "open_world_enabled"
         case tools
     }
 
-    public init(approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, defaultToolsApprovalMode: CodexSchemaAppToolApproval? = nil, defaultToolsEnabled: Bool? = nil, destructiveEnabled: Bool? = nil, enabled: Bool? = nil, openWorldEnabled: Bool? = nil, tools: CodexSchemaAppToolsConfig? = nil) {
+    public init(approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, defaultToolsApprovalMode: CodexSchemaAppToolApproval? = nil, defaultToolsEnabled: Bool? = nil, destructiveEnabled: Bool? = nil, enabled: Bool? = nil, links: CodexSchemaAppLinksConfig? = nil, omitToolsFrom: [CodexSchemaToolExposureSurface]? = nil, openWorldEnabled: Bool? = nil, tools: CodexSchemaAppToolsConfig? = nil) {
         self.approvalsReviewer = approvalsReviewer
         self.defaultToolsApprovalMode = defaultToolsApprovalMode
         self.defaultToolsEnabled = defaultToolsEnabled
         self.destructiveEnabled = destructiveEnabled
         self.enabled = enabled
+        self.links = links
+        self.omitToolsFrom = omitToolsFrom
         self.openWorldEnabled = openWorldEnabled
         self.tools = tools
     }
@@ -368,6 +414,21 @@ public struct CodexSchemaAppInfo: Codable, Sendable, Equatable {
         self.pluginDisplayNames = pluginDisplayNames
     }
 }
+public struct CodexSchemaAppLinkConfig: Codable, Sendable, Equatable {
+    public var approvalsReviewer: CodexSchemaApprovalsReviewer?
+    public var defaultToolsApprovalMode: CodexSchemaAppToolApproval?
+
+    enum CodingKeys: String, CodingKey {
+        case approvalsReviewer = "approvals_reviewer"
+        case defaultToolsApprovalMode = "default_tools_approval_mode"
+    }
+
+    public init(approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, defaultToolsApprovalMode: CodexSchemaAppToolApproval? = nil) {
+        self.approvalsReviewer = approvalsReviewer
+        self.defaultToolsApprovalMode = defaultToolsApprovalMode
+    }
+}
+public typealias CodexSchemaAppLinksConfig = CodexAppServerSchemaValue
 public struct CodexSchemaAppListUpdatedNotification: Codable, Sendable, Equatable {
     public var data: [CodexSchemaAppInfo]
 
@@ -602,6 +663,22 @@ public struct CodexSchemaAppToolSummary: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaAppToolsConfig = CodexAppServerSchemaValue
+public struct CodexSchemaApplicationNetworkRequirements: Codable, Sendable, Equatable {
+    public var domains: [String: CodexSchemaNetworkDomainPermission]
+    public var enabled: Bool
+
+    public init(domains: [String: CodexSchemaNetworkDomainPermission], enabled: Bool) {
+        self.domains = domains
+        self.enabled = enabled
+    }
+}
+public struct CodexSchemaApplicationRequirements: Codable, Sendable, Equatable {
+    public var network: CodexSchemaApplicationNetworkRequirements?
+
+    public init(network: CodexSchemaApplicationNetworkRequirements? = nil) {
+        self.network = network
+    }
+}
 public enum CodexSchemaApprovalsReviewer: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case user
     case autoReview
@@ -758,6 +835,15 @@ public struct CodexSchemaAppsReadResponse: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaAskForApproval = CodexAppServerSchemaValue
+public struct CodexSchemaAsyncUserInputQuestion: Codable, Sendable, Equatable {
+    public var options: [String]?
+    public var title: String
+
+    public init(options: [String]? = nil, title: String) {
+        self.options = options
+        self.title = title
+    }
+}
 public enum CodexSchemaAuthMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case apikey
     case chatgpt
@@ -816,6 +902,26 @@ public enum CodexSchemaAuthMode: Codable, Sendable, Equatable, Hashable, CaseIte
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaAuthRecoveryNotification: Codable, Sendable, Equatable {
+    public var message: String
+    public var provider: String
+    public var threadID: String
+    public var turnID: String
+
+    enum CodingKeys: String, CodingKey {
+        case message
+        case provider
+        case threadID = "threadId"
+        case turnID = "turnId"
+    }
+
+    public init(message: String, provider: String, threadID: String, turnID: String) {
+        self.message = message
+        self.provider = provider
+        self.threadID = threadID
+        self.turnID = turnID
     }
 }
 public enum CodexSchemaAutoCompactTokenLimitScope: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
@@ -1056,13 +1162,15 @@ public struct CodexSchemaBrowserUseOriginPolicyConfig: Codable, Sendable, Equata
 public struct CodexSchemaBrowserUseRequirements: Codable, Sendable, Equatable {
     public var allowGlobalPersistentApproval: Bool?
     public var allowHistoryAccess: Bool?
+    public var allowWebmcp: Bool?
     public var defaultOriginPolicy: CodexSchemaBrowserUseOriginPolicy?
     public var disableAutoReview: Bool?
     public var origins: [String: CodexSchemaBrowserUseOriginPolicy]?
 
-    public init(allowGlobalPersistentApproval: Bool? = nil, allowHistoryAccess: Bool? = nil, defaultOriginPolicy: CodexSchemaBrowserUseOriginPolicy? = nil, disableAutoReview: Bool? = nil, origins: [String: CodexSchemaBrowserUseOriginPolicy]? = nil) {
+    public init(allowGlobalPersistentApproval: Bool? = nil, allowHistoryAccess: Bool? = nil, allowWebmcp: Bool? = nil, defaultOriginPolicy: CodexSchemaBrowserUseOriginPolicy? = nil, disableAutoReview: Bool? = nil, origins: [String: CodexSchemaBrowserUseOriginPolicy]? = nil) {
         self.allowGlobalPersistentApproval = allowGlobalPersistentApproval
         self.allowHistoryAccess = allowHistoryAccess
+        self.allowWebmcp = allowWebmcp
         self.defaultOriginPolicy = defaultOriginPolicy
         self.disableAutoReview = disableAutoReview
         self.origins = origins
@@ -1993,10 +2101,12 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
     public var allowRemoteControl: Bool?
     public var allowedApprovalPolicies: [CodexSchemaAskForApproval]?
     public var allowedApprovalsReviewers: [CodexSchemaApprovalsReviewer]?
+    public var allowedLoginMethods: [CodexSchemaForcedLoginMethod]?
     public var allowedPermissionProfiles: [String: Bool]?
     public var allowedSandboxModes: [CodexSchemaSandboxMode]?
     public var allowedWebSearchModes: [CodexSchemaWebSearchMode]?
-    public var allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxSetupMode]?
+    public var allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxImplementation]?
+    public var application: CodexSchemaApplicationRequirements?
     public var autoReview: CodexSchemaAutoReviewRequirements?
     public var browserUse: CodexSchemaBrowserUseRequirements?
     public var chatgptBaseUrl: String?
@@ -2011,12 +2121,13 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
     public var inAppBrowser: CodexSchemaInAppBrowserRequirements?
     public var logDir: String?
     public var modelCatalogJson: String?
+    public var modelProvider: String?
+    public var modelProviders: CodexJSONValue?
     public var models: CodexSchemaModelsRequirements?
     public var network: CodexSchemaNetworkRequirements?
     public var sqliteHome: String?
-    public var windowsSandboxPrivateDesktop: Bool?
 
-    public init(additionalDeveloperInstructions: String? = nil, allowAppshots: Bool? = nil, allowBrowserAndComputerUse: Bool? = nil, allowLoginShell: Bool? = nil, allowManagedHooksOnly: Bool? = nil, allowRemoteControl: Bool? = nil, allowedApprovalPolicies: [CodexSchemaAskForApproval]? = nil, allowedApprovalsReviewers: [CodexSchemaApprovalsReviewer]? = nil, allowedPermissionProfiles: [String: Bool]? = nil, allowedSandboxModes: [CodexSchemaSandboxMode]? = nil, allowedWebSearchModes: [CodexSchemaWebSearchMode]? = nil, allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxSetupMode]? = nil, autoReview: CodexSchemaAutoReviewRequirements? = nil, browserUse: CodexSchemaBrowserUseRequirements? = nil, chatgptBaseUrl: String? = nil, checkForUpdateOnStartup: Bool? = nil, cliAuthCredentialsStore: CodexSchemaCliAuthCredentialsStoreMode? = nil, computerUse: CodexSchemaComputerUseRequirements? = nil, defaultPermissions: String? = nil, enforceResidency: CodexSchemaResidencyRequirement? = nil, featureRequirements: [String: Bool]? = nil, feedback: CodexSchemaFeedbackRequirements? = nil, hooks: CodexSchemaManagedHooksRequirements? = nil, inAppBrowser: CodexSchemaInAppBrowserRequirements? = nil, logDir: String? = nil, modelCatalogJson: String? = nil, models: CodexSchemaModelsRequirements? = nil, network: CodexSchemaNetworkRequirements? = nil, sqliteHome: String? = nil, windowsSandboxPrivateDesktop: Bool? = nil) {
+    public init(additionalDeveloperInstructions: String? = nil, allowAppshots: Bool? = nil, allowBrowserAndComputerUse: Bool? = nil, allowLoginShell: Bool? = nil, allowManagedHooksOnly: Bool? = nil, allowRemoteControl: Bool? = nil, allowedApprovalPolicies: [CodexSchemaAskForApproval]? = nil, allowedApprovalsReviewers: [CodexSchemaApprovalsReviewer]? = nil, allowedLoginMethods: [CodexSchemaForcedLoginMethod]? = nil, allowedPermissionProfiles: [String: Bool]? = nil, allowedSandboxModes: [CodexSchemaSandboxMode]? = nil, allowedWebSearchModes: [CodexSchemaWebSearchMode]? = nil, allowedWindowsSandboxImplementations: [CodexSchemaWindowsSandboxImplementation]? = nil, application: CodexSchemaApplicationRequirements? = nil, autoReview: CodexSchemaAutoReviewRequirements? = nil, browserUse: CodexSchemaBrowserUseRequirements? = nil, chatgptBaseUrl: String? = nil, checkForUpdateOnStartup: Bool? = nil, cliAuthCredentialsStore: CodexSchemaCliAuthCredentialsStoreMode? = nil, computerUse: CodexSchemaComputerUseRequirements? = nil, defaultPermissions: String? = nil, enforceResidency: CodexSchemaResidencyRequirement? = nil, featureRequirements: [String: Bool]? = nil, feedback: CodexSchemaFeedbackRequirements? = nil, hooks: CodexSchemaManagedHooksRequirements? = nil, inAppBrowser: CodexSchemaInAppBrowserRequirements? = nil, logDir: String? = nil, modelCatalogJson: String? = nil, modelProvider: String? = nil, modelProviders: CodexJSONValue? = nil, models: CodexSchemaModelsRequirements? = nil, network: CodexSchemaNetworkRequirements? = nil, sqliteHome: String? = nil) {
         self.additionalDeveloperInstructions = additionalDeveloperInstructions
         self.allowAppshots = allowAppshots
         self.allowBrowserAndComputerUse = allowBrowserAndComputerUse
@@ -2025,10 +2136,12 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
         self.allowRemoteControl = allowRemoteControl
         self.allowedApprovalPolicies = allowedApprovalPolicies
         self.allowedApprovalsReviewers = allowedApprovalsReviewers
+        self.allowedLoginMethods = allowedLoginMethods
         self.allowedPermissionProfiles = allowedPermissionProfiles
         self.allowedSandboxModes = allowedSandboxModes
         self.allowedWebSearchModes = allowedWebSearchModes
         self.allowedWindowsSandboxImplementations = allowedWindowsSandboxImplementations
+        self.application = application
         self.autoReview = autoReview
         self.browserUse = browserUse
         self.chatgptBaseUrl = chatgptBaseUrl
@@ -2043,10 +2156,11 @@ public struct CodexSchemaConfigRequirements: Codable, Sendable, Equatable {
         self.inAppBrowser = inAppBrowser
         self.logDir = logDir
         self.modelCatalogJson = modelCatalogJson
+        self.modelProvider = modelProvider
+        self.modelProviders = modelProviders
         self.models = models
         self.network = network
         self.sqliteHome = sqliteHome
-        self.windowsSandboxPrivateDesktop = windowsSandboxPrivateDesktop
     }
 }
 public struct CodexSchemaConfigRequirementsReadResponse: Codable, Sendable, Equatable {
@@ -2095,6 +2209,13 @@ public struct CodexSchemaConfigWriteResponse: Codable, Sendable, Equatable {
         self.overriddenMetadata = overriddenMetadata
         self.status = status
         self.version = version
+    }
+}
+public struct CodexSchemaConfigurationReasoning: Codable, Sendable, Equatable {
+    public var effort: CodexSchemaReasoningEffort
+
+    public init(effort: CodexSchemaReasoningEffort) {
+        self.effort = effort
     }
 }
 public typealias CodexSchemaConfiguredHookHandler = CodexAppServerSchemaValue
@@ -2226,6 +2347,46 @@ public struct CodexSchemaCreditsSnapshot: Codable, Sendable, Equatable {
         self.unlimited = unlimited
     }
 }
+public enum CodexSchemaCyberAccessProgram: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case standard
+    case daybreakBlue
+    case daybreakRed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaCyberAccessProgram] = [
+        .standard,
+        .daybreakBlue,
+        .daybreakRed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "standard": self = .standard
+        case "daybreakBlue": self = .daybreakBlue
+        case "daybreakRed": self = .daybreakRed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .standard: "standard"
+        case .daybreakBlue: "daybreakBlue"
+        case .daybreakRed: "daybreakRed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 public struct CodexSchemaDeprecationNoticeNotification: Codable, Sendable, Equatable {
     public var details: String?
     public var summary: String
@@ -2311,17 +2472,20 @@ public enum CodexSchemaDynamicToolCallStatus: Codable, Sendable, Equatable, Hash
 public typealias CodexSchemaDynamicToolNamespaceTool = CodexAppServerSchemaValue
 public typealias CodexSchemaDynamicToolSpec = CodexAppServerSchemaValue
 public struct CodexSchemaEnvironmentAddParams: Codable, Sendable, Equatable {
+    public var authBearerToken: String?
     public var connectTimeoutMs: Int?
     public var environmentID: String
     public var execServerUrl: String
 
     enum CodingKeys: String, CodingKey {
+        case authBearerToken
         case connectTimeoutMs
         case environmentID = "environmentId"
         case execServerUrl
     }
 
-    public init(connectTimeoutMs: Int? = nil, environmentID: String, execServerUrl: String) {
+    public init(authBearerToken: String? = nil, connectTimeoutMs: Int? = nil, environmentID: String, execServerUrl: String) {
+        self.authBearerToken = authBearerToken
         self.connectTimeoutMs = connectTimeoutMs
         self.environmentID = environmentID
         self.execServerUrl = execServerUrl
@@ -2980,13 +3144,16 @@ public struct CodexSchemaFeedbackUploadParams: Codable, Sendable, Equatable {
     }
 }
 public struct CodexSchemaFeedbackUploadResponse: Codable, Sendable, Equatable {
+    public var promptHash: String?
     public var threadID: String
 
     enum CodingKeys: String, CodingKey {
+        case promptHash
         case threadID = "threadId"
     }
 
-    public init(threadID: String) {
+    public init(promptHash: String? = nil, threadID: String) {
+        self.promptHash = promptHash
         self.threadID = threadID
     }
 }
@@ -3423,6 +3590,95 @@ public struct CodexSchemaFuzzyFileSearchSessionUpdatedNotification: Codable, Sen
         self.sessionID = sessionID
     }
 }
+public typealias CodexSchemaGatewayOAuthCancelResponse = CodexAppServerSchemaValue
+public struct CodexSchemaGatewayOAuthChangedNotification: Codable, Sendable, Equatable {
+    public var authUrl: String?
+    public var error: String?
+    public var providerID: String
+    public var status: CodexSchemaGatewayOAuthStatus
+
+    enum CodingKeys: String, CodingKey {
+        case authUrl
+        case error
+        case providerID = "providerId"
+        case status
+    }
+
+    public init(authUrl: String? = nil, error: String? = nil, providerID: String, status: CodexSchemaGatewayOAuthStatus) {
+        self.authUrl = authUrl
+        self.error = error
+        self.providerID = providerID
+        self.status = status
+    }
+}
+public typealias CodexSchemaGatewayOAuthLoginResponse = CodexAppServerSchemaValue
+public struct CodexSchemaGatewayOAuthReadResponse: Codable, Sendable, Equatable {
+    public var error: String?
+    public var providerID: String
+    public var providerName: String
+    public var required: Bool
+    public var status: CodexSchemaGatewayOAuthStatus?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case providerID = "providerId"
+        case providerName
+        case required
+        case status
+    }
+
+    public init(error: String? = nil, providerID: String, providerName: String, required: Bool, status: CodexSchemaGatewayOAuthStatus? = nil) {
+        self.error = error
+        self.providerID = providerID
+        self.providerName = providerName
+        self.required = required
+        self.status = status
+    }
+}
+public enum CodexSchemaGatewayOAuthStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case notReady
+    case started
+    case succeeded
+    case failed
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaGatewayOAuthStatus] = [
+        .notReady,
+        .started,
+        .succeeded,
+        .failed,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "notReady": self = .notReady
+        case "started": self = .started
+        case "succeeded": self = .succeeded
+        case "failed": self = .failed
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .notReady: "notReady"
+        case .started: "started"
+        case .succeeded: "succeeded"
+        case .failed: "failed"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 public struct CodexSchemaGetAccountParams: Codable, Sendable, Equatable {
     public var refreshToken: Bool?
 
@@ -3430,19 +3686,37 @@ public struct CodexSchemaGetAccountParams: Codable, Sendable, Equatable {
         self.refreshToken = refreshToken
     }
 }
+public struct CodexSchemaGetAccountRateLimitsParams: Codable, Sendable, Equatable {
+    public var excludeResetCreditDetails: Bool?
+    public var supportsLunaReserve: Bool?
+
+    public init(excludeResetCreditDetails: Bool? = nil, supportsLunaReserve: Bool? = nil) {
+        self.excludeResetCreditDetails = excludeResetCreditDetails
+        self.supportsLunaReserve = supportsLunaReserve
+    }
+}
 public struct CodexSchemaGetAccountRateLimitsResponse: Codable, Sendable, Equatable {
+    public var accountID: String?
+    public var ordinaryUsageAllowed: Bool?
     public var rateLimitResetCredits: CodexSchemaRateLimitResetCreditsSummary?
+    public var rateLimitUpsell: CodexJSONValue?
     public var rateLimits: CodexSchemaRateLimitSnapshot
     public var rateLimitsByLimitID: [String: CodexSchemaRateLimitSnapshot]?
 
     enum CodingKeys: String, CodingKey {
+        case accountID = "accountId"
+        case ordinaryUsageAllowed
         case rateLimitResetCredits
+        case rateLimitUpsell
         case rateLimits
         case rateLimitsByLimitID = "rateLimitsByLimitId"
     }
 
-    public init(rateLimitResetCredits: CodexSchemaRateLimitResetCreditsSummary? = nil, rateLimits: CodexSchemaRateLimitSnapshot, rateLimitsByLimitID: [String: CodexSchemaRateLimitSnapshot]? = nil) {
+    public init(accountID: String? = nil, ordinaryUsageAllowed: Bool? = nil, rateLimitResetCredits: CodexSchemaRateLimitResetCreditsSummary? = nil, rateLimitUpsell: CodexJSONValue? = nil, rateLimits: CodexSchemaRateLimitSnapshot, rateLimitsByLimitID: [String: CodexSchemaRateLimitSnapshot]? = nil) {
+        self.accountID = accountID
+        self.ordinaryUsageAllowed = ordinaryUsageAllowed
         self.rateLimitResetCredits = rateLimitResetCredits
+        self.rateLimitUpsell = rateLimitUpsell
         self.rateLimits = rateLimits
         self.rateLimitsByLimitID = rateLimitsByLimitID
     }
@@ -3450,15 +3724,18 @@ public struct CodexSchemaGetAccountRateLimitsResponse: Codable, Sendable, Equata
 public struct CodexSchemaGetAccountResponse: Codable, Sendable, Equatable {
     public var account: CodexSchemaAccount?
     public var requiresOpenAIAuth: Bool
+    public var workspaceRouting: CodexSchemaWorkspaceRouting?
 
     enum CodingKeys: String, CodingKey {
         case account
         case requiresOpenAIAuth = "requiresOpenaiAuth"
+        case workspaceRouting
     }
 
-    public init(account: CodexSchemaAccount? = nil, requiresOpenAIAuth: Bool) {
+    public init(account: CodexSchemaAccount? = nil, requiresOpenAIAuth: Bool, workspaceRouting: CodexSchemaWorkspaceRouting? = nil) {
         self.account = account
         self.requiresOpenAIAuth = requiresOpenAIAuth
+        self.workspaceRouting = workspaceRouting
     }
 }
 public struct CodexSchemaGetAccountTokenUsageParams: Codable, Sendable, Equatable {
@@ -4380,6 +4657,7 @@ public struct CodexSchemaInAppBrowserRequirements: Codable, Sendable, Equatable 
 }
 public struct CodexSchemaInitializeCapabilities: Codable, Sendable, Equatable {
     public var experimentalAPI: Bool?
+    public var explicitGatewayOAuth: Bool?
     public var extensions: CodexJSONValue?
     public var mcpServerOpenAIFormElicitation: Bool?
     public var optOutNotificationMethods: [String]?
@@ -4387,14 +4665,16 @@ public struct CodexSchemaInitializeCapabilities: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case experimentalAPI = "experimentalApi"
+        case explicitGatewayOAuth = "explicitGatewayOauth"
         case extensions
         case mcpServerOpenAIFormElicitation = "mcpServerOpenaiFormElicitation"
         case optOutNotificationMethods
         case requestAttestation
     }
 
-    public init(experimentalAPI: Bool? = nil, extensions: CodexJSONValue? = nil, mcpServerOpenAIFormElicitation: Bool? = nil, optOutNotificationMethods: [String]? = nil, requestAttestation: Bool? = nil) {
+    public init(experimentalAPI: Bool? = nil, explicitGatewayOAuth: Bool? = nil, extensions: CodexJSONValue? = nil, mcpServerOpenAIFormElicitation: Bool? = nil, optOutNotificationMethods: [String]? = nil, requestAttestation: Bool? = nil) {
         self.experimentalAPI = experimentalAPI
+        self.explicitGatewayOAuth = explicitGatewayOAuth
         self.extensions = extensions
         self.mcpServerOpenAIFormElicitation = mcpServerOpenAIFormElicitation
         self.optOutNotificationMethods = optOutNotificationMethods
@@ -4596,19 +4876,22 @@ public struct CodexSchemaListMCPServerStatusParams: Codable, Sendable, Equatable
     public var cursor: String?
     public var detail: CodexSchemaMCPServerStatusDetail?
     public var limit: Int?
+    public var serverName: String?
     public var threadID: String?
 
     enum CodingKeys: String, CodingKey {
         case cursor
         case detail
         case limit
+        case serverName
         case threadID = "threadId"
     }
 
-    public init(cursor: String? = nil, detail: CodexSchemaMCPServerStatusDetail? = nil, limit: Int? = nil, threadID: String? = nil) {
+    public init(cursor: String? = nil, detail: CodexSchemaMCPServerStatusDetail? = nil, limit: Int? = nil, serverName: String? = nil, threadID: String? = nil) {
         self.cursor = cursor
         self.detail = detail
         self.limit = limit
+        self.serverName = serverName
         self.threadID = threadID
     }
 }
@@ -5144,6 +5427,51 @@ public struct CodexSchemaMarketplaceUpgradeResponse: Codable, Sendable, Equatabl
         self.upgradedRoots = upgradedRoots
     }
 }
+public enum CodexSchemaMCPAppDisplayMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case inline
+    case fullscreen
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaMCPAppDisplayMode] = [
+        .inline,
+        .fullscreen,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "inline": self = .inline
+        case "fullscreen": self = .fullscreen
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .inline: "inline"
+        case .fullscreen: "fullscreen"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaMCPAppUi: Codable, Sendable, Equatable {
+    public var preferredModelDisplayMode: CodexSchemaMCPAppDisplayMode
+    public var resourceUri: String
+
+    public init(preferredModelDisplayMode: CodexSchemaMCPAppDisplayMode, resourceUri: String) {
+        self.preferredModelDisplayMode = preferredModelDisplayMode
+        self.resourceUri = resourceUri
+    }
+}
 public enum CodexSchemaMCPAuthStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case unknown
     case unsupported
@@ -5196,6 +5524,7 @@ public struct CodexSchemaMCPResourceReadParams: Codable, Sendable, Equatable {
     public var connectorID: String?
     public var originCallID: String?
     public var server: String
+    public var target: CodexSchemaMCPResourceReadTarget?
     public var threadID: String?
     public var uri: String
 
@@ -5203,14 +5532,16 @@ public struct CodexSchemaMCPResourceReadParams: Codable, Sendable, Equatable {
         case connectorID = "connectorId"
         case originCallID = "originCallId"
         case server
+        case target
         case threadID = "threadId"
         case uri
     }
 
-    public init(connectorID: String? = nil, originCallID: String? = nil, server: String, threadID: String? = nil, uri: String) {
+    public init(connectorID: String? = nil, originCallID: String? = nil, server: String, target: CodexSchemaMCPResourceReadTarget? = nil, threadID: String? = nil, uri: String) {
         self.connectorID = connectorID
         self.originCallID = originCallID
         self.server = server
+        self.target = target
         self.threadID = threadID
         self.uri = uri
     }
@@ -5227,6 +5558,20 @@ public struct CodexSchemaMCPResourceReadResponse: Codable, Sendable, Equatable {
     public init(contents: [CodexSchemaResourceContent], originCallID: String? = nil) {
         self.contents = contents
         self.originCallID = originCallID
+    }
+}
+public struct CodexSchemaMCPResourceReadTarget: Codable, Sendable, Equatable {
+    public var connectorID: String
+    public var linkID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case connectorID = "connectorId"
+        case linkID = "linkId"
+    }
+
+    public init(connectorID: String, linkID: String? = nil) {
+        self.connectorID = connectorID
+        self.linkID = linkID
     }
 }
 public enum CodexSchemaMCPServerConnectionStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
@@ -5540,34 +5885,43 @@ public enum CodexSchemaMCPServerStartupState: Codable, Sendable, Equatable, Hash
 }
 public struct CodexSchemaMCPServerStatus: Codable, Sendable, Equatable {
     public var authStatus: CodexSchemaMCPAuthStatus
+    public var httpOrigin: String?
     public var name: String
     public var pluginID: String?
     public var resourceTemplates: [CodexSchemaResourceTemplate]
     public var resources: [CodexSchemaResource]
     public var runtimeStatus: CodexSchemaMCPServerConnectionStatus?
+    public var serverCapabilities: CodexJSONValue?
     public var serverInfo: CodexSchemaMCPServerInfo?
     public var tools: [String: CodexSchemaTool]
+    public var toolsError: String?
 
     enum CodingKeys: String, CodingKey {
         case authStatus
+        case httpOrigin
         case name
         case pluginID = "pluginId"
         case resourceTemplates
         case resources
         case runtimeStatus
+        case serverCapabilities
         case serverInfo
         case tools
+        case toolsError
     }
 
-    public init(authStatus: CodexSchemaMCPAuthStatus, name: String, pluginID: String? = nil, resourceTemplates: [CodexSchemaResourceTemplate], resources: [CodexSchemaResource], runtimeStatus: CodexSchemaMCPServerConnectionStatus? = nil, serverInfo: CodexSchemaMCPServerInfo? = nil, tools: [String: CodexSchemaTool]) {
+    public init(authStatus: CodexSchemaMCPAuthStatus, httpOrigin: String? = nil, name: String, pluginID: String? = nil, resourceTemplates: [CodexSchemaResourceTemplate], resources: [CodexSchemaResource], runtimeStatus: CodexSchemaMCPServerConnectionStatus? = nil, serverCapabilities: CodexJSONValue? = nil, serverInfo: CodexSchemaMCPServerInfo? = nil, tools: [String: CodexSchemaTool], toolsError: String? = nil) {
         self.authStatus = authStatus
+        self.httpOrigin = httpOrigin
         self.name = name
         self.pluginID = pluginID
         self.resourceTemplates = resourceTemplates
         self.resources = resources
         self.runtimeStatus = runtimeStatus
+        self.serverCapabilities = serverCapabilities
         self.serverInfo = serverInfo
         self.tools = tools
+        self.toolsError = toolsError
     }
 }
 public enum CodexSchemaMCPServerStatusDetail: String, Codable, Sendable, Equatable, CaseIterable {
@@ -5775,6 +6129,22 @@ public struct CodexSchemaMemoryCitationEntry: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaMemoryResetResponse = CodexAppServerSchemaValue
+public struct CodexSchemaMemoryStatusParams: Codable, Sendable, Equatable {
+    public var minConsolidatedThreads: Int?
+
+    public init(minConsolidatedThreads: Int? = nil) {
+        self.minConsolidatedThreads = minConsolidatedThreads
+    }
+}
+public struct CodexSchemaMemoryStatusResponse: Codable, Sendable, Equatable {
+    public var v2ConsolidatedThreads: Int
+    public var v2Ready: Bool
+
+    public init(v2ConsolidatedThreads: Int, v2Ready: Bool) {
+        self.v2ConsolidatedThreads = v2ConsolidatedThreads
+        self.v2Ready = v2Ready
+    }
+}
 public enum CodexSchemaMergeStrategy: String, Codable, Sendable, Equatable, CaseIterable {
     case replace = "replace"
     case upsert = "upsert"
@@ -5836,6 +6206,24 @@ public struct CodexSchemaMigrationDetails: Codable, Sendable, Equatable {
         self.subagents = subagents
     }
 }
+public struct CodexSchemaMisalignmentErrorDetails: Codable, Sendable, Equatable {
+    public var detailedExplanation: String?
+    public var errorType: String?
+    public var steer: CodexSchemaMisalignmentSteer?
+
+    public init(detailedExplanation: String? = nil, errorType: String? = nil, steer: CodexSchemaMisalignmentSteer? = nil) {
+        self.detailedExplanation = detailedExplanation
+        self.errorType = errorType
+        self.steer = steer
+    }
+}
+public struct CodexSchemaMisalignmentSteer: Codable, Sendable, Equatable {
+    public var message: String
+
+    public init(message: String) {
+        self.message = message
+    }
+}
 public struct CodexSchemaMockExperimentalMethodParams: Codable, Sendable, Equatable {
     public var value: String?
 
@@ -5889,6 +6277,7 @@ public enum CodexSchemaModeKind: Codable, Sendable, Equatable, Hashable, CaseIte
 public struct CodexSchemaModel: Codable, Sendable, Equatable {
     public var additionalSpeedTiers: [String]?
     public var availabilityNux: CodexSchemaModelAvailabilityNux?
+    public var availableAccessPrograms: CodexSchemaModelAccessPrograms?
     public var defaultReasoningEffort: CodexSchemaReasoningEffort
     public var defaultServiceTier: String?
     public var description: String
@@ -5906,9 +6295,10 @@ public struct CodexSchemaModel: Codable, Sendable, Equatable {
     public var upgrade: String?
     public var upgradeInfo: CodexSchemaModelUpgradeInfo?
 
-    public init(additionalSpeedTiers: [String]? = nil, availabilityNux: CodexSchemaModelAvailabilityNux? = nil, defaultReasoningEffort: CodexSchemaReasoningEffort, defaultServiceTier: String? = nil, description: String, displayName: String, hidden: Bool, id: String, inputModalities: [CodexSchemaInputModality]? = nil, isDefault: Bool, model: String, modelSpecialty: String? = nil, multiAgentVersion: CodexSchemaMultiAgentVersion? = nil, serviceTiers: [CodexSchemaModelServiceTier]? = nil, supportedReasoningEfforts: [CodexSchemaReasoningEffortOption], supportsPersonality: Bool? = nil, upgrade: String? = nil, upgradeInfo: CodexSchemaModelUpgradeInfo? = nil) {
+    public init(additionalSpeedTiers: [String]? = nil, availabilityNux: CodexSchemaModelAvailabilityNux? = nil, availableAccessPrograms: CodexSchemaModelAccessPrograms? = nil, defaultReasoningEffort: CodexSchemaReasoningEffort, defaultServiceTier: String? = nil, description: String, displayName: String, hidden: Bool, id: String, inputModalities: [CodexSchemaInputModality]? = nil, isDefault: Bool, model: String, modelSpecialty: String? = nil, multiAgentVersion: CodexSchemaMultiAgentVersion? = nil, serviceTiers: [CodexSchemaModelServiceTier]? = nil, supportedReasoningEfforts: [CodexSchemaReasoningEffortOption], supportsPersonality: Bool? = nil, upgrade: String? = nil, upgradeInfo: CodexSchemaModelUpgradeInfo? = nil) {
         self.additionalSpeedTiers = additionalSpeedTiers
         self.availabilityNux = availabilityNux
+        self.availableAccessPrograms = availableAccessPrograms
         self.defaultReasoningEffort = defaultReasoningEffort
         self.defaultServiceTier = defaultServiceTier
         self.description = description
@@ -5925,6 +6315,13 @@ public struct CodexSchemaModel: Codable, Sendable, Equatable {
         self.supportsPersonality = supportsPersonality
         self.upgrade = upgrade
         self.upgradeInfo = upgradeInfo
+    }
+}
+public struct CodexSchemaModelAccessPrograms: Codable, Sendable, Equatable {
+    public var cyber: [CodexSchemaCyberAccessProgram]
+
+    public init(cyber: [CodexSchemaCyberAccessProgram]) {
+        self.cyber = cyber
     }
 }
 public struct CodexSchemaModelAvailabilityNux: Codable, Sendable, Equatable {
@@ -6403,6 +6800,7 @@ public enum CodexSchemaNonSteerableTurnKind: Codable, Sendable, Equatable, Hasha
         try container.encode(rawValue)
     }
 }
+public typealias CodexSchemaNullableGetAccountRateLimitsParams = CodexAppServerSchemaValue
 public typealias CodexSchemaNullableGetAccountTokenUsageParams = CodexAppServerSchemaValue
 public typealias CodexSchemaNullableRemoteControlDisableParams = CodexAppServerSchemaValue
 public typealias CodexSchemaNullableRemoteControlEnableParams = CodexAppServerSchemaValue
@@ -6560,6 +6958,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
     case plus
     case pro
     case prolite
+    case promax
     case team
     case selfServeBusinessProlite
     case selfServeBusinessUsageBased
@@ -6580,6 +6979,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         .plus,
         .pro,
         .prolite,
+        .promax,
         .team,
         .selfServeBusinessProlite,
         .selfServeBusinessUsageBased,
@@ -6601,6 +7001,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         case "plus": self = .plus
         case "pro": self = .pro
         case "prolite": self = .prolite
+        case "promax": self = .promax
         case "team": self = .team
         case "self_serve_business_prolite": self = .selfServeBusinessProlite
         case "self_serve_business_usage_based": self = .selfServeBusinessUsageBased
@@ -6624,6 +7025,7 @@ public enum CodexSchemaPlanType: Codable, Sendable, Equatable, Hashable, CaseIte
         case .plus: "plus"
         case .pro: "pro"
         case .prolite: "prolite"
+        case .promax: "promax"
         case .team: "team"
         case .selfServeBusinessProlite: "self_serve_business_prolite"
         case .selfServeBusinessUsageBased: "self_serve_business_usage_based"
@@ -6730,12 +7132,13 @@ public struct CodexSchemaPluginDetail: Codable, Sendable, Equatable {
     public var marketplaceName: String
     public var marketplacePath: CodexSchemaAbsolutePathBuf?
     public var mcpServers: [String]
+    public var onboardingSkill: CodexSchemaSkillSummary?
     public var scheduledTasks: [CodexSchemaScheduledTaskSummary]?
     public var shareUrl: String?
     public var skills: [CodexSchemaSkillSummary]
     public var summary: CodexSchemaPluginSummary
 
-    public init(appTemplates: [CodexSchemaAppTemplateSummary], apps: [CodexSchemaAppSummary], description: String? = nil, hooks: [CodexSchemaPluginHookSummary], marketplaceName: String, marketplacePath: CodexSchemaAbsolutePathBuf? = nil, mcpServers: [String], scheduledTasks: [CodexSchemaScheduledTaskSummary]? = nil, shareUrl: String? = nil, skills: [CodexSchemaSkillSummary], summary: CodexSchemaPluginSummary) {
+    public init(appTemplates: [CodexSchemaAppTemplateSummary], apps: [CodexSchemaAppSummary], description: String? = nil, hooks: [CodexSchemaPluginHookSummary], marketplaceName: String, marketplacePath: CodexSchemaAbsolutePathBuf? = nil, mcpServers: [String], onboardingSkill: CodexSchemaSkillSummary? = nil, scheduledTasks: [CodexSchemaScheduledTaskSummary]? = nil, shareUrl: String? = nil, skills: [CodexSchemaSkillSummary], summary: CodexSchemaPluginSummary) {
         self.appTemplates = appTemplates
         self.apps = apps
         self.description = description
@@ -6743,6 +7146,7 @@ public struct CodexSchemaPluginDetail: Codable, Sendable, Equatable {
         self.marketplaceName = marketplaceName
         self.marketplacePath = marketplacePath
         self.mcpServers = mcpServers
+        self.onboardingSkill = onboardingSkill
         self.scheduledTasks = scheduledTasks
         self.shareUrl = shareUrl
         self.skills = skills
@@ -7032,6 +7436,45 @@ public struct CodexSchemaPluginReadResponse: Codable, Sendable, Equatable {
 
     public init(plugin: CodexSchemaPluginDetail) {
         self.plugin = plugin
+    }
+}
+public struct CodexSchemaPluginReconcileChangedPlugin: Codable, Sendable, Equatable {
+    public var hasApps: Bool
+    public var hasHooks: Bool
+    public var hasMcps: Bool
+    public var hasSkills: Bool
+    public var id: String
+
+    public init(hasApps: Bool, hasHooks: Bool, hasMcps: Bool, hasSkills: Bool, id: String) {
+        self.hasApps = hasApps
+        self.hasHooks = hasHooks
+        self.hasMcps = hasMcps
+        self.hasSkills = hasSkills
+        self.id = id
+    }
+}
+public struct CodexSchemaPluginReconcileParams: Codable, Sendable, Equatable {
+    public var reason: String?
+
+    public init(reason: String? = nil) {
+        self.reason = reason
+    }
+}
+public struct CodexSchemaPluginReconcileResponse: Codable, Sendable, Equatable {
+    public var changedPlugins: [CodexSchemaPluginReconcileChangedPlugin]
+    public var failedMaterializationRemotePluginIDs: [String]
+    public var failedRemotePluginIDs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case changedPlugins
+        case failedMaterializationRemotePluginIDs = "failedMaterializationRemotePluginIds"
+        case failedRemotePluginIDs = "failedRemotePluginIds"
+    }
+
+    public init(changedPlugins: [CodexSchemaPluginReconcileChangedPlugin], failedMaterializationRemotePluginIDs: [String], failedRemotePluginIDs: [String]) {
+        self.changedPlugins = changedPlugins
+        self.failedMaterializationRemotePluginIDs = failedMaterializationRemotePluginIDs
+        self.failedRemotePluginIDs = failedRemotePluginIDs
     }
 }
 public struct CodexSchemaPluginSearchParams: Codable, Sendable, Equatable {
@@ -7687,15 +8130,17 @@ public struct CodexSchemaProject: Codable, Sendable, Equatable {
     public var metadata: [String: String]
     public var name: String
     public var position: Int
+    public var recencyAt: Int?
     public var roots: [CodexSchemaProjectRoot]
     public var updatedAt: Int
 
-    public init(createdAt: Int, id: String, metadata: [String: String], name: String, position: Int, roots: [CodexSchemaProjectRoot], updatedAt: Int) {
+    public init(createdAt: Int, id: String, metadata: [String: String], name: String, position: Int, recencyAt: Int? = nil, roots: [CodexSchemaProjectRoot], updatedAt: Int) {
         self.createdAt = createdAt
         self.id = id
         self.metadata = metadata
         self.name = name
         self.position = position
+        self.recencyAt = recencyAt
         self.roots = roots
         self.updatedAt = updatedAt
     }
@@ -7811,10 +8256,14 @@ public struct CodexSchemaProjectImportResponse: Codable, Sendable, Equatable {
 public struct CodexSchemaProjectListParams: Codable, Sendable, Equatable {
     public var cursor: String?
     public var limit: Int?
+    public var sortDirection: CodexSchemaSortDirection?
+    public var sortKey: CodexSchemaProjectSortKey?
 
-    public init(cursor: String? = nil, limit: Int? = nil) {
+    public init(cursor: String? = nil, limit: Int? = nil, sortDirection: CodexSchemaSortDirection? = nil, sortKey: CodexSchemaProjectSortKey? = nil) {
         self.cursor = cursor
         self.limit = limit
+        self.sortDirection = sortDirection
+        self.sortKey = sortKey
     }
 }
 public struct CodexSchemaProjectListResponse: Codable, Sendable, Equatable {
@@ -7864,6 +8313,42 @@ public struct CodexSchemaProjectRoot: Codable, Sendable, Equatable {
 
     public init(path: CodexSchemaAbsolutePathBuf) {
         self.path = path
+    }
+}
+public enum CodexSchemaProjectSortKey: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case position
+    case recencyAt
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaProjectSortKey] = [
+        .position,
+        .recencyAt,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "position": self = .position
+        case "recencyAt": self = .recencyAt
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .position: "position"
+        case .recencyAt: "recencyAt"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 public struct CodexSchemaProjectUpdateParams: Codable, Sendable, Equatable {
@@ -8071,6 +8556,7 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
     public var individualLimit: CodexSchemaSpendControlLimitSnapshot?
     public var limitID: String?
     public var limitName: String?
+    public var normalModelSlug: String?
     public var planType: CodexSchemaPlanType?
     public var primary: CodexSchemaRateLimitWindow?
     public var rateLimitReachedType: CodexSchemaRateLimitReachedType?
@@ -8082,6 +8568,7 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
         case individualLimit
         case limitID = "limitId"
         case limitName
+        case normalModelSlug
         case planType
         case primary
         case rateLimitReachedType
@@ -8089,11 +8576,12 @@ public struct CodexSchemaRateLimitSnapshot: Codable, Sendable, Equatable {
         case spendControlReached
     }
 
-    public init(credits: CodexSchemaCreditsSnapshot? = nil, individualLimit: CodexSchemaSpendControlLimitSnapshot? = nil, limitID: String? = nil, limitName: String? = nil, planType: CodexSchemaPlanType? = nil, primary: CodexSchemaRateLimitWindow? = nil, rateLimitReachedType: CodexSchemaRateLimitReachedType? = nil, secondary: CodexSchemaRateLimitWindow? = nil, spendControlReached: Bool? = nil) {
+    public init(credits: CodexSchemaCreditsSnapshot? = nil, individualLimit: CodexSchemaSpendControlLimitSnapshot? = nil, limitID: String? = nil, limitName: String? = nil, normalModelSlug: String? = nil, planType: CodexSchemaPlanType? = nil, primary: CodexSchemaRateLimitWindow? = nil, rateLimitReachedType: CodexSchemaRateLimitReachedType? = nil, secondary: CodexSchemaRateLimitWindow? = nil, spendControlReached: Bool? = nil) {
         self.credits = credits
         self.individualLimit = individualLimit
         self.limitID = limitID
         self.limitName = limitName
+        self.normalModelSlug = normalModelSlug
         self.planType = planType
         self.primary = primary
         self.rateLimitReachedType = rateLimitReachedType
@@ -8117,19 +8605,22 @@ public struct CodexSchemaRawResponseCompletedNotification: Codable, Sendable, Eq
     public var threadID: String
     public var turnID: String
     public var usage: CodexSchemaTokenUsageBreakdown?
+    public var usageMetadata: CodexSchemaResponseUsageMetadata?
 
     enum CodingKeys: String, CodingKey {
         case responseID = "responseId"
         case threadID = "threadId"
         case turnID = "turnId"
         case usage
+        case usageMetadata
     }
 
-    public init(responseID: String, threadID: String, turnID: String, usage: CodexSchemaTokenUsageBreakdown? = nil) {
+    public init(responseID: String, threadID: String, turnID: String, usage: CodexSchemaTokenUsageBreakdown? = nil, usageMetadata: CodexSchemaResponseUsageMetadata? = nil) {
         self.responseID = responseID
         self.threadID = threadID
         self.turnID = turnID
         self.usage = usage
+        self.usageMetadata = usageMetadata
     }
 }
 public struct CodexSchemaRawResponseItemCompletedNotification: Codable, Sendable, Equatable {
@@ -8746,6 +9237,15 @@ public struct CodexSchemaResourceTemplate: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaResponseItem = CodexAppServerSchemaValue
+public struct CodexSchemaResponseUsageMetadata: Codable, Sendable, Equatable {
+    public var amount: String?
+    public var metadata: CodexJSONValue?
+
+    public init(amount: String? = nil, metadata: CodexJSONValue? = nil) {
+        self.amount = amount
+        self.metadata = metadata
+    }
+}
 public typealias CodexSchemaResponsesAPIWebSearchAction = CodexAppServerSchemaValue
 public enum CodexSchemaReviewDelivery: String, Codable, Sendable, Equatable, CaseIterable {
     case inline = "inline"
@@ -8783,6 +9283,7 @@ public struct CodexSchemaReviewStartResponse: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaReviewTarget = CodexAppServerSchemaValue
+public typealias CodexSchemaRolloutCompressResponse = CodexAppServerSchemaValue
 public enum CodexSchemaSandboxMode: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case readOnly
     case workspaceWrite
@@ -9365,18 +9866,23 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
     public var cliVersion: String
     public var createdAt: Int
     public var cwd: CodexSchemaAbsolutePathBuf
+    public var daybreakEnabled: Bool?
+    public var environments: [CodexSchemaThreadEnvironment]?
     public var ephemeral: Bool
     public var extra: CodexSchemaThreadExtra?
     public var forkedFromID: String?
     public var gitInfo: CodexSchemaGitInfo?
     public var historyMode: CodexSchemaThreadHistoryMode?
     public var id: String
+    public var model: String?
     public var modelProvider: String
     public var name: String?
+    public var originator: String?
     public var parentThreadID: String?
     public var path: String?
     public var preview: String
     public var projectID: String?
+    public var reasoningEffort: CodexSchemaReasoningEffort?
     public var recencyAt: Int?
     public var section: CodexSchemaThreadSection?
     public var sectionEnteredAt: Int?
@@ -9394,18 +9900,23 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         case cliVersion
         case createdAt
         case cwd
+        case daybreakEnabled
+        case environments
         case ephemeral
         case extra
         case forkedFromID = "forkedFromId"
         case gitInfo
         case historyMode
         case id
+        case model
         case modelProvider
         case name
+        case originator
         case parentThreadID = "parentThreadId"
         case path
         case preview
         case projectID = "projectId"
+        case reasoningEffort
         case recencyAt
         case section
         case sectionEnteredAt
@@ -9417,25 +9928,30 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         case updatedAt
     }
 
-    public init(agentNickname: String? = nil, agentRole: String? = nil, canAcceptDirectInput: Bool? = nil, cliVersion: String, createdAt: Int, cwd: CodexSchemaAbsolutePathBuf, ephemeral: Bool, extra: CodexSchemaThreadExtra? = nil, forkedFromID: String? = nil, gitInfo: CodexSchemaGitInfo? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, id: String, modelProvider: String, name: String? = nil, parentThreadID: String? = nil, path: String? = nil, preview: String, projectID: String? = nil, recencyAt: Int? = nil, section: CodexSchemaThreadSection? = nil, sectionEnteredAt: Int? = nil, sessionID: String, source: CodexSchemaSessionSource, status: CodexSchemaThreadStatus, threadSource: CodexSchemaThreadSource? = nil, turns: [CodexSchemaTurn], updatedAt: Int) {
+    public init(agentNickname: String? = nil, agentRole: String? = nil, canAcceptDirectInput: Bool? = nil, cliVersion: String, createdAt: Int, cwd: CodexSchemaAbsolutePathBuf, daybreakEnabled: Bool? = nil, environments: [CodexSchemaThreadEnvironment]? = nil, ephemeral: Bool, extra: CodexSchemaThreadExtra? = nil, forkedFromID: String? = nil, gitInfo: CodexSchemaGitInfo? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, id: String, model: String? = nil, modelProvider: String, name: String? = nil, originator: String? = nil, parentThreadID: String? = nil, path: String? = nil, preview: String, projectID: String? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, recencyAt: Int? = nil, section: CodexSchemaThreadSection? = nil, sectionEnteredAt: Int? = nil, sessionID: String, source: CodexSchemaSessionSource, status: CodexSchemaThreadStatus, threadSource: CodexSchemaThreadSource? = nil, turns: [CodexSchemaTurn], updatedAt: Int) {
         self.agentNickname = agentNickname
         self.agentRole = agentRole
         self.canAcceptDirectInput = canAcceptDirectInput
         self.cliVersion = cliVersion
         self.createdAt = createdAt
         self.cwd = cwd
+        self.daybreakEnabled = daybreakEnabled
+        self.environments = environments
         self.ephemeral = ephemeral
         self.extra = extra
         self.forkedFromID = forkedFromID
         self.gitInfo = gitInfo
         self.historyMode = historyMode
         self.id = id
+        self.model = model
         self.modelProvider = modelProvider
         self.name = name
+        self.originator = originator
         self.parentThreadID = parentThreadID
         self.path = path
         self.preview = preview
         self.projectID = projectID
+        self.reasoningEffort = reasoningEffort
         self.recencyAt = recencyAt
         self.section = section
         self.sectionEnteredAt = sectionEnteredAt
@@ -9518,6 +10034,189 @@ public struct CodexSchemaThreadArchivedNotification: Codable, Sendable, Equatabl
     }
 
     public init(threadID: String) {
+        self.threadID = threadID
+    }
+}
+public struct CodexSchemaThreadAttachment: Codable, Sendable, Equatable {
+    public var attachmentType: String
+    public var createdAt: Int
+    public var id: String
+    public var identityKey: String
+    public var payload: CodexJSONValue
+
+    public init(attachmentType: String, createdAt: Int, id: String, identityKey: String, payload: CodexJSONValue) {
+        self.attachmentType = attachmentType
+        self.createdAt = createdAt
+        self.id = id
+        self.identityKey = identityKey
+        self.payload = payload
+    }
+}
+public enum CodexSchemaThreadAttachmentAddOutcome: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case created
+    case existing
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadAttachmentAddOutcome] = [
+        .created,
+        .existing,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "created": self = .created
+        case "existing": self = .existing
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .created: "created"
+        case .existing: "existing"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaThreadAttachmentAddParams: Codable, Sendable, Equatable {
+    public var attachmentType: String
+    public var identityKey: String
+    public var payload: CodexJSONValue
+    public var threadID: String
+
+    enum CodingKeys: String, CodingKey {
+        case attachmentType
+        case identityKey
+        case payload
+        case threadID = "threadId"
+    }
+
+    public init(attachmentType: String, identityKey: String, payload: CodexJSONValue, threadID: String) {
+        self.attachmentType = attachmentType
+        self.identityKey = identityKey
+        self.payload = payload
+        self.threadID = threadID
+    }
+}
+public struct CodexSchemaThreadAttachmentAddResponse: Codable, Sendable, Equatable {
+    public var attachment: CodexSchemaThreadAttachment
+    public var outcome: CodexSchemaThreadAttachmentAddOutcome
+
+    public init(attachment: CodexSchemaThreadAttachment, outcome: CodexSchemaThreadAttachmentAddOutcome) {
+        self.attachment = attachment
+        self.outcome = outcome
+    }
+}
+public struct CodexSchemaThreadAttachmentListParams: Codable, Sendable, Equatable {
+    public var cursor: String?
+    public var limit: Int?
+    public var threadID: String
+
+    enum CodingKeys: String, CodingKey {
+        case cursor
+        case limit
+        case threadID = "threadId"
+    }
+
+    public init(cursor: String? = nil, limit: Int? = nil, threadID: String) {
+        self.cursor = cursor
+        self.limit = limit
+        self.threadID = threadID
+    }
+}
+public struct CodexSchemaThreadAttachmentListResponse: Codable, Sendable, Equatable {
+    public var data: [CodexSchemaThreadAttachment]
+    public var nextCursor: String?
+
+    public init(data: [CodexSchemaThreadAttachment], nextCursor: String? = nil) {
+        self.data = data
+        self.nextCursor = nextCursor
+    }
+}
+public enum CodexSchemaThreadAttachmentOperation: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case created
+    case deleted
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaThreadAttachmentOperation] = [
+        .created,
+        .deleted,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "created": self = .created
+        case "deleted": self = .deleted
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .created: "created"
+        case .deleted: "deleted"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaThreadAttachmentRemoveParams: Codable, Sendable, Equatable {
+    public var attachmentType: String
+    public var identityKey: String
+    public var threadID: String
+
+    enum CodingKeys: String, CodingKey {
+        case attachmentType
+        case identityKey
+        case threadID = "threadId"
+    }
+
+    public init(attachmentType: String, identityKey: String, threadID: String) {
+        self.attachmentType = attachmentType
+        self.identityKey = identityKey
+        self.threadID = threadID
+    }
+}
+public typealias CodexSchemaThreadAttachmentRemoveResponse = CodexAppServerSchemaValue
+public struct CodexSchemaThreadAttachmentUpdatedNotification: Codable, Sendable, Equatable {
+    public var attachmentID: String
+    public var attachmentType: String
+    public var identityKey: String
+    public var operation: CodexSchemaThreadAttachmentOperation
+    public var threadID: String
+
+    enum CodingKeys: String, CodingKey {
+        case attachmentID = "attachmentId"
+        case attachmentType
+        case identityKey
+        case operation
+        case threadID = "threadId"
+    }
+
+    public init(attachmentID: String, attachmentType: String, identityKey: String, operation: CodexSchemaThreadAttachmentOperation, threadID: String) {
+        self.attachmentID = attachmentID
+        self.attachmentType = attachmentType
+        self.identityKey = identityKey
+        self.operation = operation
         self.threadID = threadID
     }
 }
@@ -9675,6 +10374,23 @@ public struct CodexSchemaThreadDeletedNotification: Codable, Sendable, Equatable
         self.threadID = threadID
     }
 }
+public struct CodexSchemaThreadEnvironment: Codable, Sendable, Equatable {
+    public var cwd: CodexSchemaLegacyAppPathString
+    public var environmentID: String
+    public var runtimeWorkspaceRoots: [CodexSchemaLegacyAppPathString]
+
+    enum CodingKeys: String, CodingKey {
+        case cwd
+        case environmentID = "environmentId"
+        case runtimeWorkspaceRoots
+    }
+
+    public init(cwd: CodexSchemaLegacyAppPathString, environmentID: String, runtimeWorkspaceRoots: [CodexSchemaLegacyAppPathString]) {
+        self.cwd = cwd
+        self.environmentID = environmentID
+        self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
+    }
+}
 public typealias CodexSchemaThreadExtra = CodexAppServerSchemaValue
 public struct CodexSchemaThreadForkParams: Codable, Sendable, Equatable {
     public var approvalPolicy: CodexSchemaAskForApproval?
@@ -9749,6 +10465,7 @@ public struct CodexSchemaThreadForkResponse: Codable, Sendable, Equatable {
     public var approvalPolicy: CodexSchemaAskForApproval
     public var approvalsReviewer: CodexSchemaApprovalsReviewer
     public var cwd: CodexSchemaAbsolutePathBuf
+    public var disabledPluginIDs: [String]?
     public var instructionSources: [CodexSchemaLegacyAppPathString]?
     public var model: String
     public var modelProvider: String
@@ -9759,11 +10476,29 @@ public struct CodexSchemaThreadForkResponse: Codable, Sendable, Equatable {
     public var serviceTier: String?
     public var thread: CodexSchemaThread
 
-    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread) {
+    enum CodingKeys: String, CodingKey {
+        case activePermissionProfile
+        case approvalPolicy
+        case approvalsReviewer
+        case cwd
+        case disabledPluginIDs = "disabledPluginIds"
+        case instructionSources
+        case model
+        case modelProvider
+        case multiAgentMode
+        case reasoningEffort
+        case runtimeWorkspaceRoots
+        case sandbox
+        case serviceTier
+        case thread
+    }
+
+    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, disabledPluginIDs: [String]? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread) {
         self.activePermissionProfile = activePermissionProfile
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.cwd = cwd
+        self.disabledPluginIDs = disabledPluginIDs
         self.instructionSources = instructionSources
         self.model = model
         self.modelProvider = modelProvider
@@ -10120,6 +10855,7 @@ public struct CodexSchemaAgentMessageThreadItem: Codable, Sendable, Equatable {
     public let id: String
     public let memoryCitation: CodexSchemaMemoryCitation?
     public let phase: CodexSchemaMessagePhase?
+    public let questions: [CodexSchemaAsyncUserInputQuestion]?
     public let text: String
     public let rawValue: CodexJSONValue
 
@@ -10135,6 +10871,7 @@ public struct CodexSchemaAgentMessageThreadItem: Codable, Sendable, Equatable {
         "id",
         "memoryCitation",
         "phase",
+        "questions",
         "text",
     ]
 
@@ -10144,6 +10881,7 @@ public struct CodexSchemaAgentMessageThreadItem: Codable, Sendable, Equatable {
         case id
         case memoryCitation
         case phase
+        case questions
         case text
     }
 
@@ -10161,7 +10899,60 @@ public struct CodexSchemaAgentMessageThreadItem: Codable, Sendable, Equatable {
         self.id = try container.decode(String.self, forKey: .id)
         self.memoryCitation = try container.decodeIfPresent(CodexSchemaMemoryCitation.self, forKey: .memoryCitation)
         self.phase = try container.decodeIfPresent(CodexSchemaMessagePhase.self, forKey: .phase)
+        self.questions = try container.decodeIfPresent([CodexSchemaAsyncUserInputQuestion].self, forKey: .questions)
         self.text = try container.decode(String.self, forKey: .text)
+        let rawContainer = try decoder.singleValueContainer()
+        self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+}
+public struct CodexSchemaFunctionCallOutputThreadItem: Codable, Sendable, Equatable {
+    public static let discriminator = "functionCallOutput"
+    public let id: String
+    public let name: String
+    public let namespace: String?
+    public let output: CodexSchemaFunctionCallOutputBody
+    public let rawValue: CodexJSONValue
+
+    public var type: String { Self.discriminator }
+    public var unknownFields: [String: CodexJSONValue] {
+        guard case .dictionary(let object) = rawValue else { return [:] }
+        return object.filter { !Self.knownWireFields.contains($0.key) }
+    }
+
+    private static let knownWireFields: Set<String> = [
+        "type",
+        "id",
+        "name",
+        "namespace",
+        "output",
+    ]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case name
+        case namespace
+        case output
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let discriminator = try container.decode(String.self, forKey: .type)
+        guard discriminator == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected \(Self.discriminator), got \(discriminator)"
+            )
+        }
+        self.id = try container.decode(String.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.namespace = try container.decodeIfPresent(String.self, forKey: .namespace)
+        self.output = try container.decode(CodexSchemaFunctionCallOutputBody.self, forKey: .output)
         let rawContainer = try decoder.singleValueContainer()
         self.rawValue = .dictionary(try rawContainer.decode([String: CodexJSONValue].self))
     }
@@ -10402,6 +11193,7 @@ public struct CodexSchemaMCPToolCallThreadItem: Codable, Sendable, Equatable {
     public let error: CodexSchemaMCPToolCallError?
     public let id: String
     public let mcpAppResourceUri: String?
+    public let mcpAppUi: CodexSchemaMCPAppUi?
     public let pluginID: String?
     public let readOnlyHint: Bool?
     public let result: CodexSchemaMCPToolCallResult?
@@ -10424,6 +11216,7 @@ public struct CodexSchemaMCPToolCallThreadItem: Codable, Sendable, Equatable {
         "error",
         "id",
         "mcpAppResourceUri",
+        "mcpAppUi",
         "pluginId",
         "readOnlyHint",
         "result",
@@ -10440,6 +11233,7 @@ public struct CodexSchemaMCPToolCallThreadItem: Codable, Sendable, Equatable {
         case error
         case id
         case mcpAppResourceUri
+        case mcpAppUi
         case pluginID = "pluginId"
         case readOnlyHint
         case result
@@ -10464,6 +11258,7 @@ public struct CodexSchemaMCPToolCallThreadItem: Codable, Sendable, Equatable {
         self.error = try container.decodeIfPresent(CodexSchemaMCPToolCallError.self, forKey: .error)
         self.id = try container.decode(String.self, forKey: .id)
         self.mcpAppResourceUri = try container.decodeIfPresent(String.self, forKey: .mcpAppResourceUri)
+        self.mcpAppUi = try container.decodeIfPresent(CodexSchemaMCPAppUi.self, forKey: .mcpAppUi)
         self.pluginID = try container.decodeIfPresent(String.self, forKey: .pluginID)
         self.readOnlyHint = try container.decodeIfPresent(Bool.self, forKey: .readOnlyHint)
         self.result = try container.decodeIfPresent(CodexSchemaMCPToolCallResult.self, forKey: .result)
@@ -11006,6 +11801,7 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
     case userMessage(CodexSchemaUserMessageThreadItem)
     case hookPrompt(CodexSchemaHookPromptThreadItem)
     case agentMessage(CodexSchemaAgentMessageThreadItem)
+    case functionCallOutput(CodexSchemaFunctionCallOutputThreadItem)
     case plan(CodexSchemaPlanThreadItem)
     case reasoning(CodexSchemaReasoningThreadItem)
     case commandExecution(CodexSchemaCommandExecutionThreadItem)
@@ -11035,6 +11831,8 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
             self = .hookPrompt(try CodexSchemaHookPromptThreadItem(from: decoder))
         case "agentMessage":
             self = .agentMessage(try CodexSchemaAgentMessageThreadItem(from: decoder))
+        case "functionCallOutput":
+            self = .functionCallOutput(try CodexSchemaFunctionCallOutputThreadItem(from: decoder))
         case "plan":
             self = .plan(try CodexSchemaPlanThreadItem(from: decoder))
         case "reasoning":
@@ -11080,6 +11878,8 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
             try payload.encode(to: encoder)
         case .agentMessage(let payload):
             try payload.encode(to: encoder)
+        case .functionCallOutput(let payload):
+            try payload.encode(to: encoder)
         case .plan(let payload):
             try payload.encode(to: encoder)
         case .reasoning(let payload):
@@ -11120,6 +11920,7 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
         case .userMessage: "userMessage"
         case .hookPrompt: "hookPrompt"
         case .agentMessage: "agentMessage"
+        case .functionCallOutput: "functionCallOutput"
         case .plan: "plan"
         case .reasoning: "reasoning"
         case .commandExecution: "commandExecution"
@@ -11144,6 +11945,7 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
         case .userMessage(let payload): payload.rawValue
         case .hookPrompt(let payload): payload.rawValue
         case .agentMessage(let payload): payload.rawValue
+        case .functionCallOutput(let payload): payload.rawValue
         case .plan(let payload): payload.rawValue
         case .reasoning(let payload): payload.rawValue
         case .commandExecution(let payload): payload.rawValue
@@ -11168,6 +11970,7 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
         case .userMessage(let payload): return payload.id
         case .hookPrompt(let payload): return payload.id
         case .agentMessage(let payload): return payload.id
+        case .functionCallOutput(let payload): return payload.id
         case .plan(let payload): return payload.id
         case .reasoning(let payload): return payload.id
         case .commandExecution(let payload): return payload.id
@@ -11191,21 +11994,29 @@ public enum CodexSchemaThreadItem: Codable, Sendable, Equatable {
     }
 }
 public struct CodexSchemaThreadItemEntry: Codable, Sendable, Equatable {
+    public var completedAtMs: Int?
     public var item: CodexSchemaThreadItem
+    public var startedAtMs: Int?
     public var turnID: String
 
     enum CodingKeys: String, CodingKey {
+        case completedAtMs
         case item
+        case startedAtMs
         case turnID = "turnId"
     }
 
-    public init(item: CodexSchemaThreadItem, turnID: String) {
+    public init(completedAtMs: Int? = nil, item: CodexSchemaThreadItem, startedAtMs: Int? = nil, turnID: String) {
+        self.completedAtMs = completedAtMs
         self.item = item
+        self.startedAtMs = startedAtMs
         self.turnID = turnID
     }
 }
+public typealias CodexSchemaThreadItemsListAnchor = CodexAppServerSchemaValue
+public typealias CodexSchemaThreadItemsListCursor = CodexAppServerSchemaValue
 public struct CodexSchemaThreadItemsListParams: Codable, Sendable, Equatable {
-    public var cursor: String?
+    public var cursor: CodexSchemaThreadItemsListCursor?
     public var limit: Int?
     public var sortDirection: CodexSchemaSortDirection?
     public var threadID: String
@@ -11219,7 +12030,7 @@ public struct CodexSchemaThreadItemsListParams: Codable, Sendable, Equatable {
         case turnID = "turnId"
     }
 
-    public init(cursor: String? = nil, limit: Int? = nil, sortDirection: CodexSchemaSortDirection? = nil, threadID: String, turnID: String? = nil) {
+    public init(cursor: CodexSchemaThreadItemsListCursor? = nil, limit: Int? = nil, sortDirection: CodexSchemaSortDirection? = nil, threadID: String, turnID: String? = nil) {
         self.cursor = cursor
         self.limit = limit
         self.sortDirection = sortDirection
@@ -11246,6 +12057,7 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
     public var cwd: CodexSchemaThreadListCwdFilter?
     public var limit: Int?
     public var modelProviders: [String]?
+    public var originators: [String]?
     public var parentThreadID: String?
     public var projectID: String?
     public var searchTerm: String?
@@ -11262,6 +12074,7 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
         case cwd
         case limit
         case modelProviders
+        case originators
         case parentThreadID = "parentThreadId"
         case projectID = "projectId"
         case searchTerm
@@ -11272,13 +12085,14 @@ public struct CodexSchemaThreadListParams: Codable, Sendable, Equatable {
         case useStateDBOnly = "useStateDbOnly"
     }
 
-    public init(ancestorThreadID: String? = nil, archived: Bool? = nil, cursor: String? = nil, cwd: CodexSchemaThreadListCwdFilter? = nil, limit: Int? = nil, modelProviders: [String]? = nil, parentThreadID: String? = nil, projectID: String? = nil, searchTerm: String? = nil, sectionID: String? = nil, sortDirection: CodexSchemaSortDirection? = nil, sortKey: CodexSchemaThreadSortKey? = nil, sourceKinds: [CodexSchemaThreadSourceKind]? = nil, useStateDBOnly: Bool? = nil) {
+    public init(ancestorThreadID: String? = nil, archived: Bool? = nil, cursor: String? = nil, cwd: CodexSchemaThreadListCwdFilter? = nil, limit: Int? = nil, modelProviders: [String]? = nil, originators: [String]? = nil, parentThreadID: String? = nil, projectID: String? = nil, searchTerm: String? = nil, sectionID: String? = nil, sortDirection: CodexSchemaSortDirection? = nil, sortKey: CodexSchemaThreadSortKey? = nil, sourceKinds: [CodexSchemaThreadSourceKind]? = nil, useStateDBOnly: Bool? = nil) {
         self.ancestorThreadID = ancestorThreadID
         self.archived = archived
         self.cursor = cursor
         self.cwd = cwd
         self.limit = limit
         self.modelProviders = modelProviders
+        self.originators = originators
         self.parentThreadID = parentThreadID
         self.projectID = projectID
         self.searchTerm = searchTerm
@@ -11349,17 +12163,20 @@ public struct CodexSchemaThreadMetadataGitInfoUpdateParams: Codable, Sendable, E
     }
 }
 public struct CodexSchemaThreadMetadataUpdateParams: Codable, Sendable, Equatable {
+    public var daybreakEnabled: Bool?
     public var gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams?
     public var projectID: String?
     public var threadID: String
 
     enum CodingKeys: String, CodingKey {
+        case daybreakEnabled
         case gitInfo
         case projectID = "projectId"
         case threadID = "threadId"
     }
 
-    public init(gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams? = nil, projectID: String? = nil, threadID: String) {
+    public init(daybreakEnabled: Bool? = nil, gitInfo: CodexSchemaThreadMetadataGitInfoUpdateParams? = nil, projectID: String? = nil, threadID: String) {
+        self.daybreakEnabled = daybreakEnabled
         self.gitInfo = gitInfo
         self.projectID = projectID
         self.threadID = threadID
@@ -11805,6 +12622,7 @@ public enum CodexSchemaThreadRealtimeSessionOutcome: Codable, Sendable, Equatabl
     }
 }
 public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable {
+    public var backendReasoningStatus: Bool?
     public var clientManagedHandoffs: Bool?
     public var codexResponseHandoffChannelPrefixes: [String: [String]]?
     public var codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode?
@@ -11826,6 +12644,7 @@ public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable
     public var voice: CodexSchemaRealtimeVoice?
 
     enum CodingKeys: String, CodingKey {
+        case backendReasoningStatus
         case clientManagedHandoffs
         case codexResponseHandoffChannelPrefixes
         case codexResponseHandoffMode
@@ -11847,7 +12666,8 @@ public struct CodexSchemaThreadRealtimeStartParams: Codable, Sendable, Equatable
         case voice
     }
 
-    public init(clientManagedHandoffs: Bool? = nil, codexResponseHandoffChannelPrefixes: [String: [String]]? = nil, codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode? = nil, codexResponseItemPrefix: String? = nil, codexResponsesAsItems: Bool? = nil, delegationAckFiller: Bool? = nil, flushTranscriptTailOnSessionEnd: Bool? = nil, includeStartupContext: Bool? = nil, initialItems: [CodexSchemaThreadRealtimeInitialItem]? = nil, model: String? = nil, outputModality: CodexSchemaRealtimeOutputModality, prompt: String? = nil, realtimeEndInstructions: String? = nil, realtimeSessionID: String? = nil, realtimeStartInstructions: String? = nil, threadID: String, transport: CodexSchemaThreadRealtimeStartTransport? = nil, version: CodexSchemaRealtimeConversationVersion? = nil, voice: CodexSchemaRealtimeVoice? = nil) {
+    public init(backendReasoningStatus: Bool? = nil, clientManagedHandoffs: Bool? = nil, codexResponseHandoffChannelPrefixes: [String: [String]]? = nil, codexResponseHandoffMode: CodexSchemaCodexResponseHandoffMode? = nil, codexResponseItemPrefix: String? = nil, codexResponsesAsItems: Bool? = nil, delegationAckFiller: Bool? = nil, flushTranscriptTailOnSessionEnd: Bool? = nil, includeStartupContext: Bool? = nil, initialItems: [CodexSchemaThreadRealtimeInitialItem]? = nil, model: String? = nil, outputModality: CodexSchemaRealtimeOutputModality, prompt: String? = nil, realtimeEndInstructions: String? = nil, realtimeSessionID: String? = nil, realtimeStartInstructions: String? = nil, threadID: String, transport: CodexSchemaThreadRealtimeStartTransport? = nil, version: CodexSchemaRealtimeConversationVersion? = nil, voice: CodexSchemaRealtimeVoice? = nil) {
+        self.backendReasoningStatus = backendReasoningStatus
         self.clientManagedHandoffs = clientManagedHandoffs
         self.codexResponseHandoffChannelPrefixes = codexResponseHandoffChannelPrefixes
         self.codexResponseHandoffMode = codexResponseHandoffMode
@@ -12047,7 +12867,9 @@ public struct CodexSchemaThreadResumeResponse: Codable, Sendable, Equatable {
     public var activePermissionProfile: CodexSchemaActivePermissionProfile?
     public var approvalPolicy: CodexSchemaAskForApproval
     public var approvalsReviewer: CodexSchemaApprovalsReviewer
+    public var collaborationMode: CodexSchemaCollaborationMode?
     public var cwd: CodexSchemaAbsolutePathBuf
+    public var disabledPluginIDs: [String]?
     public var initialTurnsPage: CodexSchemaTurnsPage?
     public var instructionSources: [CodexSchemaLegacyAppPathString]?
     public var itemsBackwardsCursor: String?
@@ -12061,11 +12883,34 @@ public struct CodexSchemaThreadResumeResponse: Codable, Sendable, Equatable {
     public var thread: CodexSchemaThread
     public var turnsBackwardsCursor: String?
 
-    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, initialTurnsPage: CodexSchemaTurnsPage? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, itemsBackwardsCursor: String? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread, turnsBackwardsCursor: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case activePermissionProfile
+        case approvalPolicy
+        case approvalsReviewer
+        case collaborationMode
+        case cwd
+        case disabledPluginIDs = "disabledPluginIds"
+        case initialTurnsPage
+        case instructionSources
+        case itemsBackwardsCursor
+        case model
+        case modelProvider
+        case multiAgentMode
+        case reasoningEffort
+        case runtimeWorkspaceRoots
+        case sandbox
+        case serviceTier
+        case thread
+        case turnsBackwardsCursor
+    }
+
+    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, collaborationMode: CodexSchemaCollaborationMode? = nil, cwd: CodexSchemaAbsolutePathBuf, disabledPluginIDs: [String]? = nil, initialTurnsPage: CodexSchemaTurnsPage? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, itemsBackwardsCursor: String? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread, turnsBackwardsCursor: String? = nil) {
         self.activePermissionProfile = activePermissionProfile
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
+        self.collaborationMode = collaborationMode
         self.cwd = cwd
+        self.disabledPluginIDs = disabledPluginIDs
         self.initialTurnsPage = initialTurnsPage
         self.instructionSources = instructionSources
         self.itemsBackwardsCursor = itemsBackwardsCursor
@@ -12114,27 +12959,6 @@ public struct CodexSchemaThreadRevertedNotification: Codable, Sendable, Equatabl
 
     public init(threadID: String) {
         self.threadID = threadID
-    }
-}
-public struct CodexSchemaThreadRollbackParams: Codable, Sendable, Equatable {
-    public var numTurns: Int
-    public var threadID: String
-
-    enum CodingKeys: String, CodingKey {
-        case numTurns
-        case threadID = "threadId"
-    }
-
-    public init(numTurns: Int, threadID: String) {
-        self.numTurns = numTurns
-        self.threadID = threadID
-    }
-}
-public struct CodexSchemaThreadRollbackResponse: Codable, Sendable, Equatable {
-    public var thread: CodexSchemaThread
-
-    public init(thread: CodexSchemaThread) {
-        self.thread = thread
     }
 }
 public struct CodexSchemaThreadSearchOccurrence: Codable, Sendable, Equatable {
@@ -12430,6 +13254,7 @@ public struct CodexSchemaThreadSettings: Codable, Sendable, Equatable {
     public var approvalsReviewer: CodexSchemaApprovalsReviewer
     public var collaborationMode: CodexSchemaCollaborationMode
     public var cwd: CodexSchemaAbsolutePathBuf
+    public var disabledPluginIDs: [String]?
     public var effort: CodexSchemaReasoningEffort?
     public var model: String
     public var modelProvider: String
@@ -12439,12 +13264,30 @@ public struct CodexSchemaThreadSettings: Codable, Sendable, Equatable {
     public var serviceTier: String?
     public var summary: CodexSchemaReasoningSummary?
 
-    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, collaborationMode: CodexSchemaCollaborationMode, cwd: CodexSchemaAbsolutePathBuf, effort: CodexSchemaReasoningEffort? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, personality: CodexSchemaPersonality? = nil, sandboxPolicy: CodexSchemaSandboxPolicy, serviceTier: String? = nil, summary: CodexSchemaReasoningSummary? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case activePermissionProfile
+        case approvalPolicy
+        case approvalsReviewer
+        case collaborationMode
+        case cwd
+        case disabledPluginIDs = "disabledPluginIds"
+        case effort
+        case model
+        case modelProvider
+        case multiAgentMode
+        case personality
+        case sandboxPolicy
+        case serviceTier
+        case summary
+    }
+
+    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, collaborationMode: CodexSchemaCollaborationMode, cwd: CodexSchemaAbsolutePathBuf, disabledPluginIDs: [String]? = nil, effort: CodexSchemaReasoningEffort? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, personality: CodexSchemaPersonality? = nil, sandboxPolicy: CodexSchemaSandboxPolicy, serviceTier: String? = nil, summary: CodexSchemaReasoningSummary? = nil) {
         self.activePermissionProfile = activePermissionProfile
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.collaborationMode = collaborationMode
         self.cwd = cwd
+        self.disabledPluginIDs = disabledPluginIDs
         self.effort = effort
         self.model = model
         self.modelProvider = modelProvider
@@ -12460,6 +13303,7 @@ public struct CodexSchemaThreadSettingsUpdateParams: Codable, Sendable, Equatabl
     public var approvalsReviewer: CodexSchemaApprovalsReviewer?
     public var collaborationMode: CodexSchemaCollaborationMode?
     public var cwd: String?
+    public var disabledPluginIDs: [String]?
     public var effort: CodexSchemaReasoningEffort?
     public var model: String?
     public var multiAgentMode: CodexSchemaMultiAgentMode?
@@ -12475,6 +13319,7 @@ public struct CodexSchemaThreadSettingsUpdateParams: Codable, Sendable, Equatabl
         case approvalsReviewer
         case collaborationMode
         case cwd
+        case disabledPluginIDs = "disabledPluginIds"
         case effort
         case model
         case multiAgentMode
@@ -12486,11 +13331,12 @@ public struct CodexSchemaThreadSettingsUpdateParams: Codable, Sendable, Equatabl
         case threadID = "threadId"
     }
 
-    public init(approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, collaborationMode: CodexSchemaCollaborationMode? = nil, cwd: String? = nil, effort: CodexSchemaReasoningEffort? = nil, model: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, sandboxPolicy: CodexSchemaSandboxPolicy? = nil, serviceTier: String? = nil, summary: CodexSchemaReasoningSummary? = nil, threadID: String) {
+    public init(approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, collaborationMode: CodexSchemaCollaborationMode? = nil, cwd: String? = nil, disabledPluginIDs: [String]? = nil, effort: CodexSchemaReasoningEffort? = nil, model: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, sandboxPolicy: CodexSchemaSandboxPolicy? = nil, serviceTier: String? = nil, summary: CodexSchemaReasoningSummary? = nil, threadID: String) {
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.collaborationMode = collaborationMode
         self.cwd = cwd
+        self.disabledPluginIDs = disabledPluginIDs
         self.effort = effort
         self.model = model
         self.multiAgentMode = multiAgentMode
@@ -12520,15 +13366,18 @@ public struct CodexSchemaThreadSettingsUpdatedNotification: Codable, Sendable, E
 public struct CodexSchemaThreadShellCommandParams: Codable, Sendable, Equatable {
     public var command: String
     public var threadID: String
+    public var timeoutMs: Int?
 
     enum CodingKeys: String, CodingKey {
         case command
         case threadID = "threadId"
+        case timeoutMs
     }
 
-    public init(command: String, threadID: String) {
+    public init(command: String, threadID: String, timeoutMs: Int? = nil) {
         self.command = command
         self.threadID = threadID
+        self.timeoutMs = timeoutMs
     }
 }
 public typealias CodexSchemaThreadShellCommandResponse = CodexAppServerSchemaValue
@@ -12558,6 +13407,7 @@ public struct CodexSchemaThreadStartParams: Codable, Sendable, Equatable {
     public var baseInstructions: String?
     public var config: CodexJSONValue?
     public var cwd: String?
+    public var daybreakEnabled: Bool?
     public var developerInstructions: String?
     public var dynamicTools: [CodexSchemaDynamicToolSpec]?
     public var environments: [CodexSchemaTurnEnvironmentParams]?
@@ -12586,6 +13436,7 @@ public struct CodexSchemaThreadStartParams: Codable, Sendable, Equatable {
         case baseInstructions
         case config
         case cwd
+        case daybreakEnabled
         case developerInstructions
         case dynamicTools
         case environments
@@ -12608,13 +13459,14 @@ public struct CodexSchemaThreadStartParams: Codable, Sendable, Equatable {
         case threadSource
     }
 
-    public init(allowProviderModelFallback: Bool? = nil, approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, baseInstructions: String? = nil, config: CodexJSONValue? = nil, cwd: String? = nil, developerInstructions: String? = nil, dynamicTools: [CodexSchemaDynamicToolSpec]? = nil, environments: [CodexSchemaTurnEnvironmentParams]? = nil, ephemeral: Bool? = nil, experimentalRawEvents: Bool? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, mockExperimentalField: String? = nil, model: String? = nil, modelProvider: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, projectID: String? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxMode? = nil, selectedCapabilityRoots: [CodexSchemaSelectedCapabilityRoot]? = nil, serviceName: String? = nil, serviceTier: String? = nil, sessionStartSource: CodexSchemaThreadStartSource? = nil, threadSource: CodexSchemaThreadSource? = nil) {
+    public init(allowProviderModelFallback: Bool? = nil, approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, baseInstructions: String? = nil, config: CodexJSONValue? = nil, cwd: String? = nil, daybreakEnabled: Bool? = nil, developerInstructions: String? = nil, dynamicTools: [CodexSchemaDynamicToolSpec]? = nil, environments: [CodexSchemaTurnEnvironmentParams]? = nil, ephemeral: Bool? = nil, experimentalRawEvents: Bool? = nil, historyMode: CodexSchemaThreadHistoryMode? = nil, mockExperimentalField: String? = nil, model: String? = nil, modelProvider: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, projectID: String? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxMode? = nil, selectedCapabilityRoots: [CodexSchemaSelectedCapabilityRoot]? = nil, serviceName: String? = nil, serviceTier: String? = nil, sessionStartSource: CodexSchemaThreadStartSource? = nil, threadSource: CodexSchemaThreadSource? = nil) {
         self.allowProviderModelFallback = allowProviderModelFallback
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.baseInstructions = baseInstructions
         self.config = config
         self.cwd = cwd
+        self.daybreakEnabled = daybreakEnabled
         self.developerInstructions = developerInstructions
         self.dynamicTools = dynamicTools
         self.environments = environments
@@ -12642,6 +13494,7 @@ public struct CodexSchemaThreadStartResponse: Codable, Sendable, Equatable {
     public var approvalPolicy: CodexSchemaAskForApproval
     public var approvalsReviewer: CodexSchemaApprovalsReviewer
     public var cwd: CodexSchemaAbsolutePathBuf
+    public var disabledPluginIDs: [String]?
     public var instructionSources: [CodexSchemaLegacyAppPathString]?
     public var model: String
     public var modelProvider: String
@@ -12652,11 +13505,29 @@ public struct CodexSchemaThreadStartResponse: Codable, Sendable, Equatable {
     public var serviceTier: String?
     public var thread: CodexSchemaThread
 
-    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread) {
+    enum CodingKeys: String, CodingKey {
+        case activePermissionProfile
+        case approvalPolicy
+        case approvalsReviewer
+        case cwd
+        case disabledPluginIDs = "disabledPluginIds"
+        case instructionSources
+        case model
+        case modelProvider
+        case multiAgentMode
+        case reasoningEffort
+        case runtimeWorkspaceRoots
+        case sandbox
+        case serviceTier
+        case thread
+    }
+
+    public init(activePermissionProfile: CodexSchemaActivePermissionProfile? = nil, approvalPolicy: CodexSchemaAskForApproval, approvalsReviewer: CodexSchemaApprovalsReviewer, cwd: CodexSchemaAbsolutePathBuf, disabledPluginIDs: [String]? = nil, instructionSources: [CodexSchemaLegacyAppPathString]? = nil, model: String, modelProvider: String, multiAgentMode: CodexSchemaMultiAgentMode? = nil, reasoningEffort: CodexSchemaReasoningEffort? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandbox: CodexSchemaSandboxPolicy, serviceTier: String? = nil, thread: CodexSchemaThread) {
         self.activePermissionProfile = activePermissionProfile
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.cwd = cwd
+        self.disabledPluginIDs = disabledPluginIDs
         self.instructionSources = instructionSources
         self.model = model
         self.modelProvider = modelProvider
@@ -13174,6 +14045,46 @@ public struct CodexSchemaTool: Codable, Sendable, Equatable {
         self.title = title
     }
 }
+public enum CodexSchemaToolExposureSurface: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case codeMode
+    case deferred
+    case direct
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaToolExposureSurface] = [
+        .codeMode,
+        .deferred,
+        .direct,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "code_mode": self = .codeMode
+        case "deferred": self = .deferred
+        case "direct": self = .direct
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .codeMode: "code_mode"
+        case .deferred: "deferred"
+        case .direct: "direct"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 public struct CodexSchemaToolsV2: Codable, Sendable, Equatable {
     public var webSearch: CodexSchemaWebSearchToolConfig?
 
@@ -13258,11 +14169,13 @@ public struct CodexSchemaTurnError: Codable, Sendable, Equatable {
     public var additionalDetails: String?
     public var codexErrorInfo: CodexSchemaCodexErrorInfo?
     public var message: String
+    public var misalignment: CodexSchemaMisalignmentErrorDetails?
 
-    public init(additionalDetails: String? = nil, codexErrorInfo: CodexSchemaCodexErrorInfo? = nil, message: String) {
+    public init(additionalDetails: String? = nil, codexErrorInfo: CodexSchemaCodexErrorInfo? = nil, message: String, misalignment: CodexSchemaMisalignmentErrorDetails? = nil) {
         self.additionalDetails = additionalDetails
         self.codexErrorInfo = codexErrorInfo
         self.message = message
+        self.misalignment = misalignment
     }
 }
 public struct CodexSchemaTurnInterruptParams: Codable, Sendable, Equatable {
@@ -13406,6 +14319,110 @@ public struct CodexSchemaTurnPlanUpdatedNotification: Codable, Sendable, Equatab
         self.turnID = turnID
     }
 }
+public struct CodexSchemaTurnSettingsUpdateParams: Codable, Sendable, Equatable {
+    public var approvalsReviewer: CodexSchemaApprovalsReviewer?
+    public var effort: CodexSchemaReasoningEffort?
+    public var model: String?
+    public var serviceTier: CodexAppServerOptionalField<String>
+    public var summary: CodexSchemaReasoningSummary?
+    public var threadID: String
+    public var turnID: String
+
+    enum CodingKeys: String, CodingKey {
+        case approvalsReviewer
+        case effort
+        case model
+        case serviceTier
+        case summary
+        case threadID = "threadId"
+        case turnID = "turnId"
+    }
+
+    public init(approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, effort: CodexSchemaReasoningEffort? = nil, model: String? = nil, serviceTier: CodexAppServerOptionalField<String> = .omitted, summary: CodexSchemaReasoningSummary? = nil, threadID: String, turnID: String) {
+        self.approvalsReviewer = approvalsReviewer
+        self.effort = effort
+        self.model = model
+        self.serviceTier = serviceTier
+        self.summary = summary
+        self.threadID = threadID
+        self.turnID = turnID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.approvalsReviewer = try container.decodeIfPresent(CodexSchemaApprovalsReviewer.self, forKey: .approvalsReviewer)
+        self.effort = try container.decodeIfPresent(CodexSchemaReasoningEffort.self, forKey: .effort)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        if !container.contains(.serviceTier) {
+            self.serviceTier = .omitted
+        } else if try container.decodeNil(forKey: .serviceTier) {
+            self.serviceTier = .null
+        } else {
+            self.serviceTier = .value(try container.decode(String.self, forKey: .serviceTier))
+        }
+        self.summary = try container.decodeIfPresent(CodexSchemaReasoningSummary.self, forKey: .summary)
+        self.threadID = try container.decode(String.self, forKey: .threadID)
+        self.turnID = try container.decode(String.self, forKey: .turnID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(approvalsReviewer, forKey: .approvalsReviewer)
+        try container.encodeIfPresent(effort, forKey: .effort)
+        try container.encodeIfPresent(model, forKey: .model)
+        switch serviceTier {
+        case .omitted: break
+        case .null: try container.encodeNil(forKey: .serviceTier)
+        case .value(let value): try container.encode(value, forKey: .serviceTier)
+        }
+        try container.encodeIfPresent(summary, forKey: .summary)
+        try container.encode(threadID, forKey: .threadID)
+        try container.encode(turnID, forKey: .turnID)
+    }
+}
+public struct CodexSchemaTurnSettingsUpdateResponse: Codable, Sendable, Equatable {
+    public var status: CodexSchemaTurnSettingsUpdateStatus
+
+    public init(status: CodexSchemaTurnSettingsUpdateStatus) {
+        self.status = status
+    }
+}
+public enum CodexSchemaTurnSettingsUpdateStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case applied
+    case targetUnavailable
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaTurnSettingsUpdateStatus] = [
+        .applied,
+        .targetUnavailable,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "applied": self = .applied
+        case "targetUnavailable": self = .targetUnavailable
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .applied: "applied"
+        case .targetUnavailable: "targetUnavailable"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
     public var additionalContext: [String: CodexSchemaAdditionalContextEntry]?
     public var approvalPolicy: CodexSchemaAskForApproval?
@@ -13413,6 +14430,8 @@ public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
     public var clientUserMessageID: String?
     public var collaborationMode: CodexSchemaCollaborationMode?
     public var cwd: String?
+    public var cyberAccessProgram: CodexSchemaCyberAccessProgram?
+    public var disabledPluginIDs: [String]?
     public var effort: CodexSchemaReasoningEffort?
     public var environments: [CodexSchemaTurnEnvironmentParams]?
     public var input: [CodexSchemaUserInput]
@@ -13425,8 +14444,11 @@ public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
     public var runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]?
     public var sandboxPolicy: CodexSchemaSandboxPolicy?
     public var serviceTier: String?
+    public var serviceTierForTurn: String?
     public var summary: CodexSchemaReasoningSummary?
     public var threadID: String
+    public var toolOutput: CodexSchemaTurnToolOutput?
+    public var turnTrigger: String?
 
     enum CodingKeys: String, CodingKey {
         case additionalContext
@@ -13435,6 +14457,8 @@ public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
         case clientUserMessageID = "clientUserMessageId"
         case collaborationMode
         case cwd
+        case cyberAccessProgram
+        case disabledPluginIDs = "disabledPluginIds"
         case effort
         case environments
         case input
@@ -13447,17 +14471,22 @@ public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
         case runtimeWorkspaceRoots
         case sandboxPolicy
         case serviceTier
+        case serviceTierForTurn
         case summary
         case threadID = "threadId"
+        case toolOutput
+        case turnTrigger
     }
 
-    public init(additionalContext: [String: CodexSchemaAdditionalContextEntry]? = nil, approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, clientUserMessageID: String? = nil, collaborationMode: CodexSchemaCollaborationMode? = nil, cwd: String? = nil, effort: CodexSchemaReasoningEffort? = nil, environments: [CodexSchemaTurnEnvironmentParams]? = nil, input: [CodexSchemaUserInput], model: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, outputSchema: CodexJSONValue? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, responsesapiClientMetadata: [String: String]? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandboxPolicy: CodexSchemaSandboxPolicy? = nil, serviceTier: String? = nil, summary: CodexSchemaReasoningSummary? = nil, threadID: String) {
+    public init(additionalContext: [String: CodexSchemaAdditionalContextEntry]? = nil, approvalPolicy: CodexSchemaAskForApproval? = nil, approvalsReviewer: CodexSchemaApprovalsReviewer? = nil, clientUserMessageID: String? = nil, collaborationMode: CodexSchemaCollaborationMode? = nil, cwd: String? = nil, cyberAccessProgram: CodexSchemaCyberAccessProgram? = nil, disabledPluginIDs: [String]? = nil, effort: CodexSchemaReasoningEffort? = nil, environments: [CodexSchemaTurnEnvironmentParams]? = nil, input: [CodexSchemaUserInput], model: String? = nil, multiAgentMode: CodexSchemaMultiAgentMode? = nil, outputSchema: CodexJSONValue? = nil, permissions: String? = nil, personality: CodexSchemaPersonality? = nil, responsesapiClientMetadata: [String: String]? = nil, runtimeWorkspaceRoots: [CodexSchemaAbsolutePathBuf]? = nil, sandboxPolicy: CodexSchemaSandboxPolicy? = nil, serviceTier: String? = nil, serviceTierForTurn: String? = nil, summary: CodexSchemaReasoningSummary? = nil, threadID: String, toolOutput: CodexSchemaTurnToolOutput? = nil, turnTrigger: String? = nil) {
         self.additionalContext = additionalContext
         self.approvalPolicy = approvalPolicy
         self.approvalsReviewer = approvalsReviewer
         self.clientUserMessageID = clientUserMessageID
         self.collaborationMode = collaborationMode
         self.cwd = cwd
+        self.cyberAccessProgram = cyberAccessProgram
+        self.disabledPluginIDs = disabledPluginIDs
         self.effort = effort
         self.environments = environments
         self.input = input
@@ -13470,8 +14499,11 @@ public struct CodexSchemaTurnStartParams: Codable, Sendable, Equatable {
         self.runtimeWorkspaceRoots = runtimeWorkspaceRoots
         self.sandboxPolicy = sandboxPolicy
         self.serviceTier = serviceTier
+        self.serviceTierForTurn = serviceTierForTurn
         self.summary = summary
         self.threadID = threadID
+        self.toolOutput = toolOutput
+        self.turnTrigger = turnTrigger
     }
 }
 public struct CodexSchemaTurnStartResponse: Codable, Sendable, Equatable {
@@ -13576,6 +14608,17 @@ public struct CodexSchemaTurnSteerResponse: Codable, Sendable, Equatable {
         self.turnID = turnID
     }
 }
+public struct CodexSchemaTurnToolOutput: Codable, Sendable, Equatable {
+    public var name: String
+    public var namespace: String?
+    public var output: CodexSchemaFunctionCallOutputBody
+
+    public init(name: String, namespace: String? = nil, output: CodexSchemaFunctionCallOutputBody) {
+        self.name = name
+        self.namespace = namespace
+        self.output = output
+    }
+}
 public struct CodexSchemaTurnsPage: Codable, Sendable, Equatable {
     public var backwardsCursor: String?
     public var data: [CodexSchemaTurn]
@@ -13588,6 +14631,252 @@ public struct CodexSchemaTurnsPage: Codable, Sendable, Equatable {
     }
 }
 public typealias CodexSchemaUserInput = CodexAppServerSchemaValue
+public struct CodexSchemaUserVerificationCancelParams: Codable, Sendable, Equatable {
+    public var requestID: CodexSchemaRequestID
+
+    enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+    }
+
+    public init(requestID: CodexSchemaRequestID) {
+        self.requestID = requestID
+    }
+}
+public typealias CodexSchemaUserVerificationCancelResponse = CodexAppServerSchemaValue
+public enum CodexSchemaUserVerificationCancellationReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case userCancelled
+    case interrupted
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaUserVerificationCancellationReason] = [
+        .userCancelled,
+        .interrupted,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "userCancelled": self = .userCancelled
+        case "interrupted": self = .interrupted
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .userCancelled: "userCancelled"
+        case .interrupted: "interrupted"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public typealias CodexSchemaUserVerificationDeleteParams = CodexAppServerSchemaValue
+public typealias CodexSchemaUserVerificationDeleteResponse = CodexAppServerSchemaValue
+public typealias CodexSchemaUserVerificationEnrollParams = CodexAppServerSchemaValue
+public struct CodexSchemaUserVerificationEnrollResponse: Codable, Sendable, Equatable {
+    public var algorithm: String?
+    public var credentialID: String
+    public var publicKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case algorithm
+        case credentialID = "credentialId"
+        case publicKey
+    }
+
+    public init(algorithm: String? = nil, credentialID: String, publicKey: String? = nil) {
+        self.algorithm = algorithm
+        self.credentialID = credentialID
+        self.publicKey = publicKey
+    }
+}
+public typealias CodexSchemaUserVerificationErrorDetails = CodexAppServerSchemaValue
+public enum CodexSchemaUserVerificationFailureReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case authenticationFailed
+    case timeout
+    case providerError
+    case serviceError
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaUserVerificationFailureReason] = [
+        .authenticationFailed,
+        .timeout,
+        .providerError,
+        .serviceError,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "authenticationFailed": self = .authenticationFailed
+        case "timeout": self = .timeout
+        case "providerError": self = .providerError
+        case "serviceError": self = .serviceError
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .authenticationFailed: "authenticationFailed"
+        case .timeout: "timeout"
+        case .providerError: "providerError"
+        case .serviceError: "serviceError"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public enum CodexSchemaUserVerificationInvalidRequestReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case invalidParams
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaUserVerificationInvalidRequestReason] = [
+        .invalidParams,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "invalidParams": self = .invalidParams
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .invalidParams: "invalidParams"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaUserVerificationProof: Codable, Sendable, Equatable {
+    public var credentialID: String
+    public var signature: String
+
+    enum CodingKeys: String, CodingKey {
+        case credentialID = "credentialId"
+        case signature
+    }
+
+    public init(credentialID: String, signature: String) {
+        self.credentialID = credentialID
+        self.signature = signature
+    }
+}
+public struct CodexSchemaUserVerificationRPCError: Codable, Sendable, Equatable {
+    public var code: Int
+    public var data: CodexSchemaUserVerificationErrorDetails
+    public var message: String
+
+    public init(code: Int, data: CodexSchemaUserVerificationErrorDetails, message: String) {
+        self.code = code
+        self.data = data
+        self.message = message
+    }
+}
+public typealias CodexSchemaUserVerificationStatusParams = CodexAppServerSchemaValue
+public struct CodexSchemaUserVerificationStatusResponse: Codable, Sendable, Equatable {
+    public var credentialID: String?
+    public var unavailableMessage: String?
+    public var unavailableReason: CodexSchemaUserVerificationUnavailableReason?
+
+    enum CodingKeys: String, CodingKey {
+        case credentialID = "credentialId"
+        case unavailableMessage
+        case unavailableReason
+    }
+
+    public init(credentialID: String? = nil, unavailableMessage: String? = nil, unavailableReason: CodexSchemaUserVerificationUnavailableReason? = nil) {
+        self.credentialID = credentialID
+        self.unavailableMessage = unavailableMessage
+        self.unavailableReason = unavailableReason
+    }
+}
+public enum CodexSchemaUserVerificationUnavailableReason: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case credentialMissing
+    case biometricsUnavailable
+    case providerUnavailable
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaUserVerificationUnavailableReason] = [
+        .credentialMissing,
+        .biometricsUnavailable,
+        .providerUnavailable,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "credentialMissing": self = .credentialMissing
+        case "biometricsUnavailable": self = .biometricsUnavailable
+        case "providerUnavailable": self = .providerUnavailable
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .credentialMissing: "credentialMissing"
+        case .biometricsUnavailable: "biometricsUnavailable"
+        case .providerUnavailable: "providerUnavailable"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+public struct CodexSchemaUserVerificationVerifyParams: Codable, Sendable, Equatable {
+    public var challenge: String
+    public var description: String
+    public var title: String
+
+    public init(challenge: String, description: String, title: String) {
+        self.challenge = challenge
+        self.description = description
+        self.title = title
+    }
+}
+public struct CodexSchemaUserVerificationVerifyResponse: Codable, Sendable, Equatable {
+    public var proof: CodexSchemaUserVerificationProof
+
+    public init(proof: CodexSchemaUserVerificationProof) {
+        self.proof = proof
+    }
+}
 public enum CodexSchemaVerbosity: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case low
     case medium
@@ -13755,6 +15044,46 @@ public struct CodexSchemaWebSearchToolConfig: Codable, Sendable, Equatable {
         self.allowedDomains = allowedDomains
         self.contextSize = contextSize
         self.location = location
+    }
+}
+public enum CodexSchemaWindowsSandboxImplementation: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
+    case elevated
+    case unelevated
+    case mxc
+    case unrecognized(String)
+
+    public static let allCases: [CodexSchemaWindowsSandboxImplementation] = [
+        .elevated,
+        .unelevated,
+        .mxc,
+    ]
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "elevated": self = .elevated
+        case "unelevated": self = .unelevated
+        case "mxc": self = .mxc
+        default: self = .unrecognized(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .elevated: "elevated"
+        case .unelevated: "unelevated"
+        case .mxc: "mxc"
+        case .unrecognized(let value): value
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self))!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 public enum CodexSchemaWindowsSandboxReadiness: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
@@ -13941,6 +15270,23 @@ public enum CodexSchemaWorkspaceMessageType: Codable, Sendable, Equatable, Hasha
         try container.encode(rawValue)
     }
 }
+public struct CodexSchemaWorkspaceRouting: Codable, Sendable, Equatable {
+    public var accountRoutingOverride: CodexSchemaAccountRoutingOverride
+    public var backendOrigin: String
+    public var chatgptAccountID: String
+
+    enum CodingKeys: String, CodingKey {
+        case accountRoutingOverride
+        case backendOrigin
+        case chatgptAccountID = "chatgptAccountId"
+    }
+
+    public init(accountRoutingOverride: CodexSchemaAccountRoutingOverride, backendOrigin: String, chatgptAccountID: String) {
+        self.accountRoutingOverride = accountRoutingOverride
+        self.backendOrigin = backendOrigin
+        self.chatgptAccountID = chatgptAccountID
+    }
+}
 public enum CodexSchemaWriteStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case ok
     case okOverridden
@@ -13979,19 +15325,20 @@ public enum CodexSchemaWriteStatus: Codable, Sendable, Equatable, Hashable, Case
 }
 
 public enum CodexAppServerSchemaInventory {
-    public static let definitionCount = 725
-    public static let generatedEnumCount = 121
-    public static let generatedOpenEnumCount = 104
-    public static let generatedStructCount = 491
+    public static let definitionCount = 790
+    public static let generatedEnumCount = 135
+    public static let generatedOpenEnumCount = 118
+    public static let generatedStructCount = 528
     public static let generatedTaggedUnionCount = 4
-    public static let rawAliasCount = 109
-    public static let v2SchemaFileCount = 364
+    public static let rawAliasCount = 123
+    public static let v2SchemaFileCount = 393
     public static let v1HandshakeSchemaFileCount = 2
     public static let definitions: [CodexAppServerSchemaDefinition] = [
         CodexAppServerSchemaDefinition(name: "AbsolutePathBuf", typeName: "CodexSchemaAbsolutePathBuf"),
         CodexAppServerSchemaDefinition(name: "Account", typeName: "CodexSchemaAccount"),
         CodexAppServerSchemaDefinition(name: "AccountLoginCompletedNotification", typeName: "CodexSchemaAccountLoginCompletedNotification"),
         CodexAppServerSchemaDefinition(name: "AccountRateLimitsUpdatedNotification", typeName: "CodexSchemaAccountRateLimitsUpdatedNotification"),
+        CodexAppServerSchemaDefinition(name: "AccountRoutingOverride", typeName: "CodexSchemaAccountRoutingOverride"),
         CodexAppServerSchemaDefinition(name: "AccountTokenUsageDailyBucket", typeName: "CodexSchemaAccountTokenUsageDailyBucket"),
         CodexAppServerSchemaDefinition(name: "AccountTokenUsageSummary", typeName: "CodexSchemaAccountTokenUsageSummary"),
         CodexAppServerSchemaDefinition(name: "AccountUpdatedNotification", typeName: "CodexSchemaAccountUpdatedNotification"),
@@ -14011,6 +15358,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AppBranding", typeName: "CodexSchemaAppBranding"),
         CodexAppServerSchemaDefinition(name: "AppConfig", typeName: "CodexSchemaAppConfig"),
         CodexAppServerSchemaDefinition(name: "AppInfo", typeName: "CodexSchemaAppInfo"),
+        CodexAppServerSchemaDefinition(name: "AppLinkConfig", typeName: "CodexSchemaAppLinkConfig"),
+        CodexAppServerSchemaDefinition(name: "AppLinksConfig", typeName: "CodexSchemaAppLinksConfig"),
         CodexAppServerSchemaDefinition(name: "AppListUpdatedNotification", typeName: "CodexSchemaAppListUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "AppMetadata", typeName: "CodexSchemaAppMetadata"),
         CodexAppServerSchemaDefinition(name: "AppReview", typeName: "CodexSchemaAppReview"),
@@ -14022,6 +15371,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AppToolConfig", typeName: "CodexSchemaAppToolConfig"),
         CodexAppServerSchemaDefinition(name: "AppToolSummary", typeName: "CodexSchemaAppToolSummary"),
         CodexAppServerSchemaDefinition(name: "AppToolsConfig", typeName: "CodexSchemaAppToolsConfig"),
+        CodexAppServerSchemaDefinition(name: "ApplicationNetworkRequirements", typeName: "CodexSchemaApplicationNetworkRequirements"),
+        CodexAppServerSchemaDefinition(name: "ApplicationRequirements", typeName: "CodexSchemaApplicationRequirements"),
         CodexAppServerSchemaDefinition(name: "ApprovalsReviewer", typeName: "CodexSchemaApprovalsReviewer"),
         CodexAppServerSchemaDefinition(name: "AppsConfig", typeName: "CodexSchemaAppsConfig"),
         CodexAppServerSchemaDefinition(name: "AppsDefaultConfig", typeName: "CodexSchemaAppsDefaultConfig"),
@@ -14032,7 +15383,9 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "AppsReadParams", typeName: "CodexSchemaAppsReadParams"),
         CodexAppServerSchemaDefinition(name: "AppsReadResponse", typeName: "CodexSchemaAppsReadResponse"),
         CodexAppServerSchemaDefinition(name: "AskForApproval", typeName: "CodexSchemaAskForApproval"),
+        CodexAppServerSchemaDefinition(name: "AsyncUserInputQuestion", typeName: "CodexSchemaAsyncUserInputQuestion"),
         CodexAppServerSchemaDefinition(name: "AuthMode", typeName: "CodexSchemaAuthMode"),
+        CodexAppServerSchemaDefinition(name: "AuthRecoveryNotification", typeName: "CodexSchemaAuthRecoveryNotification"),
         CodexAppServerSchemaDefinition(name: "AutoCompactTokenLimitScope", typeName: "CodexSchemaAutoCompactTokenLimitScope"),
         CodexAppServerSchemaDefinition(name: "AutoReviewDecisionSource", typeName: "CodexSchemaAutoReviewDecisionSource"),
         CodexAppServerSchemaDefinition(name: "AutoReviewRequirements", typeName: "CodexSchemaAutoReviewRequirements"),
@@ -14103,6 +15456,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ConfigValueWriteParams", typeName: "CodexSchemaConfigValueWriteParams"),
         CodexAppServerSchemaDefinition(name: "ConfigWarningNotification", typeName: "CodexSchemaConfigWarningNotification"),
         CodexAppServerSchemaDefinition(name: "ConfigWriteResponse", typeName: "CodexSchemaConfigWriteResponse"),
+        CodexAppServerSchemaDefinition(name: "ConfigurationReasoning", typeName: "CodexSchemaConfigurationReasoning"),
         CodexAppServerSchemaDefinition(name: "ConfiguredHookHandler", typeName: "CodexSchemaConfiguredHookHandler"),
         CodexAppServerSchemaDefinition(name: "ConfiguredHookMatcherGroup", typeName: "CodexSchemaConfiguredHookMatcherGroup"),
         CodexAppServerSchemaDefinition(name: "ConnectorMetadata", typeName: "CodexSchemaConnectorMetadata"),
@@ -14113,6 +15467,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ContextCompactedNotification", typeName: "CodexSchemaContextCompactedNotification"),
         CodexAppServerSchemaDefinition(name: "ConversationTextRole", typeName: "CodexSchemaConversationTextRole"),
         CodexAppServerSchemaDefinition(name: "CreditsSnapshot", typeName: "CodexSchemaCreditsSnapshot"),
+        CodexAppServerSchemaDefinition(name: "CyberAccessProgram", typeName: "CodexSchemaCyberAccessProgram"),
         CodexAppServerSchemaDefinition(name: "DeprecationNoticeNotification", typeName: "CodexSchemaDeprecationNoticeNotification"),
         CodexAppServerSchemaDefinition(name: "DesktopOnboardingEntrypoint", typeName: "CodexSchemaDesktopOnboardingEntrypoint"),
         CodexAppServerSchemaDefinition(name: "DynamicToolCallOutputContentItem", typeName: "CodexSchemaDynamicToolCallOutputContentItem"),
@@ -14198,7 +15553,13 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "FuzzyFileSearchSessionStopParams", typeName: "CodexSchemaFuzzyFileSearchSessionStopParams"),
         CodexAppServerSchemaDefinition(name: "FuzzyFileSearchSessionUpdateParams", typeName: "CodexSchemaFuzzyFileSearchSessionUpdateParams"),
         CodexAppServerSchemaDefinition(name: "FuzzyFileSearchSessionUpdatedNotification", typeName: "CodexSchemaFuzzyFileSearchSessionUpdatedNotification"),
+        CodexAppServerSchemaDefinition(name: "GatewayOAuthCancelResponse", typeName: "CodexSchemaGatewayOAuthCancelResponse"),
+        CodexAppServerSchemaDefinition(name: "GatewayOAuthChangedNotification", typeName: "CodexSchemaGatewayOAuthChangedNotification"),
+        CodexAppServerSchemaDefinition(name: "GatewayOAuthLoginResponse", typeName: "CodexSchemaGatewayOAuthLoginResponse"),
+        CodexAppServerSchemaDefinition(name: "GatewayOAuthReadResponse", typeName: "CodexSchemaGatewayOAuthReadResponse"),
+        CodexAppServerSchemaDefinition(name: "GatewayOAuthStatus", typeName: "CodexSchemaGatewayOAuthStatus"),
         CodexAppServerSchemaDefinition(name: "GetAccountParams", typeName: "CodexSchemaGetAccountParams"),
+        CodexAppServerSchemaDefinition(name: "GetAccountRateLimitsParams", typeName: "CodexSchemaGetAccountRateLimitsParams"),
         CodexAppServerSchemaDefinition(name: "GetAccountRateLimitsResponse", typeName: "CodexSchemaGetAccountRateLimitsResponse"),
         CodexAppServerSchemaDefinition(name: "GetAccountResponse", typeName: "CodexSchemaGetAccountResponse"),
         CodexAppServerSchemaDefinition(name: "GetAccountTokenUsageParams", typeName: "CodexSchemaGetAccountTokenUsageParams"),
@@ -14263,9 +15624,12 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "MarketplaceUpgradeErrorInfo", typeName: "CodexSchemaMarketplaceUpgradeErrorInfo"),
         CodexAppServerSchemaDefinition(name: "MarketplaceUpgradeParams", typeName: "CodexSchemaMarketplaceUpgradeParams"),
         CodexAppServerSchemaDefinition(name: "MarketplaceUpgradeResponse", typeName: "CodexSchemaMarketplaceUpgradeResponse"),
+        CodexAppServerSchemaDefinition(name: "McpAppDisplayMode", typeName: "CodexSchemaMCPAppDisplayMode"),
+        CodexAppServerSchemaDefinition(name: "McpAppUi", typeName: "CodexSchemaMCPAppUi"),
         CodexAppServerSchemaDefinition(name: "McpAuthStatus", typeName: "CodexSchemaMCPAuthStatus"),
         CodexAppServerSchemaDefinition(name: "McpResourceReadParams", typeName: "CodexSchemaMCPResourceReadParams"),
         CodexAppServerSchemaDefinition(name: "McpResourceReadResponse", typeName: "CodexSchemaMCPResourceReadResponse"),
+        CodexAppServerSchemaDefinition(name: "McpResourceReadTarget", typeName: "CodexSchemaMCPResourceReadTarget"),
         CodexAppServerSchemaDefinition(name: "McpServerConnectionStatus", typeName: "CodexSchemaMCPServerConnectionStatus"),
         CodexAppServerSchemaDefinition(name: "McpServerEventNotification", typeName: "CodexSchemaMCPServerEventNotification"),
         CodexAppServerSchemaDefinition(name: "McpServerEventStreamNotification", typeName: "CodexSchemaMCPServerEventStreamNotification"),
@@ -14295,13 +15659,18 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "MemoryCitation", typeName: "CodexSchemaMemoryCitation"),
         CodexAppServerSchemaDefinition(name: "MemoryCitationEntry", typeName: "CodexSchemaMemoryCitationEntry"),
         CodexAppServerSchemaDefinition(name: "MemoryResetResponse", typeName: "CodexSchemaMemoryResetResponse"),
+        CodexAppServerSchemaDefinition(name: "MemoryStatusParams", typeName: "CodexSchemaMemoryStatusParams"),
+        CodexAppServerSchemaDefinition(name: "MemoryStatusResponse", typeName: "CodexSchemaMemoryStatusResponse"),
         CodexAppServerSchemaDefinition(name: "MergeStrategy", typeName: "CodexSchemaMergeStrategy"),
         CodexAppServerSchemaDefinition(name: "MessagePhase", typeName: "CodexSchemaMessagePhase"),
         CodexAppServerSchemaDefinition(name: "MigrationDetails", typeName: "CodexSchemaMigrationDetails"),
+        CodexAppServerSchemaDefinition(name: "MisalignmentErrorDetails", typeName: "CodexSchemaMisalignmentErrorDetails"),
+        CodexAppServerSchemaDefinition(name: "MisalignmentSteer", typeName: "CodexSchemaMisalignmentSteer"),
         CodexAppServerSchemaDefinition(name: "MockExperimentalMethodParams", typeName: "CodexSchemaMockExperimentalMethodParams"),
         CodexAppServerSchemaDefinition(name: "MockExperimentalMethodResponse", typeName: "CodexSchemaMockExperimentalMethodResponse"),
         CodexAppServerSchemaDefinition(name: "ModeKind", typeName: "CodexSchemaModeKind"),
         CodexAppServerSchemaDefinition(name: "Model", typeName: "CodexSchemaModel"),
+        CodexAppServerSchemaDefinition(name: "ModelAccessPrograms", typeName: "CodexSchemaModelAccessPrograms"),
         CodexAppServerSchemaDefinition(name: "ModelAvailabilityNux", typeName: "CodexSchemaModelAvailabilityNux"),
         CodexAppServerSchemaDefinition(name: "ModelListParams", typeName: "CodexSchemaModelListParams"),
         CodexAppServerSchemaDefinition(name: "ModelListResponse", typeName: "CodexSchemaModelListResponse"),
@@ -14324,6 +15693,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "NetworkUnixSocketPermission", typeName: "CodexSchemaNetworkUnixSocketPermission"),
         CodexAppServerSchemaDefinition(name: "NewThreadModelDefaults", typeName: "CodexSchemaNewThreadModelDefaults"),
         CodexAppServerSchemaDefinition(name: "NonSteerableTurnKind", typeName: "CodexSchemaNonSteerableTurnKind"),
+        CodexAppServerSchemaDefinition(name: "NullableGetAccountRateLimitsParams", typeName: "CodexSchemaNullableGetAccountRateLimitsParams"),
         CodexAppServerSchemaDefinition(name: "NullableGetAccountTokenUsageParams", typeName: "CodexSchemaNullableGetAccountTokenUsageParams"),
         CodexAppServerSchemaDefinition(name: "NullableRemoteControlDisableParams", typeName: "CodexSchemaNullableRemoteControlDisableParams"),
         CodexAppServerSchemaDefinition(name: "NullableRemoteControlEnableParams", typeName: "CodexSchemaNullableRemoteControlEnableParams"),
@@ -14355,6 +15725,9 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "PluginMarketplaceEntry", typeName: "CodexSchemaPluginMarketplaceEntry"),
         CodexAppServerSchemaDefinition(name: "PluginReadParams", typeName: "CodexSchemaPluginReadParams"),
         CodexAppServerSchemaDefinition(name: "PluginReadResponse", typeName: "CodexSchemaPluginReadResponse"),
+        CodexAppServerSchemaDefinition(name: "PluginReconcileChangedPlugin", typeName: "CodexSchemaPluginReconcileChangedPlugin"),
+        CodexAppServerSchemaDefinition(name: "PluginReconcileParams", typeName: "CodexSchemaPluginReconcileParams"),
+        CodexAppServerSchemaDefinition(name: "PluginReconcileResponse", typeName: "CodexSchemaPluginReconcileResponse"),
         CodexAppServerSchemaDefinition(name: "PluginSearchParams", typeName: "CodexSchemaPluginSearchParams"),
         CodexAppServerSchemaDefinition(name: "PluginSearchResponse", typeName: "CodexSchemaPluginSearchResponse"),
         CodexAppServerSchemaDefinition(name: "PluginSearchResult", typeName: "CodexSchemaPluginSearchResult"),
@@ -14413,6 +15786,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ProjectReadParams", typeName: "CodexSchemaProjectReadParams"),
         CodexAppServerSchemaDefinition(name: "ProjectReadResponse", typeName: "CodexSchemaProjectReadResponse"),
         CodexAppServerSchemaDefinition(name: "ProjectRoot", typeName: "CodexSchemaProjectRoot"),
+        CodexAppServerSchemaDefinition(name: "ProjectSortKey", typeName: "CodexSchemaProjectSortKey"),
         CodexAppServerSchemaDefinition(name: "ProjectUpdateParams", typeName: "CodexSchemaProjectUpdateParams"),
         CodexAppServerSchemaDefinition(name: "ProjectUpdateResponse", typeName: "CodexSchemaProjectUpdateResponse"),
         CodexAppServerSchemaDefinition(name: "QueuedSubmission", typeName: "CodexSchemaQueuedSubmission"),
@@ -14461,11 +15835,13 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ResourceContent", typeName: "CodexSchemaResourceContent"),
         CodexAppServerSchemaDefinition(name: "ResourceTemplate", typeName: "CodexSchemaResourceTemplate"),
         CodexAppServerSchemaDefinition(name: "ResponseItem", typeName: "CodexSchemaResponseItem"),
+        CodexAppServerSchemaDefinition(name: "ResponseUsageMetadata", typeName: "CodexSchemaResponseUsageMetadata"),
         CodexAppServerSchemaDefinition(name: "ResponsesApiWebSearchAction", typeName: "CodexSchemaResponsesAPIWebSearchAction"),
         CodexAppServerSchemaDefinition(name: "ReviewDelivery", typeName: "CodexSchemaReviewDelivery"),
         CodexAppServerSchemaDefinition(name: "ReviewStartParams", typeName: "CodexSchemaReviewStartParams"),
         CodexAppServerSchemaDefinition(name: "ReviewStartResponse", typeName: "CodexSchemaReviewStartResponse"),
         CodexAppServerSchemaDefinition(name: "ReviewTarget", typeName: "CodexSchemaReviewTarget"),
+        CodexAppServerSchemaDefinition(name: "RolloutCompressResponse", typeName: "CodexSchemaRolloutCompressResponse"),
         CodexAppServerSchemaDefinition(name: "SandboxMode", typeName: "CodexSchemaSandboxMode"),
         CodexAppServerSchemaDefinition(name: "SandboxPolicy", typeName: "CodexSchemaSandboxPolicy"),
         CodexAppServerSchemaDefinition(name: "SandboxWorkspaceWrite", typeName: "CodexSchemaSandboxWorkspaceWrite"),
@@ -14517,6 +15893,16 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadArchiveParams", typeName: "CodexSchemaThreadArchiveParams"),
         CodexAppServerSchemaDefinition(name: "ThreadArchiveResponse", typeName: "CodexSchemaThreadArchiveResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadArchivedNotification", typeName: "CodexSchemaThreadArchivedNotification"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachment", typeName: "CodexSchemaThreadAttachment"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentAddOutcome", typeName: "CodexSchemaThreadAttachmentAddOutcome"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentAddParams", typeName: "CodexSchemaThreadAttachmentAddParams"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentAddResponse", typeName: "CodexSchemaThreadAttachmentAddResponse"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentListParams", typeName: "CodexSchemaThreadAttachmentListParams"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentListResponse", typeName: "CodexSchemaThreadAttachmentListResponse"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentOperation", typeName: "CodexSchemaThreadAttachmentOperation"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentRemoveParams", typeName: "CodexSchemaThreadAttachmentRemoveParams"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentRemoveResponse", typeName: "CodexSchemaThreadAttachmentRemoveResponse"),
+        CodexAppServerSchemaDefinition(name: "ThreadAttachmentUpdatedNotification", typeName: "CodexSchemaThreadAttachmentUpdatedNotification"),
         CodexAppServerSchemaDefinition(name: "ThreadBackgroundTerminal", typeName: "CodexSchemaThreadBackgroundTerminal"),
         CodexAppServerSchemaDefinition(name: "ThreadBackgroundTerminalsCleanParams", typeName: "CodexSchemaThreadBackgroundTerminalsCleanParams"),
         CodexAppServerSchemaDefinition(name: "ThreadBackgroundTerminalsCleanResponse", typeName: "CodexSchemaThreadBackgroundTerminalsCleanResponse"),
@@ -14532,6 +15918,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadDeleteParams", typeName: "CodexSchemaThreadDeleteParams"),
         CodexAppServerSchemaDefinition(name: "ThreadDeleteResponse", typeName: "CodexSchemaThreadDeleteResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadDeletedNotification", typeName: "CodexSchemaThreadDeletedNotification"),
+        CodexAppServerSchemaDefinition(name: "ThreadEnvironment", typeName: "CodexSchemaThreadEnvironment"),
         CodexAppServerSchemaDefinition(name: "ThreadExtra", typeName: "CodexSchemaThreadExtra"),
         CodexAppServerSchemaDefinition(name: "ThreadForkParams", typeName: "CodexSchemaThreadForkParams"),
         CodexAppServerSchemaDefinition(name: "ThreadForkResponse", typeName: "CodexSchemaThreadForkResponse"),
@@ -14553,6 +15940,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadInjectItemsResponse", typeName: "CodexSchemaThreadInjectItemsResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadItem", typeName: "CodexSchemaThreadItem"),
         CodexAppServerSchemaDefinition(name: "ThreadItemEntry", typeName: "CodexSchemaThreadItemEntry"),
+        CodexAppServerSchemaDefinition(name: "ThreadItemsListAnchor", typeName: "CodexSchemaThreadItemsListAnchor"),
+        CodexAppServerSchemaDefinition(name: "ThreadItemsListCursor", typeName: "CodexSchemaThreadItemsListCursor"),
         CodexAppServerSchemaDefinition(name: "ThreadItemsListParams", typeName: "CodexSchemaThreadItemsListParams"),
         CodexAppServerSchemaDefinition(name: "ThreadItemsListResponse", typeName: "CodexSchemaThreadItemsListResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadListCwdFilter", typeName: "CodexSchemaThreadListCwdFilter"),
@@ -14619,8 +16008,6 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadRevertParams", typeName: "CodexSchemaThreadRevertParams"),
         CodexAppServerSchemaDefinition(name: "ThreadRevertResponse", typeName: "CodexSchemaThreadRevertResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadRevertedNotification", typeName: "CodexSchemaThreadRevertedNotification"),
-        CodexAppServerSchemaDefinition(name: "ThreadRollbackParams", typeName: "CodexSchemaThreadRollbackParams"),
-        CodexAppServerSchemaDefinition(name: "ThreadRollbackResponse", typeName: "CodexSchemaThreadRollbackResponse"),
         CodexAppServerSchemaDefinition(name: "ThreadSearchOccurrence", typeName: "CodexSchemaThreadSearchOccurrence"),
         CodexAppServerSchemaDefinition(name: "ThreadSearchOccurrencesParams", typeName: "CodexSchemaThreadSearchOccurrencesParams"),
         CodexAppServerSchemaDefinition(name: "ThreadSearchOccurrencesResponse", typeName: "CodexSchemaThreadSearchOccurrencesResponse"),
@@ -14675,6 +16062,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "ThreadUsageBreakdownGroup", typeName: "CodexSchemaThreadUsageBreakdownGroup"),
         CodexAppServerSchemaDefinition(name: "TokenUsageBreakdown", typeName: "CodexSchemaTokenUsageBreakdown"),
         CodexAppServerSchemaDefinition(name: "Tool", typeName: "CodexSchemaTool"),
+        CodexAppServerSchemaDefinition(name: "ToolExposureSurface", typeName: "CodexSchemaToolExposureSurface"),
         CodexAppServerSchemaDefinition(name: "ToolsV2", typeName: "CodexSchemaToolsV2"),
         CodexAppServerSchemaDefinition(name: "Turn", typeName: "CodexSchemaTurn"),
         CodexAppServerSchemaDefinition(name: "TurnCompletedNotification", typeName: "CodexSchemaTurnCompletedNotification"),
@@ -14688,14 +16076,35 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "TurnPlanStep", typeName: "CodexSchemaTurnPlanStep"),
         CodexAppServerSchemaDefinition(name: "TurnPlanStepStatus", typeName: "CodexSchemaTurnPlanStepStatus"),
         CodexAppServerSchemaDefinition(name: "TurnPlanUpdatedNotification", typeName: "CodexSchemaTurnPlanUpdatedNotification"),
+        CodexAppServerSchemaDefinition(name: "TurnSettingsUpdateParams", typeName: "CodexSchemaTurnSettingsUpdateParams"),
+        CodexAppServerSchemaDefinition(name: "TurnSettingsUpdateResponse", typeName: "CodexSchemaTurnSettingsUpdateResponse"),
+        CodexAppServerSchemaDefinition(name: "TurnSettingsUpdateStatus", typeName: "CodexSchemaTurnSettingsUpdateStatus"),
         CodexAppServerSchemaDefinition(name: "TurnStartParams", typeName: "CodexSchemaTurnStartParams"),
         CodexAppServerSchemaDefinition(name: "TurnStartResponse", typeName: "CodexSchemaTurnStartResponse"),
         CodexAppServerSchemaDefinition(name: "TurnStartedNotification", typeName: "CodexSchemaTurnStartedNotification"),
         CodexAppServerSchemaDefinition(name: "TurnStatus", typeName: "CodexSchemaTurnStatus"),
         CodexAppServerSchemaDefinition(name: "TurnSteerParams", typeName: "CodexSchemaTurnSteerParams"),
         CodexAppServerSchemaDefinition(name: "TurnSteerResponse", typeName: "CodexSchemaTurnSteerResponse"),
+        CodexAppServerSchemaDefinition(name: "TurnToolOutput", typeName: "CodexSchemaTurnToolOutput"),
         CodexAppServerSchemaDefinition(name: "TurnsPage", typeName: "CodexSchemaTurnsPage"),
         CodexAppServerSchemaDefinition(name: "UserInput", typeName: "CodexSchemaUserInput"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationCancelParams", typeName: "CodexSchemaUserVerificationCancelParams"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationCancelResponse", typeName: "CodexSchemaUserVerificationCancelResponse"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationCancellationReason", typeName: "CodexSchemaUserVerificationCancellationReason"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationDeleteParams", typeName: "CodexSchemaUserVerificationDeleteParams"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationDeleteResponse", typeName: "CodexSchemaUserVerificationDeleteResponse"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationEnrollParams", typeName: "CodexSchemaUserVerificationEnrollParams"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationEnrollResponse", typeName: "CodexSchemaUserVerificationEnrollResponse"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationErrorDetails", typeName: "CodexSchemaUserVerificationErrorDetails"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationFailureReason", typeName: "CodexSchemaUserVerificationFailureReason"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationInvalidRequestReason", typeName: "CodexSchemaUserVerificationInvalidRequestReason"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationProof", typeName: "CodexSchemaUserVerificationProof"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationRpcError", typeName: "CodexSchemaUserVerificationRPCError"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationStatusParams", typeName: "CodexSchemaUserVerificationStatusParams"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationStatusResponse", typeName: "CodexSchemaUserVerificationStatusResponse"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationUnavailableReason", typeName: "CodexSchemaUserVerificationUnavailableReason"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationVerifyParams", typeName: "CodexSchemaUserVerificationVerifyParams"),
+        CodexAppServerSchemaDefinition(name: "UserVerificationVerifyResponse", typeName: "CodexSchemaUserVerificationVerifyResponse"),
         CodexAppServerSchemaDefinition(name: "Verbosity", typeName: "CodexSchemaVerbosity"),
         CodexAppServerSchemaDefinition(name: "WarningNotification", typeName: "CodexSchemaWarningNotification"),
         CodexAppServerSchemaDefinition(name: "WebSearchAction", typeName: "CodexSchemaWebSearchAction"),
@@ -14703,6 +16112,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "WebSearchLocation", typeName: "CodexSchemaWebSearchLocation"),
         CodexAppServerSchemaDefinition(name: "WebSearchMode", typeName: "CodexSchemaWebSearchMode"),
         CodexAppServerSchemaDefinition(name: "WebSearchToolConfig", typeName: "CodexSchemaWebSearchToolConfig"),
+        CodexAppServerSchemaDefinition(name: "WindowsSandboxImplementation", typeName: "CodexSchemaWindowsSandboxImplementation"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxReadiness", typeName: "CodexSchemaWindowsSandboxReadiness"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxReadinessResponse", typeName: "CodexSchemaWindowsSandboxReadinessResponse"),
         CodexAppServerSchemaDefinition(name: "WindowsSandboxSetupCompletedNotification", typeName: "CodexSchemaWindowsSandboxSetupCompletedNotification"),
@@ -14712,14 +16122,20 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerSchemaDefinition(name: "WindowsWorldWritableWarningNotification", typeName: "CodexSchemaWindowsWorldWritableWarningNotification"),
         CodexAppServerSchemaDefinition(name: "WorkspaceMessage", typeName: "CodexSchemaWorkspaceMessage"),
         CodexAppServerSchemaDefinition(name: "WorkspaceMessageType", typeName: "CodexSchemaWorkspaceMessageType"),
+        CodexAppServerSchemaDefinition(name: "WorkspaceRouting", typeName: "CodexSchemaWorkspaceRouting"),
         CodexAppServerSchemaDefinition(name: "WriteStatus", typeName: "CodexSchemaWriteStatus"),
     ]
-    public static let clientRequestParamCount = 141
-    public static let notificationPayloadCount = 79
+    public static let clientRequestParamCount = 151
+    public static let notificationPayloadCount = 83
     public static let serverRequestParamCount = 11
     public static let clientRequestParams: [CodexAppServerMethodSchemaDefinition] = [
         CodexAppServerMethodSchemaDefinition(method: "initialize", definitionName: "InitializeParams", typeName: "CodexSchemaInitializeParams"),
         CodexAppServerMethodSchemaDefinition(method: "server/diagnostics", definitionName: "ServerDiagnosticsParams", typeName: "CodexSchemaServerDiagnosticsParams"),
+        CodexAppServerMethodSchemaDefinition(method: "userVerification/status", definitionName: "UserVerificationStatusParams", typeName: "CodexSchemaUserVerificationStatusParams"),
+        CodexAppServerMethodSchemaDefinition(method: "userVerification/enroll", definitionName: "UserVerificationEnrollParams", typeName: "CodexSchemaUserVerificationEnrollParams"),
+        CodexAppServerMethodSchemaDefinition(method: "userVerification/delete", definitionName: "UserVerificationDeleteParams", typeName: "CodexSchemaUserVerificationDeleteParams"),
+        CodexAppServerMethodSchemaDefinition(method: "userVerification/verify", definitionName: "UserVerificationVerifyParams", typeName: "CodexSchemaUserVerificationVerifyParams"),
+        CodexAppServerMethodSchemaDefinition(method: "userVerification/cancel", definitionName: "UserVerificationCancelParams", typeName: "CodexSchemaUserVerificationCancelParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/start", definitionName: "ThreadStartParams", typeName: "CodexSchemaThreadStartParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/resume", definitionName: "ThreadResumeParams", typeName: "CodexSchemaThreadResumeParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/fork", definitionName: "ThreadForkParams", typeName: "CodexSchemaThreadForkParams"),
@@ -14739,9 +16155,13 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "thread/queue/reorder", definitionName: "ThreadQueueReorderParams", typeName: "CodexSchemaThreadQueueReorderParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/queue/start", definitionName: "ThreadQueueStartParams", typeName: "CodexSchemaThreadQueueStartParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/metadata/update", definitionName: "ThreadMetadataUpdateParams", typeName: "CodexSchemaThreadMetadataUpdateParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/attachment/add", definitionName: "ThreadAttachmentAddParams", typeName: "CodexSchemaThreadAttachmentAddParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/attachment/list", definitionName: "ThreadAttachmentListParams", typeName: "CodexSchemaThreadAttachmentListParams"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/attachment/remove", definitionName: "ThreadAttachmentRemoveParams", typeName: "CodexSchemaThreadAttachmentRemoveParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/section/move", definitionName: "ThreadSectionMoveParams", typeName: "CodexSchemaThreadSectionMoveParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/settings/update", definitionName: "ThreadSettingsUpdateParams", typeName: "CodexSchemaThreadSettingsUpdateParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/memoryMode/set", definitionName: "ThreadMemoryModeSetParams", typeName: "CodexSchemaThreadMemoryModeSetParams"),
+        CodexAppServerMethodSchemaDefinition(method: "memory/status", definitionName: "MemoryStatusParams", typeName: "CodexSchemaMemoryStatusParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/unarchive", definitionName: "ThreadUnarchiveParams", typeName: "CodexSchemaThreadUnarchiveParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/compact/start", definitionName: "ThreadCompactStartParams", typeName: "CodexSchemaThreadCompactStartParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/shellCommand", definitionName: "ThreadShellCommandParams", typeName: "CodexSchemaThreadShellCommandParams"),
@@ -14749,7 +16169,6 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "thread/backgroundTerminals/clean", definitionName: "ThreadBackgroundTerminalsCleanParams", typeName: "CodexSchemaThreadBackgroundTerminalsCleanParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/backgroundTerminals/list", definitionName: "ThreadBackgroundTerminalsListParams", typeName: "CodexSchemaThreadBackgroundTerminalsListParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/backgroundTerminals/terminate", definitionName: "ThreadBackgroundTerminalsTerminateParams", typeName: "CodexSchemaThreadBackgroundTerminalsTerminateParams"),
-        CodexAppServerMethodSchemaDefinition(method: "thread/rollback", definitionName: "ThreadRollbackParams", typeName: "CodexSchemaThreadRollbackParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/revert", definitionName: "ThreadRevertParams", typeName: "CodexSchemaThreadRevertParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/list", definitionName: "ThreadListParams", typeName: "CodexSchemaThreadListParams"),
         CodexAppServerMethodSchemaDefinition(method: "project/list", definitionName: "ProjectListParams", typeName: "CodexSchemaProjectListParams"),
@@ -14779,6 +16198,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "plugin/list", definitionName: "PluginListParams", typeName: "CodexSchemaPluginListParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/search", definitionName: "PluginSearchParams", typeName: "CodexSchemaPluginSearchParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/installed", definitionName: "PluginInstalledParams", typeName: "CodexSchemaPluginInstalledParams"),
+        CodexAppServerMethodSchemaDefinition(method: "plugin/reconcile", definitionName: "PluginReconcileParams", typeName: "CodexSchemaPluginReconcileParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/read", definitionName: "PluginReadParams", typeName: "CodexSchemaPluginReadParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/skill/read", definitionName: "PluginSkillReadParams", typeName: "CodexSchemaPluginSkillReadParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/share/save", definitionName: "PluginShareSaveParams", typeName: "CodexSchemaPluginShareSaveParams"),
@@ -14802,6 +16222,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "plugin/install", definitionName: "PluginInstallParams", typeName: "CodexSchemaPluginInstallParams"),
         CodexAppServerMethodSchemaDefinition(method: "plugin/uninstall", definitionName: "PluginUninstallParams", typeName: "CodexSchemaPluginUninstallParams"),
         CodexAppServerMethodSchemaDefinition(method: "turn/start", definitionName: "TurnStartParams", typeName: "CodexSchemaTurnStartParams"),
+        CodexAppServerMethodSchemaDefinition(method: "turn/settings/update", definitionName: "TurnSettingsUpdateParams", typeName: "CodexSchemaTurnSettingsUpdateParams"),
         CodexAppServerMethodSchemaDefinition(method: "turn/steer", definitionName: "TurnSteerParams", typeName: "CodexSchemaTurnSteerParams"),
         CodexAppServerMethodSchemaDefinition(method: "turn/interrupt", definitionName: "TurnInterruptParams", typeName: "CodexSchemaTurnInterruptParams"),
         CodexAppServerMethodSchemaDefinition(method: "thread/realtime/start", definitionName: "ThreadRealtimeStartParams", typeName: "CodexSchemaThreadRealtimeStartParams"),
@@ -14871,6 +16292,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "thread/reverted", definitionName: "ThreadRevertedNotification", typeName: "CodexSchemaThreadRevertedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "skills/changed", definitionName: "SkillsChangedNotification", typeName: "CodexSchemaSkillsChangedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/name/updated", definitionName: "ThreadNameUpdatedNotification", typeName: "CodexSchemaThreadNameUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "thread/attachment/updated", definitionName: "ThreadAttachmentUpdatedNotification", typeName: "CodexSchemaThreadAttachmentUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/goal/updated", definitionName: "ThreadGoalUpdatedNotification", typeName: "CodexSchemaThreadGoalUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/goal/cleared", definitionName: "ThreadGoalClearedNotification", typeName: "CodexSchemaThreadGoalClearedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "thread/queue/changed", definitionName: "ThreadQueueChangedNotification", typeName: "CodexSchemaThreadQueueChangedNotification"),
@@ -14906,6 +16328,7 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "mcpServer/startupStatus/updated", definitionName: "McpServerStatusUpdatedNotification", typeName: "CodexSchemaMCPServerStatusUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "mcpServer/event/stream/notification", definitionName: "McpServerEventStreamNotification", typeName: "CodexSchemaMCPServerEventStreamNotification"),
         CodexAppServerMethodSchemaDefinition(method: "account/updated", definitionName: "AccountUpdatedNotification", typeName: "CodexSchemaAccountUpdatedNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "account/gatewayOAuth/changed", definitionName: "GatewayOAuthChangedNotification", typeName: "CodexSchemaGatewayOAuthChangedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "account/rateLimits/updated", definitionName: "AccountRateLimitsUpdatedNotification", typeName: "CodexSchemaAccountRateLimitsUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "app/list/updated", definitionName: "AppListUpdatedNotification", typeName: "CodexSchemaAppListUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "remoteControl/status/changed", definitionName: "RemoteControlStatusChangedNotification", typeName: "CodexSchemaRemoteControlStatusChangedNotification"),
@@ -14918,6 +16341,8 @@ public enum CodexAppServerSchemaInventory {
         CodexAppServerMethodSchemaDefinition(method: "thread/compacted", definitionName: "ContextCompactedNotification", typeName: "CodexSchemaContextCompactedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "model/rerouted", definitionName: "ModelReroutedNotification", typeName: "CodexSchemaModelReroutedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "model/verification", definitionName: "ModelVerificationNotification", typeName: "CodexSchemaModelVerificationNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "modelProvider/authRecoveryStarted", definitionName: "AuthRecoveryNotification", typeName: "CodexSchemaAuthRecoveryNotification"),
+        CodexAppServerMethodSchemaDefinition(method: "modelProvider/authRecoveryCompleted", definitionName: "AuthRecoveryNotification", typeName: "CodexSchemaAuthRecoveryNotification"),
         CodexAppServerMethodSchemaDefinition(method: "turn/moderationMetadata", definitionName: "TurnModerationMetadataNotification", typeName: "CodexSchemaTurnModerationMetadataNotification"),
         CodexAppServerMethodSchemaDefinition(method: "model/safetyBuffering/updated", definitionName: "ModelSafetyBufferingUpdatedNotification", typeName: "CodexSchemaModelSafetyBufferingUpdatedNotification"),
         CodexAppServerMethodSchemaDefinition(method: "warning", definitionName: "WarningNotification", typeName: "CodexSchemaWarningNotification"),
@@ -14969,6 +16394,7 @@ public enum CodexAppServerSchemaInventory {
         "AppsListResponse.json",
         "AppsReadParams.json",
         "AppsReadResponse.json",
+        "AuthRecoveryNotification.json",
         "BedrockDiscoverParams.json",
         "BedrockDiscoverResponse.json",
         "BedrockSetupParams.json",
@@ -15042,6 +16468,10 @@ public enum CodexAppServerSchemaInventory {
         "FsWatchResponse.json",
         "FsWriteFileParams.json",
         "FsWriteFileResponse.json",
+        "GatewayOAuthCancelResponse.json",
+        "GatewayOAuthChangedNotification.json",
+        "GatewayOAuthLoginResponse.json",
+        "GatewayOAuthReadResponse.json",
         "GetAccountParams.json",
         "GetAccountRateLimitsResponse.json",
         "GetAccountResponse.json",
@@ -15083,6 +16513,8 @@ public enum CodexAppServerSchemaInventory {
         "McpServerToolCallResponse.json",
         "McpToolCallProgressNotification.json",
         "MemoryResetResponse.json",
+        "MemoryStatusParams.json",
+        "MemoryStatusResponse.json",
         "MockExperimentalMethodParams.json",
         "MockExperimentalMethodResponse.json",
         "ModelListParams.json",
@@ -15092,6 +16524,7 @@ public enum CodexAppServerSchemaInventory {
         "ModelReroutedNotification.json",
         "ModelSafetyBufferingUpdatedNotification.json",
         "ModelVerificationNotification.json",
+        "NullableGetAccountRateLimitsParams.json",
         "NullableGetAccountTokenUsageParams.json",
         "NullableRemoteControlDisableParams.json",
         "NullableRemoteControlEnableParams.json",
@@ -15106,6 +16539,8 @@ public enum CodexAppServerSchemaInventory {
         "PluginListResponse.json",
         "PluginReadParams.json",
         "PluginReadResponse.json",
+        "PluginReconcileParams.json",
+        "PluginReconcileResponse.json",
         "PluginSearchParams.json",
         "PluginSearchResponse.json",
         "PluginShareCheckoutParams.json",
@@ -15166,6 +16601,7 @@ public enum CodexAppServerSchemaInventory {
         "RemoteControlStatusReadResponse.json",
         "ReviewStartParams.json",
         "ReviewStartResponse.json",
+        "RolloutCompressResponse.json",
         "SendAddCreditsNudgeEmailParams.json",
         "SendAddCreditsNudgeEmailResponse.json",
         "ServerDiagnosticsParams.json",
@@ -15185,6 +16621,13 @@ public enum CodexAppServerSchemaInventory {
         "ThreadArchiveParams.json",
         "ThreadArchiveResponse.json",
         "ThreadArchivedNotification.json",
+        "ThreadAttachmentAddParams.json",
+        "ThreadAttachmentAddResponse.json",
+        "ThreadAttachmentListParams.json",
+        "ThreadAttachmentListResponse.json",
+        "ThreadAttachmentRemoveParams.json",
+        "ThreadAttachmentRemoveResponse.json",
+        "ThreadAttachmentUpdatedNotification.json",
         "ThreadBackgroundTerminalsCleanParams.json",
         "ThreadBackgroundTerminalsCleanResponse.json",
         "ThreadBackgroundTerminalsListParams.json",
@@ -15268,8 +16711,6 @@ public enum CodexAppServerSchemaInventory {
         "ThreadRevertParams.json",
         "ThreadRevertResponse.json",
         "ThreadRevertedNotification.json",
-        "ThreadRollbackParams.json",
-        "ThreadRollbackResponse.json",
         "ThreadSearchOccurrencesParams.json",
         "ThreadSearchOccurrencesResponse.json",
         "ThreadSearchParams.json",
@@ -15311,11 +16752,24 @@ public enum CodexAppServerSchemaInventory {
         "TurnInterruptResponse.json",
         "TurnModerationMetadataNotification.json",
         "TurnPlanUpdatedNotification.json",
+        "TurnSettingsUpdateParams.json",
+        "TurnSettingsUpdateResponse.json",
         "TurnStartParams.json",
         "TurnStartResponse.json",
         "TurnStartedNotification.json",
         "TurnSteerParams.json",
         "TurnSteerResponse.json",
+        "UserVerificationCancelParams.json",
+        "UserVerificationCancelResponse.json",
+        "UserVerificationDeleteParams.json",
+        "UserVerificationDeleteResponse.json",
+        "UserVerificationEnrollParams.json",
+        "UserVerificationEnrollResponse.json",
+        "UserVerificationRpcError.json",
+        "UserVerificationStatusParams.json",
+        "UserVerificationStatusResponse.json",
+        "UserVerificationVerifyParams.json",
+        "UserVerificationVerifyResponse.json",
         "WarningNotification.json",
         "WindowsSandboxReadinessResponse.json",
         "WindowsSandboxSetupCompletedNotification.json",

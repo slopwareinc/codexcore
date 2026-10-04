@@ -26,7 +26,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.13.0` w
 | Thread sections, appearance, and server-persisted ordering | Supported | Public SDK wrappers cover list/create/update/delete/move; Settings edits synchronized icons/colors and sidebar rows render them without extra requests. |
 | Paginated backfill | Supported | Uses a canonical cut and buffered live events. |
 | Paginated fork, full `thread/read`, and durable revert | Supported | Stable 0.148.0 exposes `thread/revert`; CodexCore invalidates stale detail and retains replacement cursors. |
-| Paginated legacy rollback | Unsupported | `thread/rollback` remains the separate legacy full-history operation. |
+| Legacy rollback | Removed upstream | Codex 0.160.0 removes `thread/rollback`; use `thread/revert` for paginated history. |
 | Canonical state, snapshots, scoped observations | Supported | Observation signals are coalesced invalidations; consumers reread state. |
 | Approvals, user input, MCP elicitation, dynamic-tool requests | Supported | The host must provide policy/UI or resolve pending inbox requests. |
 | Dynamic-tool declaration | Conditional | Public thread-start seam currently accepts a raw generated schema wrapper, not the handwritten typed helper. |

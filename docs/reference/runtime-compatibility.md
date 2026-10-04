@@ -2,7 +2,8 @@
 
 | CodexCore release | Codex CLI / app-server | Status |
 | --- | --- | --- |
-| `0.13.0` | `>= 0.148.0` | Current supported range; types generated from stable `0.150.1` |
+| `0.14.0` (development) | `0.148.x`–`0.160.x` | Current accepted range; types generated from stable `0.160.0` |
+| `0.13.0` | `0.148.x`–`0.150.x` | Historical baseline; types generated from stable `0.150.1` |
 | `0.12.0` | `>= 0.148.0` | Historical release; types generated from stable `0.149.0` |
 | `0.11.0` | `>= 0.148.0` | Historical release; types generated from stable `0.148.0` |
 | `0.10.0` | `>= 0.147.0` | Historical release; types generated from stable `0.147.0` |
@@ -15,10 +16,39 @@
 The composite release tag records both identities:
 
 ```text
-v0.150.1+codexcore.0.13.0
+v0.160.0+codexcore.0.14.0 (planned; not published)
 ```
 
-CodexCore requires the generated major/minor line and accepts newer patch releases with a warning. A stable CLI release does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
+CodexCore accepts the configured minimum through the generated minor line, within the same major version. Any accepted version differing from the exact generated pin produces a warning; newer minor lines require a schema audit and regeneration. A stable CLI release does not make every app-server feature stable: the SDK requests experimental capabilities during initialization.
+
+## 0.160.0 migration
+
+Compared with 0.150.1, the protocol adds 15 client methods and removes
+`thread/rollback`, for 167 client methods, 83 notifications, and 11 server-request
+families. New factories cover user verification, thread attachments, memory
+status, rollout compression, plugin reconciliation, live-turn settings, and
+gateway OAuth. They expose protocol capability; dedicated UI workflows are not
+implied.
+
+Handwritten adapters retain attachment invalidation facts in thread metadata,
+gateway OAuth changes in account extensions, and provider auth recovery facts
+in turn extensions. Attachment notifications contain identities only; hosts
+must fetch `thread/attachment/list` to refresh payloads. History item pages now
+preserve producer start/completion timestamps. Item cursors accept an opaque
+string or an item anchor through `CodexSchemaThreadItemsListCursor`.
+
+`account/rateLimits/read` now accepts omitted, null, or feature parameters.
+`turn/settings/update.serviceTier` preserves three wire states: omission leaves
+the tier unchanged, null clears it, and a value replaces it. The live-turn
+response can report `targetUnavailable`; callers must inspect that result.
+Use `thread/revert` for paginated history replacement. It does not revert files;
+legacy rollback is no longer advertised by this generated SDK.
+
+The runtime floor remains 0.148.0 for the existing lifecycle. New factories and
+notifications require the runtime version that introduced them; 0.160.0 is the
+verified target for this migration. No new required fields were introduced in
+shared schema definitions compared with 0.150.1. The accepted version range is
+not a claim that every new feature exists on older runtimes.
 
 ## 0.150.1 migration
 

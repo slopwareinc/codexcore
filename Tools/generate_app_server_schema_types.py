@@ -108,6 +108,7 @@ CLOSED_STRING_ENUMS = frozenset({
 # structs receive custom Codable implementations.
 TRISTATE_FIELDS = frozenset({
     ("CodexSchemaThreadSectionUpdateParams", "appearance"),
+    ("CodexSchemaTurnSettingsUpdateParams", "serviceTier"),
 })
 
 HANDSHAKE_SCHEMA_FILES = (
