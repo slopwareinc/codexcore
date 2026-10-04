@@ -18,11 +18,22 @@ import Foundation
 
 def load_methods(path: Path) -> list[str]:
     data = json.loads(path.read_text())
+    arms = data.get("oneOf") if isinstance(data, dict) else None
+    if not isinstance(arms, list) or not arms:
+        raise ValueError(f"{path.name}: expected a nonempty oneOf method inventory")
     methods: list[str] = []
-    for arm in data.get("oneOf", []):
-        enum_values = arm.get("properties", {}).get("method", {}).get("enum", [])
-        if enum_values:
-            methods.append(enum_values[0])
+    seen: set[str] = set()
+    for index, arm in enumerate(arms):
+        properties = arm.get("properties") if isinstance(arm, dict) else None
+        method = properties.get("method") if isinstance(properties, dict) else None
+        values = method.get("enum") if isinstance(method, dict) else None
+        if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], str) or not values[0]:
+            raise ValueError(f"{path.name}: oneOf[{index}] must define one nonempty method string")
+        value = values[0]
+        if value in seen:
+            raise ValueError(f"{path.name}: duplicate method {value!r}")
+        seen.add(value)
+        methods.append(value)
     return methods
 
 
