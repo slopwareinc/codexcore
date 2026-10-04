@@ -2,6 +2,31 @@ import XCTest
 @testable import CodexCore
 
 final class CodexJSONCoercionTests: XCTestCase {
+    func testFlatLookupPreservesScalarAndWhitespacePolicies() {
+        let object: [String: CodexJSONValue] = ["nested": .dictionary(["text": .string("nested")]), "blank": .string("  "), "value": .string("  value  ")]
+        XCTAssertEqual(CodexJSONCoercion.flatString(in: object, keys: ["nested", "blank", "value"]), "  ")
+        XCTAssertEqual(CodexJSONCoercion.flatString(in: object, keys: ["nested", "blank", "value"], trimmingWhitespace: true), "value")
+        XCTAssertEqual(CodexJSONCoercion.flatString(in: ["value": .bool(false)], keys: ["value"]), "false")
+    }
+
+    func testReconnectDelaySaturatesWithoutIntegerOverflow() {
+        let policy = CodexReconnectPolicy(initialDelayMilliseconds: 1, maximumDelayMilliseconds: .max, multiplier: 2)
+        XCTAssertEqual(policy.delayMilliseconds(forAttempt: 2), 2)
+        XCTAssertEqual(policy.delayMilliseconds(forAttempt: 65), UInt64.max)
+        XCTAssertEqual(policy.delayMilliseconds(forAttempt: Int.max), UInt64.max)
+        let huge = CodexReconnectPolicy(initialDelayMilliseconds: .max, maximumDelayMilliseconds: .max)
+        XCTAssertEqual(huge.delayMilliseconds(forAttempt: 2), UInt64.max)
+    }
+
+    func testIntegerCoercionRejectsNonfiniteAndOutOfRangeNumbers() {
+        for number in [Double.nan, .infinity, -.infinity, 1e100, -1e100, Double(Int.max)] {
+            XCTAssertNil(CodexJSONCoercion.int(from: .double(number)))
+        }
+        XCTAssertEqual(CodexJSONCoercion.int(from: .double(-2.9)), -2)
+        XCTAssertEqual(CodexJSONCoercion.int(from: .double(Double(Int.min))), Int.min)
+        XCTAssertEqual(CodexJSONCoercion.int(from: .double(Double(Int.max).nextDown)), Int.max - 1023)
+    }
+
     // MARK: - String helpers
 
     func testNilIfEmptyDoesNotTrim() {

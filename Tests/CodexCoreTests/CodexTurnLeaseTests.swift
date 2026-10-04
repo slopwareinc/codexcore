@@ -199,6 +199,84 @@ final class CodexTurnLeaseTests: XCTestCase {
         await session.stop()
     }
 
+    func testLiveSettingsPreserveWireStatesAndTargetUnavailable() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(transport: transport, configuration: .init(reconnectPolicy: .disabled))
+        _ = try await session.start()
+        let thread = try await session.startThread()
+        let turn = try await thread.startTurn(.init(input: [], threadID: thread.id.rawValue))
+        for tier: CodexAppServerOptionalField<String> in [.omitted, .null, .value("fast")] {
+            let response = try await turn.updateSettings(.init(
+                serviceTier: tier, threadID: thread.id.rawValue, turnID: turn.key.turnID.rawValue
+            ))
+            XCTAssertEqual(response.status, .targetUnavailable)
+            let raw = await transport.latestObjectParams(method: "turn/settings/update")
+            let params = try XCTUnwrap(raw)
+            switch tier {
+            case .omitted: XCTAssertNil(params["serviceTier"])
+            case .null: XCTAssertEqual(params["serviceTier"], .null)
+            case .value(let value): XCTAssertEqual(params["serviceTier"], .string(value))
+            }
+        }
+        for (threadID, turnID) in [("other", "turn-1"), ("thread-1", "other")] {
+            do {
+                _ = try await turn.updateSettings(.init(threadID: threadID, turnID: turnID))
+                XCTFail("A settings update must not escape its lease")
+            } catch let error as CodexLeaseError {
+                guard case .requestTurnMismatch = error else { return XCTFail("Unexpected: \(error)") }
+            }
+        }
+        let count = await transport.requestCount(method: "turn/settings/update")
+        XCTAssertEqual(count, 3)
+        await thread.close()
+        do {
+            _ = try await turn.updateSettings(.init(threadID: "thread-1", turnID: "turn-1"))
+            XCTFail("Closed lease must reject settings updates")
+        } catch let error as CodexLeaseError { XCTAssertEqual(error, .closedThread(thread.id)) }
+        await session.stop()
+    }
+
+    func testThreadSettingsAndAttachmentPagesStayWithinLease() async throws {
+        let transport = CodexSessionLeaseTestTransport()
+        let session = CodexSession(transport: transport, configuration: .init(reconnectPolicy: .disabled))
+        _ = try await session.start()
+        let thread = try await session.startThread()
+        _ = try await thread.updateSettings(.init(model: "model-new", threadID: thread.id.rawValue))
+        let page = try await thread.listAttachments(cursor: "opaque-next", limit: 7)
+        XCTAssertEqual(page.nextCursor, "opaque-end")
+        let raw = await transport.latestObjectParams(method: "thread/attachment/list")
+        let params = try XCTUnwrap(raw)
+        XCTAssertEqual(params["threadId"], .string(thread.id.rawValue))
+        XCTAssertEqual(params["cursor"], .string("opaque-next"))
+        XCTAssertEqual(params["limit"], .int(7))
+        do {
+            _ = try await thread.updateSettings(.init(threadID: "other"))
+            XCTFail("Wrong thread must be rejected")
+        } catch let error as CodexLeaseError {
+            XCTAssertEqual(error, .requestThreadMismatch(expected: thread.id, actual: .init("other")))
+        }
+        do {
+            _ = try await thread.addAttachment(.init(
+                attachmentType: "file", identityKey: "id", payload: .null, threadID: "other"
+            ))
+            XCTFail("Wrong attachment thread must be rejected")
+        } catch let error as CodexLeaseError {
+            XCTAssertEqual(error, .requestThreadMismatch(expected: thread.id, actual: .init("other")))
+        }
+        do {
+            _ = try await thread.removeAttachment(.init(attachmentType: "file", identityKey: "id", threadID: "other"))
+            XCTFail("Wrong removal thread must be rejected")
+        } catch let error as CodexLeaseError {
+            XCTAssertEqual(error, .requestThreadMismatch(expected: thread.id, actual: .init("other")))
+        }
+        await thread.close()
+        do {
+            _ = try await thread.listAttachments()
+            XCTFail("Closed lease must reject attachment reads")
+        } catch let error as CodexLeaseError { XCTAssertEqual(error, .closedThread(thread.id)) }
+        await session.stop()
+    }
+
     func testSteerAndInterruptCannotEscapeCompositeTurnKey() async throws {
         let transport = CodexSessionLeaseTestTransport()
         let session = CodexSession(
@@ -473,6 +551,10 @@ private actor CodexSessionLeaseTestTransport: CodexFrameTransport {
                     "items": .array([]),
                 ]),
             ])
+        case "turn/settings/update":
+            result = .dictionary(["status": .string("targetUnavailable")])
+        case "thread/attachment/list":
+            result = .dictionary(["data": .array([]), "nextCursor": .string("opaque-end")])
         case "turn/steer":
             let expectedTurnID = Self.stringParam(
                 "expectedTurnId",

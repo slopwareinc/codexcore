@@ -16,82 +16,39 @@ enum CodexSkillsChangeObserverError: Error, Sendable, Equatable {
 
 /// Coalescing observation for the global `skills/changed` invalidation.
 struct CodexSkillsChangeObserverHub {
-    private struct Entry {
-        let connectionEpoch: UInt64
-        let continuation: AsyncThrowingStream<
-            CodexSchemaSkillsChangedNotification,
-            Error
-        >.Continuation
-    }
+    private var hub = CodexGlobalOperationObserverHub<CodexSchemaSkillsChangedNotification>()
 
-    private var nextID: UInt64 = 1
-    private var entries: [CodexSkillsChangeObservationID: Entry] = [:]
-
-    var observerCount: Int { entries.count }
+    var observerCount: Int { hub.observerCount }
 
     mutating func observe(
         connectionEpoch: UInt64,
         onTermination: (@Sendable (CodexSkillsChangeObservationID) -> Void)? = nil
     ) -> CodexSkillsChangeObservation {
-        precondition(nextID < UInt64.max, "Skills observation space exhausted")
-        let id = CodexSkillsChangeObservationID(rawValue: nextID)
-        nextID += 1
-        let pair = AsyncThrowingStream<
-            CodexSchemaSkillsChangedNotification,
-            Error
-        >.makeStream(bufferingPolicy: .bufferingNewest(1))
-        pair.continuation.onTermination = { @Sendable _ in
-            onTermination?(id)
-        }
-        entries[id] = .init(
+        let observation = hub.observe(connectionEpoch: connectionEpoch, onTermination: { rawID in
+            onTermination?(CodexSkillsChangeObservationID(rawValue: rawID))
+        })
+        return .init(
+            id: .init(rawValue: observation.id),
             connectionEpoch: connectionEpoch,
-            continuation: pair.continuation
+            changes: observation.events
         )
-        return .init(id: id, connectionEpoch: connectionEpoch, changes: pair.stream)
     }
 
     @discardableResult
-    mutating func publish(
-        connectionEpoch: UInt64,
-        notification: CodexSchemaSkillsChangedNotification
-    ) -> Int {
-        var delivered = 0
-        var terminated: [CodexSkillsChangeObservationID] = []
-        for (id, entry) in entries where entry.connectionEpoch == connectionEpoch {
-            switch entry.continuation.yield(notification) {
-            case .enqueued, .dropped:
-                delivered += 1
-            case .terminated:
-                terminated.append(id)
-            @unknown default:
-                terminated.append(id)
-            }
-        }
-        for id in terminated {
-            entries.removeValue(forKey: id)
-        }
-        return delivered
+    mutating func publish(connectionEpoch: UInt64, notification: CodexSchemaSkillsChangedNotification) -> Int {
+        hub.publish(connectionEpoch: connectionEpoch, event: notification)
     }
 
     @discardableResult
     mutating func cancel(_ id: CodexSkillsChangeObservationID) -> Bool {
-        guard let entry = entries.removeValue(forKey: id) else { return false }
-        entry.continuation.finish(throwing: CancellationError())
-        return true
+        hub.cancel(id.rawValue)
     }
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let ids = entries.compactMap { id, entry in
-            entry.connectionEpoch == connectionEpoch ? id : nil
-        }
-        for id in ids {
-            entries.removeValue(forKey: id)?.continuation.finish(
-                throwing: CodexSkillsChangeObserverError.disconnected(
-                    connectionEpoch: connectionEpoch
-                )
-            )
-        }
-        return ids.count
+        hub.disconnect(
+            connectionEpoch: connectionEpoch,
+            error: CodexSkillsChangeObserverError.disconnected(connectionEpoch: connectionEpoch)
+        )
     }
 }

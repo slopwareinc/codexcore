@@ -43,6 +43,7 @@ URL/local audio, skills, mentions, and a lossless `raw` escape hatch.
 ## Control an active turn
 
 - `interrupt()` requests termination.
+- `updateSettings(...)` updates this exact live turn and returns the runtime status; `targetUnavailable` means the turn is no longer available.
 - `steer(...)` adds instruction to the exact active turn.
 - `steerTurn(...)` is the thread-scoped recovery form: it steers the supplied `expectedTurnID` and returns a lease for the server-confirmed turn.
 - `attachTurn(...)` creates a truthless handle backed by the existing thread lease for a known canonical turn; it is not an additional retention lease.
@@ -50,6 +51,38 @@ URL/local audio, skills, mentions, and a lossless `raw` escape hatch.
 - `observe(...)` returns an atomic seed followed by coalesced invalidation signals.
 
 Lease methods validate composite identities. A turn ID cannot be accidentally used with another thread.
+
+## Settings and durable attachments
+
+The 0.160.0 target supports live-turn settings through the turn lease:
+
+```swift
+let result = try await turn.updateSettings(.init(
+    effort: .high,
+    serviceTier: .null,
+    threadID: turn.key.threadID.rawValue,
+    turnID: turn.key.turnID.rawValue
+))
+if result.status == .targetUnavailable {
+    // Keep the selection for the next turn; do not retry against another turn.
+}
+```
+
+For `serviceTier`, `.omitted` leaves the current tier unchanged, `.null` clears
+it, and `.value(...)` replaces it. The SDK preserves unknown response statuses
+and does not infer success. `thread.updateSettings(...)` changes defaults for
+subsequent turns; the lease's establishment-time model/tier properties are not
+mutable mirrors of those settings.
+
+`thread.listAttachments(cursor:limit:)` reads one page of durable thread
+attachments. Follow `nextCursor` for subsequent pages. `addAttachment(...)` and
+`removeAttachment(...)` validate the supplied thread identity before sending.
+Attachment notifications contain identities only: refresh the list after an
+invalidation and after a fork to obtain payloads. These records are distinct
+from image/audio inputs attached to an individual user message.
+
+All these APIs reject closed leases; the generic generated request surface
+remains available when a host does not own a thread lease.
 
 ## Observe realtime Voice events
 

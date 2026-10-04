@@ -18,88 +18,41 @@ enum CodexThreadQueueObserverError: Error, Sendable, Equatable {
 /// Coalescing invalidation stream for durable thread queues. Notifications are
 /// intentionally lightweight, so consumers reread the authoritative queue.
 struct CodexThreadQueueObserverHub {
-    private struct Entry {
-        let connectionEpoch: UInt64
-        let threadID: String?
-        let continuation: AsyncThrowingStream<
-            CodexSchemaThreadQueueChangedNotification,
-            Error
-        >.Continuation
-    }
+    private var hub = CodexGlobalOperationObserverHub<CodexSchemaThreadQueueChangedNotification>()
 
-    private var nextID: UInt64 = 1
-    private var entries: [CodexThreadQueueObservationID: Entry] = [:]
-
-    var observerCount: Int { entries.count }
+    var observerCount: Int { hub.observerCount }
 
     mutating func observe(
         connectionEpoch: UInt64,
         threadID: String? = nil,
         onTermination: (@Sendable (CodexThreadQueueObservationID) -> Void)? = nil
     ) -> CodexThreadQueueObservation {
-        precondition(nextID < UInt64.max, "Thread queue observation space exhausted")
-        let id = CodexThreadQueueObservationID(rawValue: nextID)
-        nextID += 1
-        let pair = AsyncThrowingStream<
-            CodexSchemaThreadQueueChangedNotification,
-            Error
-        >.makeStream(bufferingPolicy: .bufferingNewest(1))
-        pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
-        entries[id] = .init(
+        let observation = hub.observe(
             connectionEpoch: connectionEpoch,
-            threadID: threadID,
-            continuation: pair.continuation
+            accepts: { threadID == nil || threadID == $0.threadID },
+            onTermination: { onTermination?(CodexThreadQueueObservationID(rawValue: $0)) }
         )
         return .init(
-            id: id,
-            connectionEpoch: connectionEpoch,
-            threadID: threadID,
-            changes: pair.stream
+            id: .init(rawValue: observation.id), connectionEpoch: connectionEpoch,
+            threadID: threadID, changes: observation.events
         )
     }
 
     @discardableResult
-    mutating func publish(
-        connectionEpoch: UInt64,
-        notification: CodexSchemaThreadQueueChangedNotification
-    ) -> Int {
-        var delivered = 0
-        var terminated: [CodexThreadQueueObservationID] = []
-        for (id, entry) in entries
-            where entry.connectionEpoch == connectionEpoch
-                && (entry.threadID == nil || entry.threadID == notification.threadID) {
-            switch entry.continuation.yield(notification) {
-            case .enqueued, .dropped:
-                delivered += 1
-            case .terminated:
-                terminated.append(id)
-            @unknown default:
-                terminated.append(id)
-            }
-        }
-        for id in terminated { entries.removeValue(forKey: id) }
-        return delivered
+    mutating func publish(connectionEpoch: UInt64, notification: CodexSchemaThreadQueueChangedNotification) -> Int {
+        hub.publish(connectionEpoch: connectionEpoch, event: notification)
     }
 
     @discardableResult
     mutating func cancel(_ id: CodexThreadQueueObservationID) -> Bool {
-        guard let entry = entries.removeValue(forKey: id) else { return false }
-        entry.continuation.finish(throwing: CancellationError())
-        return true
+        hub.cancel(id.rawValue)
     }
 
     @discardableResult
     mutating func disconnect(connectionEpoch: UInt64) -> Int {
-        let ids = entries.compactMap { id, entry in
-            entry.connectionEpoch == connectionEpoch ? id : nil
-        }
-        for id in ids {
-            entries.removeValue(forKey: id)?.continuation.finish(
-                throwing: CodexThreadQueueObserverError.disconnected(
-                    connectionEpoch: connectionEpoch
-                )
-            )
-        }
-        return ids.count
+        hub.disconnect(
+            connectionEpoch: connectionEpoch,
+            error: CodexThreadQueueObserverError.disconnected(connectionEpoch: connectionEpoch)
+        )
     }
 }

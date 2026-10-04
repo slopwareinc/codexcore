@@ -53,3 +53,7 @@ app-server frames
 ```
 
 Keep scroll position, drafts, selection, expansion, and other UI choices in MainActor-owned presentation state.
+
+## Ordered operation streams
+
+Realtime audio and transcript events are ordered data rather than snapshot invalidations. Each realtime observation buffers up to 2,048 events. If a consumer falls behind that bound, the stream throws and ends; restart the operation instead of continuing with missing deltas. Command output and filesystem change streams likewise report overflow rather than silently losing ordered data.

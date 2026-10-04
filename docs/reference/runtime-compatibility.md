@@ -41,6 +41,8 @@ string or an item anchor through `CodexSchemaThreadItemsListCursor`.
 `turn/settings/update.serviceTier` preserves three wire states: omission leaves
 the tier unchanged, null clears it, and a value replaces it. The live-turn
 response can report `targetUnavailable`; callers must inspect that result.
+Turn and thread leases expose validated settings updates and durable attachment
+operations; see [threads and turns](../sdk/threads-and-turns.md).
 Use `thread/revert` for paginated history replacement. It does not revert files;
 legacy rollback is no longer advertised by this generated SDK.
 

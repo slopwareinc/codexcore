@@ -410,6 +410,33 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
+    func testPluginImageRepositoryRetainsAppKitVectorSupport() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("icon-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        try view.dataWithPDF(inside: view.bounds).write(to: url)
+        let image = await CodexPluginImageRepository.image(for: url)
+        XCTAssertNotNil(image)
+    }
+
+    @MainActor
+    func testPluginImageRepositoryDownsamplesOversizedRasterAssets() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 1_024, pixelsHigh: 512, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: url)
+        let loaded = await CodexPluginImageRepository.image(for: url)
+        let image = try XCTUnwrap(loaded)
+        let cgImage = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        XCTAssertEqual(cgImage.width, 256)
+        XCTAssertEqual(cgImage.height, 128)
+    }
+
+    @MainActor
     func testPluginImageRepositoryLoadsAndCachesPublishedLocalAssetOffMain() async throws {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")
@@ -417,9 +444,20 @@ final class CodexIntegrationCatalogTests: XCTestCase {
         let symbol = try XCTUnwrap(NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil))
         try XCTUnwrap(symbol.tiffRepresentation).write(to: temporaryURL)
 
-        let loadedImage = await CodexPluginImageRepository.image(for: temporaryURL)
-        XCTAssertNotNil(loadedImage)
-        XCTAssertNotNil(CodexPluginImageRepository.cachedOrLocalImage(for: temporaryURL))
+        let loadedImages = await withTaskGroup(of: NSImage?.self) { group in
+            for _ in 0..<16 {
+                group.addTask { await CodexPluginImageRepository.image(for: temporaryURL) }
+            }
+            var images: [NSImage] = []
+            for await image in group {
+                if let image { images.append(image) }
+            }
+            return images
+        }
+        XCTAssertEqual(loadedImages.count, 16)
+        let first = try XCTUnwrap(loadedImages.first)
+        XCTAssertTrue(loadedImages.allSatisfy { $0 === first })
+        XCTAssertTrue(CodexPluginImageRepository.cachedImage(for: temporaryURL) === first)
     }
 
     func testIntegrationCatalogSessionOwnsMCPAndPluginLoadingState() {

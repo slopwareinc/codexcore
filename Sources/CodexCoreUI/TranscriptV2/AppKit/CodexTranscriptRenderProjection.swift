@@ -335,6 +335,8 @@ struct CodexTranscriptRenderDiagnostics: Sendable, Equatable {
     var heightCacheMissCount = 0
     var preparedTextCacheHitCount = 0
     var preparedTextCacheMissCount = 0
+    var imageAspectRatioCacheCount = 0
+    var heightCacheEntryCount = 0
     var markdownProjectionCount = 0
     var projectionDurationMilliseconds: Double = 0
 }
@@ -1139,9 +1141,20 @@ actor CodexTranscriptRenderProjector {
         }
         cachedSectionsByTurnID = cachedSectionsByTurnID.filter { liveTurnIDs.contains($0.key) }
 
+        var liveImageSources = Set<String>()
+        for item in itemsByID.values {
+            for chip in item.agentChips where chip.attachmentKind == .image {
+                if let source = chip.taskSummary { liveImageSources.insert(source) }
+            }
+        }
+        imageAspectRatioBySource = imageAspectRatioBySource.filter { liveImageSources.contains($0.key) }
+
         revisionByID = revisionByID.filter { liveIDs.contains($0.key) }
         heightByKey = heightByKey.filter { key, _ in
-            liveIDs.contains(key.id) && revisionByID[key.id]?.revision == key.revision
+            guard let item = itemsByID[key.id] else { return false }
+            return revisionByID[key.id]?.revision == key.revision
+                && key.widthPixels == Int((item.maxContentWidth * 2).rounded())
+                && key.theme == theme.fingerprint
         }
         let liveSourcePrefixes = Set(itemsByID.keys.map { id in
             id.rawValue.components(separatedBy: ":block:").first ?? id.rawValue
@@ -1165,6 +1178,8 @@ actor CodexTranscriptRenderProjector {
             heightCacheMissCount: cacheMisses,
             preparedTextCacheHitCount: preparedTextCacheHits,
             preparedTextCacheMissCount: preparedTextCacheMisses,
+            imageAspectRatioCacheCount: imageAspectRatioBySource.count,
+            heightCacheEntryCount: heightByKey.count,
             markdownProjectionCount: markdownProjections,
             projectionDurationMilliseconds: milliseconds
         )

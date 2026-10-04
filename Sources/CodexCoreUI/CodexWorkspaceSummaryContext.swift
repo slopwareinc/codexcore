@@ -81,80 +81,14 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
     }
 }
 
-/// Small synchronous Git probe used by value-type summary models. The query is
-/// intentionally best-effort: a missing Git binary or a non-repository path
-/// falls back to the historical path heuristic instead of making rendering
-/// fail.
+/// Best-effort Git probes never block the caller's actor on subprocess I/O.
 enum CodexWorkspaceGitProbe {
-    static func isLinkedWorktree(at url: URL) -> Bool? {
-        let directory = url.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
-
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["rev-parse", "--git-common-dir", "--git-dir"]
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-
-        let values = String(
-            decoding: output.fileHandleForReading.readDataToEndOfFile(),
-            as: UTF8.self
-        )
-        .split(whereSeparator: \.isNewline)
-        .map(String.init)
-        guard values.count >= 2 else { return nil }
-
-        let commonDirectory = resolveGitPath(values[0], relativeTo: directory)
-        let worktreeGitDirectory = resolveGitPath(values[1], relativeTo: directory)
-        return commonDirectory != worktreeGitDirectory
-    }
-
-    /// Resolve a repository root without making the caller's actor wait on a
-    /// Git subprocess. This is used while preparing the worktree modal; the
-    /// modal has an immediate path fallback and may refine it after this task
-    /// completes.
     static func repositoryRoot(at url: URL) async -> URL? {
-        await Task.detached(priority: .utility) {
-            repositoryRootSynchronously(at: url)
-        }.value
-    }
-
-    private static func repositoryRootSynchronously(at url: URL) -> URL? {
-        let directory = url.standardizedFileURL
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["rev-parse", "--show-toplevel"]
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-
-        let path = String(
-            decoding: output.fileHandleForReading.readDataToEndOfFile(),
-            as: UTF8.self
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return nil }
+        guard let result = try? await CodexProcessProbe.runAsync(
+            executable: URL(fileURLWithPath: "/usr/bin/git"), arguments: ["rev-parse", "--show-toplevel"],
+            directory: url.standardizedFileURL
+        ), result.status == 0,
+           let path = result.output.nilIfBlank else { return nil }
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
@@ -166,10 +100,4 @@ enum CodexWorkspaceGitProbe {
         return components.contains { $0.hasSuffix("-worktrees") }
     }
 
-    private static func resolveGitPath(_ path: String, relativeTo directory: URL) -> URL {
-        let url = URL(fileURLWithPath: path)
-        return url.isFileURL && path.hasPrefix("/")
-            ? url.standardizedFileURL
-            : directory.appendingPathComponent(path).standardizedFileURL
-    }
 }

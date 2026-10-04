@@ -35,6 +35,7 @@ struct CodexRealtimeObservationID: RawRepresentable, Sendable, Hashable {
 }
 
 enum CodexRealtimeObserverError: Error, Sendable, Equatable {
+    case bufferOverflow(maximumEventCount: Int)
     case disconnected(connectionEpoch: UInt64)
 }
 
@@ -46,6 +47,7 @@ struct CodexRealtimeObserverHub {
 
     private struct Entry {
         let key: Key
+        let maximumEventCount: Int
         let continuation: AsyncThrowingStream<CodexRealtimeEvent, Error>.Continuation
     }
 
@@ -56,21 +58,24 @@ struct CodexRealtimeObserverHub {
     mutating func observe(
         connectionEpoch: UInt64,
         threadID: String,
+        maximumEventCount: Int = 2_048,
         onTermination: (@Sendable (CodexRealtimeObservationID) -> Void)? = nil
     ) -> (
         id: CodexRealtimeObservationID,
         events: AsyncThrowingStream<CodexRealtimeEvent, Error>
     ) {
+        precondition(maximumEventCount > 0)
         precondition(nextID < UInt64.max, "Realtime observation space exhausted")
         let id = CodexRealtimeObservationID(rawValue: nextID)
         nextID += 1
         let pair = AsyncThrowingStream<CodexRealtimeEvent, Error>.makeStream(
-            bufferingPolicy: .bufferingNewest(2_048)
+            bufferingPolicy: .bufferingOldest(maximumEventCount)
         )
         pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
         let key = Key(connectionEpoch: connectionEpoch, threadID: threadID)
         entries[id] = Entry(
             key: key,
+            maximumEventCount: maximumEventCount,
             continuation: pair.continuation
         )
         observerIDsByKey[key, default: []].insert(id)
@@ -90,8 +95,15 @@ struct CodexRealtimeObserverHub {
         for id in matchingIDs {
             guard let entry = entries[id] else { continue }
             switch entry.continuation.yield(event) {
-            case .enqueued, .dropped:
+            case .enqueued:
                 delivered += 1
+            case .dropped:
+                // Audio and transcript deltas are ordered data, not invalidations.
+                // Losing one must fail visibly instead of pretending delivery succeeded.
+                entry.continuation.finish(throwing: CodexRealtimeObserverError.bufferOverflow(
+                    maximumEventCount: entry.maximumEventCount
+                ))
+                terminated.append(id)
             case .terminated:
                 terminated.append(id)
             @unknown default:

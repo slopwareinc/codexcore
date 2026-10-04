@@ -100,11 +100,16 @@ public enum CodexAutomationFrequency: String, CaseIterable, Codable, Equatable, 
 }
 
 public struct CodexAutomationSchedule: Codable, Equatable, Sendable {
-    public var frequency: CodexAutomationFrequency
-    public var hour: Int
-    public var minute: Int
+    public var frequency: CodexAutomationFrequency { didSet { unsupportedRRULE = nil } }
+    public var hour: Int { didSet { unsupportedRRULE = nil } }
+    public var minute: Int { didSet { unsupportedRRULE = nil } }
     /// Calendar weekday (1 = Sunday ... 7 = Saturday), used for weekly schedules.
-    public var weekday: Int
+    public var weekday: Int { didSet { unsupportedRRULE = nil } }
+
+    private var unsupportedRRULE: String?
+
+    /// Custom recurrence rules are preserved but not approximated by a daily run.
+    public var isSupported: Bool { unsupportedRRULE == nil }
 
     public init(frequency: CodexAutomationFrequency = .weekdays, hour: Int = 9, minute: Int = 0, weekday: Int = 2) {
         self.frequency = frequency
@@ -114,6 +119,7 @@ public struct CodexAutomationSchedule: Codable, Equatable, Sendable {
     }
 
     public var rrule: String {
+        if let unsupportedRRULE { return unsupportedRRULE }
         let time = "BYHOUR=\(hour);BYMINUTE=\(minute)"
         switch frequency {
         case .daily: return "FREQ=DAILY;\(time)"
@@ -125,26 +131,36 @@ public struct CodexAutomationSchedule: Codable, Equatable, Sendable {
     }
 
     public init(rrule: String) {
-        let values = Dictionary(uniqueKeysWithValues: rrule.split(separator: ";").compactMap { component -> (String, String)? in
+        var values: [String: String] = [:]
+        var valid = true
+        for component in rrule.split(separator: ";", omittingEmptySubsequences: false) {
             let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
-            return pair.count == 2 ? (pair[0], pair[1]) : nil
-        })
-        hour = Int(values["BYHOUR"] ?? "9") ?? 9
-        minute = Int(values["BYMINUTE"] ?? "0") ?? 0
+            guard pair.count == 2, values[pair[0]] == nil else { valid = false; continue }
+            values[pair[0]] = pair[1]
+        }
+        let hour = Int(values["BYHOUR"] ?? "9") ?? 9
+        let minute = Int(values["BYMINUTE"] ?? "0") ?? 0
         let days = values["BYDAY"] ?? ""
-        if days == "MO,TU,WE,TH,FR" {
-            frequency = .weekdays
-            weekday = 2
-        } else if values["FREQ"] == "WEEKLY", let index = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"].firstIndex(of: days) {
-            frequency = .weekly
-            weekday = index + 1
-        } else {
-            frequency = .daily
-            weekday = 2
+        let weeklyDay = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"].firstIndex(of: days)
+        let frequency: CodexAutomationFrequency
+        if values["FREQ"] == "WEEKLY", days == "MO,TU,WE,TH,FR" { frequency = .weekdays }
+        else if values["FREQ"] == "WEEKLY", weeklyDay != nil { frequency = .weekly }
+        else { frequency = .daily }
+        self.init(frequency: frequency, hour: hour, minute: minute, weekday: (weeklyDay ?? 1) + 1)
+        let knownKeys: Set<String> = ["FREQ", "BYHOUR", "BYMINUTE", "BYDAY", "INTERVAL"]
+        let supportedFrequency = (values["FREQ"] == "DAILY" && days.isEmpty)
+            || (values["FREQ"] == "WEEKLY" && (weeklyDay != nil || days == "MO,TU,WE,TH,FR"))
+        if !valid || !supportedFrequency || !Set(values.keys).isSubset(of: knownKeys)
+            || (values["INTERVAL"] != nil && values["INTERVAL"] != "1")
+            || (values["BYHOUR"].map { Int($0) == nil } ?? false)
+            || (values["BYMINUTE"].map { Int($0) == nil } ?? false)
+            || !(0...23).contains(hour) || !(0...59).contains(minute) {
+            unsupportedRRULE = rrule
         }
     }
 
     public func nextDate(after date: Date, calendar: Calendar = .current) -> Date? {
+        guard isSupported else { return nil }
         var components = DateComponents(hour: hour, minute: minute, second: 0)
         switch frequency {
         case .daily:
@@ -169,6 +185,7 @@ public struct CodexAutomationSchedule: Codable, Equatable, Sendable {
     }
 
     public var summary: String {
+        guard isSupported else { return "Custom schedule (automatic runs unavailable)" }
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short

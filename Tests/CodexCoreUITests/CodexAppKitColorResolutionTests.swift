@@ -64,15 +64,16 @@ struct CodexAppKitColorResolutionTests {
 
     // MARK: - Helpers
 
-    /// Runs `body` with the process's default appearance temporarily set to
+    /// Runs `body` with the current drawing appearance temporarily set to
     /// `appearance`, simulating the exact condition that caused the bug:
     /// resolving a color while the *ambient* appearance disagrees with the
     /// one actually wanted.
     private func withAmbientAppearance(_ name: NSAppearance.Name, _ body: () -> Void) {
-        let previous = NSAppearance.current
-        NSAppearance.current = NSAppearance(named: name)
-        defer { NSAppearance.current = previous }
-        body()
+        guard let appearance = NSAppearance(named: name) else {
+            Issue.record("Missing appearance: \(name)")
+            return
+        }
+        appearance.performAsCurrentDrawingAppearance(body)
     }
 
     private func isWhite(_ color: NSColor) -> Bool {

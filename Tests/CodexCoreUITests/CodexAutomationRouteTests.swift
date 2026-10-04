@@ -2,6 +2,19 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexAutomationRouteTests: XCTestCase {
+    func testCustomOrMalformedRecurrenceIsPreservedWithoutRunningAtTheWrongTime() throws {
+        for rule in ["FREQ=HOURLY;INTERVAL=1", "FREQ=DAILY;BYHOUR=1;BYHOUR=2", "FREQ=WEEKLY;BYDAY=MO;COUNT=3", "FREQ=DAILY;BYHOUR=99", "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;INTERVAL=2"] {
+            var schedule = CodexAutomationSchedule(rrule: rule)
+            XCTAssertFalse(schedule.isSupported)
+            XCTAssertEqual(schedule.rrule, rule)
+            XCTAssertNil(schedule.nextDate(after: Date()))
+            let decoded = try JSONDecoder().decode(CodexAutomationSchedule.self, from: JSONEncoder().encode(schedule))
+            XCTAssertEqual(decoded, schedule)
+            schedule.frequency = .daily
+            XCTAssertTrue(schedule.isSupported)
+        }
+    }
+
     func testCreateViaChatActionUsesCapturedAutomationPrompt() {
         let action = CodexAutomationRouteAction.createViaChat
 

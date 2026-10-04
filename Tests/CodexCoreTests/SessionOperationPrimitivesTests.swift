@@ -165,6 +165,25 @@ final class SessionOperationPrimitivesTests: XCTestCase {
         XCTAssertEqual(hub.observerCount, 0)
     }
 
+    func testRealtimeOverflowFailsInsteadOfSilentlyDroppingDeltas() async throws {
+        var hub = CodexRealtimeObserverHub()
+        let observation = hub.observe(connectionEpoch: 4, threadID: "voice", maximumEventCount: 1)
+        let first = CodexRealtimeEvent.transcriptDone(.init(role: "assistant", text: "first", threadID: "voice"))
+        let second = CodexRealtimeEvent.transcriptDone(.init(role: "assistant", text: "second", threadID: "voice"))
+        XCTAssertEqual(hub.publish(connectionEpoch: 4, event: first), 1)
+        XCTAssertEqual(hub.publish(connectionEpoch: 4, event: second), 0)
+        XCTAssertFalse(hub.cancel(observation.id))
+        var iterator = observation.events.makeAsyncIterator()
+        let retained = try await iterator.next()
+        XCTAssertEqual(retained, first)
+        do {
+            _ = try await iterator.next()
+            XCTFail("Realtime overflow must terminate with an error")
+        } catch let error as CodexRealtimeObserverError {
+            XCTAssertEqual(error, .bufferOverflow(maximumEventCount: 1))
+        }
+    }
+
     func testRealtimeHubRoutesOnlyTheMatchingEpochAndThread() async throws {
         var hub = CodexRealtimeObserverHub()
         let observation = hub.observe(connectionEpoch: 4, threadID: "voice")

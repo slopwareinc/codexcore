@@ -1,5 +1,4 @@
 import Dispatch
-import Darwin
 import Foundation
 
 /// Process and handshake configuration for one app-server session.
@@ -254,21 +253,6 @@ private final class CodexRuntimeResolutionCache: @unchecked Sendable {
     }
 }
 
-private final class CodexResolvedPathBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var path: String?
-
-    func store(_ path: String) {
-        lock.withLock {
-            self.path = path
-        }
-    }
-
-    var value: String? {
-        lock.withLock { path }
-    }
-}
-
 public enum CodexSDKError: CodexError, Sendable, CustomStringConvertible, LocalizedError {
     case runtimeNotFound
     case invalidRuntimePath(String)
@@ -513,19 +497,8 @@ public final class Codex: Sendable {
         do {
             let result: (status: Int32, output: String)
             do {
-                let process = Process()
-                process.executableURL = executableURL
-                process.arguments = ["--version"]
-                let output = Pipe()
-                process.standardOutput = output
-                process.standardError = output
-                try process.run()
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                result = (
-                    process.terminationStatus,
-                    String(data: data, encoding: .utf8) ?? ""
-                )
+                let probe = try CodexProcessProbe.run(executable: executableURL, arguments: ["--version"])
+                result = (probe.status, probe.output)
             } catch {
                 throw CodexSDKError.runtimeVersionProbeFailed(
                     path: executableURL.path,
@@ -784,58 +757,18 @@ public final class Codex: Sendable {
         return nil
     }
 
-    /// A login shell sources the user's full startup files, so the budget has to
-    /// cover a realistic `nvm`/`oh-my-zsh` profile on a cold spawn. It stays
-    /// short enough that a wedged shell cannot hold up launch, and the resolved
-    /// path is cached so the cost is paid once.
-    private static let loginShellLookupTimeout = DispatchTimeInterval.milliseconds(2000)
-
+    /// Login-shell startup is best-effort and gets a two-second cold-spawn budget.
     private static func runLoginShellLookup(
         shell: String,
         environment: [String: String]
     ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lc", "command -v codex"]
-        process.environment = environment
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let result = CodexResolvedPathBox()
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            if process.terminationStatus == 0,
-               let line = String(data: data, encoding: .utf8)?
-                .split(whereSeparator: \Character.isNewline)
-                .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-                .first(where: {
-                    !$0.isEmpty && FileManager.default.isExecutableFile(atPath: $0)
-                }),
-               FileManager.default.isExecutableFile(atPath: line) {
-                result.store(line)
-            }
-            finished.signal()
-        }
-
-        guard finished.wait(timeout: .now() + loginShellLookupTimeout) == .success else {
-            if process.isRunning {
-                process.terminate()
-                _ = Darwin.kill(process.processIdentifier, SIGKILL)
-            }
-            _ = finished.wait(timeout: .now() + .milliseconds(100))
-            return nil
-        }
-        return result.value
+        guard let result = try? CodexProcessProbe.run(
+            executable: URL(fileURLWithPath: shell), arguments: ["-lc", "command -v codex"],
+            environment: environment, timeout: .seconds(2)
+        ), result.status == 0 else { return nil }
+        return result.output.split(whereSeparator: \Character.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     /// Reads only CodexCore's namespaced runtime pin. The remainder of the

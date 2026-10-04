@@ -115,3 +115,16 @@ suppress, or replace selected canonical items before the transcript chooses its
 default activity renderer.
 
 Workspace initializer defaults include constant bindings and no-op actions, including approval resolution. Wire every capability your host exposes. Use `Sources/CodexCoreApp/CodexCoreAppModel.swift` as the reference host, but verify [support status](../reference/support-status.md) and do not copy it wholesale when a smaller adapter is enough.
+
+## Image resource limits
+
+Remote transcript previews accept at most 32 MiB of encoded image bytes;
+plugin icons accept at most 4 MiB. The shared loader checks HTTP success,
+rejects oversized declared lengths, bounds chunked bodies, propagates
+cancellation, and applies a 20-second resource deadline. Rejected assets use the
+existing placeholder. These limits apply to previews, not SDK image inputs.
+
+Raster plugin icons are downsampled off the main actor to at most 256 pixels on
+the longest edge. AppKit vector support remains available with bounded source
+reads. The icon cache has both a count limit and a decoded-cost limit; transcript
+thumbnails retain their separate size-aware cache.

@@ -159,17 +159,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string): return string
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null: continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys)
     }
 
     private static func dictionary(from value: CodexJSONValue?) -> [String: CodexJSONValue] {

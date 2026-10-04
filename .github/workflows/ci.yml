@@ -88,3 +88,8 @@ jobs:
 
       - name: Smoke test the pinned app-server
         run: scripts/smoke-runtime.sh
+
+      - name: Package and verify relocated app resources
+        env:
+          CODEXCORE_SIGNING_IDENTITY: "-"
+        run: scripts/package-app.sh

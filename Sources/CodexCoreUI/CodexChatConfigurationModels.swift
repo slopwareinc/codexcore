@@ -553,20 +553,7 @@ public struct CodexPermissionProfileSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string):
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null:
-                continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys, trimmingWhitespace: true)
     }
 
     private static func bool(in object: [String: CodexJSONValue], key: String) -> Bool? {
@@ -993,20 +980,7 @@ public struct CodexCollaborationModeOption: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            switch value {
-            case .string(let string):
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            case .int(let int): return String(int)
-            case .double(let double): return String(double)
-            case .bool(let bool): return String(bool)
-            case .array, .dictionary, .null:
-                continue
-            }
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys, trimmingWhitespace: true)
     }
 }
 
