@@ -44,6 +44,17 @@ build:
 test *ARGS:
     swift test {{ARGS}}
 
+# Fetch and verify the exact app-server release used by generated bindings.
+setup:
+    Tools/install_runtime.sh
+    swift build
+
+drift:
+    Tools/check_pinned_drift.sh
+
+smoke:
+    scripts/smoke-runtime.sh
+
 # Render component scenes to build/gallery for visual review.
 # Every theme family, both appearances. Liquid Glass renders as its opaque
 # fallback: the window server composites real glass from behind the window, so

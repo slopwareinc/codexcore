@@ -12,6 +12,13 @@ fi
 
 source "$TOOLS_DIR/app_server_schema_common.sh"
 
+actual_version="$("$CODEX_BIN" --version)"
+expected_version="$(cat "$ROOT/Tools/UPSTREAM_VERSION")"
+if [ "$actual_version" != "$expected_version" ]; then
+    echo "Drift check requires $expected_version; selected $actual_version. Regenerate for a migration." >&2
+    exit 1
+fi
+
 WORK_ROOT="$ROOT/.build/protocol-generation"
 mkdir -p "$WORK_ROOT"
 WORK_DIR="$(mktemp -d "$WORK_ROOT/drift.XXXXXX")"

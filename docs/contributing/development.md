@@ -23,10 +23,12 @@ just run
 just run-app
 ./scripts/package-app.sh --release
 python3 -m unittest discover Tools/tests
+Tools/check_pinned_drift.sh
+scripts/smoke-runtime.sh
 git diff --check
 ```
 
-Repository CI runs the default build and test suite, but contributors should still run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
+Repository CI runs the default build, test suite, exact-runtime drift check, and subprocess smoke test, but contributors should still run the relevant validation locally. `Tools/check_drift.sh` without `CODEX_BINARY` downloads the pinned GA runtime and therefore needs network access; set `CODEX_BINARY=/absolute/path/to/codex` for a local binary.
 
 SDK/session/protocol tests belong in `Tests/CodexCoreTests`. Presentation and fixture tests belong in `Tests/CodexCoreUITests`.
 

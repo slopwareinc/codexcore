@@ -82,3 +82,9 @@ jobs:
 
       - name: Run Python tests
         run: python3 -m unittest discover Tools/tests
+
+      - name: Check exact-runtime protocol drift
+        run: Tools/check_pinned_drift.sh
+
+      - name: Smoke test the pinned app-server
+        run: scripts/smoke-runtime.sh
