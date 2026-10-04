@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import ImageIO
 import SwiftUI
 
@@ -13,6 +14,7 @@ actor CodexTranscriptAttachmentThumbnailLoader {
     private let cache: NSCache<NSString, CGImage> = {
         let cache = NSCache<NSString, CGImage>()
         cache.countLimit = 32
+        cache.totalCostLimit = 16 * 1_024 * 1_024
         return cache
     }()
     private var inFlight: [String: Task<CodexTranscriptDecodedThumbnail?, Never>] = [:]
@@ -28,7 +30,16 @@ actor CodexTranscriptAttachmentThumbnailLoader {
         source: String,
         maxPixelSize: Int = 128
     ) async -> CodexTranscriptDecodedThumbnail? {
-        let cacheKey = "\(source.count):\(source.prefix(160)):\(source.suffix(80))#\(maxPixelSize)"
+        guard maxPixelSize > 0 else { return nil }
+        // Hash the complete source without retaining large inline data in cache keys.
+        let digest = SHA256.hash(data: Data(source.utf8)).description
+        var cacheKey = "\(digest)#\(maxPixelSize)"
+        if let path = CodexTranscriptImageSource.localFilePath(source),
+           let revision = try? URL(fileURLWithPath: path).resourceValues(forKeys: [
+               .contentModificationDateKey, .fileSizeKey
+           ]) {
+            cacheKey += "#\(revision.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)#\(revision.fileSize ?? 0)"
+        }
         let key = cacheKey as NSString
         if let cached = cache.object(forKey: key) {
             return CodexTranscriptDecodedThumbnail(image: cached, decodedOnMainThread: false)
@@ -41,7 +52,8 @@ actor CodexTranscriptAttachmentThumbnailLoader {
         let decoded = await task.value
         inFlight[cacheKey] = nil
         guard let decoded else { return nil }
-        cache.setObject(decoded.image, forKey: key)
+        let (cost, overflow) = decoded.image.bytesPerRow.multipliedReportingOverflow(by: decoded.image.height)
+        cache.setObject(decoded.image, forKey: key, cost: overflow ? Int.max : cost)
         return decoded
     }
 
