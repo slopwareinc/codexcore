@@ -16,7 +16,7 @@ struct CodexRegexCodeHighlighter: CodexCodeHighlighter {
         theme: CodexTranscriptAppKitTheme
     ) -> NSAttributedString? {
         let language = normalized(language)
-        guard supportedLanguages.contains(language) else { return nil }
+        guard language == "diff" || Self.rules[language] != nil else { return nil }
 
         let result = NSMutableAttributedString(string: code, attributes: [
             .font: theme.codeFont,
@@ -30,17 +30,46 @@ struct CodexRegexCodeHighlighter: CodexCodeHighlighter {
 
         let fullRange = NSRange(location: 0, length: (code as NSString).length)
         var protected = IndexSet()
-        apply(pattern: commentPattern(for: language), color: theme.codeComment, to: result, range: fullRange, protected: &protected, protectsMatches: true)
-        apply(pattern: stringPattern(for: language), color: theme.codeString, to: result, range: fullRange, protected: &protected, protectsMatches: true)
-        apply(pattern: #"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, color: theme.codeNumber, to: result, range: fullRange, protected: &protected)
-        if let keywords = keywords(for: language), !keywords.isEmpty {
-            let escaped = keywords.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-            apply(pattern: "\\b(?:\(escaped))\\b", color: theme.codeKeyword, to: result, range: fullRange, protected: &protected)
+        guard let rules = Self.rules[language] else { return nil }
+        // Scan comments and strings together so delimiters inside either stay opaque.
+        rules.tokens.enumerateMatches(in: code, range: fullRange) { match, _, _ in
+            guard let match else { return }
+            let color = match.range(at: 1).location != NSNotFound ? theme.codeComment : theme.codeString
+            result.addAttribute(.foregroundColor, value: color, range: match.range)
+            protected.insert(integersIn: match.range.location..<NSMaxRange(match.range))
+        }
+        apply(expression: Self.numberExpression, color: theme.codeNumber, to: result, range: fullRange, protected: protected)
+        if let keywords = rules.keywords {
+            apply(expression: keywords, color: theme.codeKeyword, to: result, range: fullRange, protected: protected)
         }
         return result
     }
 
-    private let supportedLanguages: Set<String> = ["swift", "javascript", "typescript", "python", "json", "bash", "diff"]
+    private struct Rules: Sendable {
+        let tokens: NSRegularExpression
+        let keywords: NSRegularExpression?
+    }
+
+    private static let numberExpression = compile(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#)
+    private static let rules: [String: Rules] = {
+        var rules: [String: Rules] = [:]
+        for language in ["swift", "javascript", "python", "json", "bash"] {
+            let keywordExpression = keywords(for: language).map { keywords in
+                compile("\\b(?:\(keywords.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")))\\b")
+            }
+            rules[language] = Rules(
+                tokens: compile("(\(commentPattern(for: language)))|(\(stringPattern(for: language)))"),
+                keywords: keywordExpression
+            )
+        }
+        rules["typescript"] = rules["javascript"]
+        return rules
+    }()
+
+    private static func compile(_ pattern: String) -> NSRegularExpression {
+        do { return try NSRegularExpression(pattern: pattern) }
+        catch { preconditionFailure("Invalid syntax highlighting pattern: \(error)") }
+    }
 
     private func normalized(_ language: String?) -> String {
         switch language?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
@@ -55,21 +84,21 @@ struct CodexRegexCodeHighlighter: CodexCodeHighlighter {
         }
     }
 
-    private func commentPattern(for language: String) -> String {
+    private static func commentPattern(for language: String) -> String {
         switch language {
-        case "python", "bash": return #"(?m)#.*$"#
+        case "python", "bash": return #"(?m:#.*$)"#
         case "json": return #"(?!)"#
-        default: return #"(?s)/\*.*?\*/|(?m)//.*$"#
+        default: return #"(?s:/\*.*?\*/)|(?m://.*$)"#
         }
     }
 
-    private func stringPattern(for language: String) -> String {
+    private static func stringPattern(for language: String) -> String {
         language == "bash"
             ? #"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""#
             : #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
     }
 
-    private func keywords(for language: String) -> [String]? {
+    private static func keywords(for language: String) -> [String]? {
         switch language {
         case "swift": return ["actor", "async", "await", "case", "class", "enum", "extension", "func", "guard", "if", "import", "let", "nil", "protocol", "return", "self", "struct", "switch", "throw", "throws", "true", "false", "var", "while"]
         case "javascript", "typescript": return ["async", "await", "break", "case", "catch", "class", "const", "continue", "default", "else", "export", "extends", "false", "finally", "for", "function", "if", "import", "interface", "let", "new", "null", "return", "switch", "throw", "true", "try", "type", "undefined", "var", "while"]
@@ -81,19 +110,16 @@ struct CodexRegexCodeHighlighter: CodexCodeHighlighter {
     }
 
     private func apply(
-        pattern: String,
+        expression: NSRegularExpression,
         color: NSColor,
         to result: NSMutableAttributedString,
         range: NSRange,
-        protected: inout IndexSet,
-        protectsMatches: Bool = false
+        protected: IndexSet
     ) {
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return }
-        for match in expression.matches(in: result.string, range: range) {
-            let matchIndexes = IndexSet(integersIn: match.range.location..<NSMaxRange(match.range))
-            guard protected.intersection(matchIndexes).isEmpty else { continue }
+        expression.enumerateMatches(in: result.string, range: range) { match, _, _ in
+            guard let match,
+                  !protected.intersects(integersIn: match.range.location..<NSMaxRange(match.range)) else { return }
             result.addAttribute(.foregroundColor, value: color, range: match.range)
-            if protectsMatches { protected.formUnion(matchIndexes) }
         }
     }
 
