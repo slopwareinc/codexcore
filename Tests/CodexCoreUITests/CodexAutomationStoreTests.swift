@@ -2,6 +2,39 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexAutomationStoreTests: XCTestCase {
+    func testSaveReadsCurrentDiskMetadataAndRefusesMalformedFiles() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("fresh")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("automation.toml")
+        let original = "id = \"fresh\"\nname = \"Name\"\nprompt = \"Prompt\"\nowner = \"old\"\n"
+        try original.write(to: file, atomically: true, encoding: .utf8)
+        let store = CodexAutomationFileStore(directoryURL: directory)
+        let loaded = await store.load()
+        let automation = try XCTUnwrap(loaded.automations.first)
+        try original.replacingOccurrences(of: "old", with: "new").write(to: file, atomically: true, encoding: .utf8)
+        try store.save(automation)
+        XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).contains("owner = \"new\""))
+        let malformed = "id = \"fresh\"\nname = \"unterminated"
+        try malformed.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.save(automation))
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), malformed)
+    }
+
+    func testUnsupportedAutomationKindIsNotConvertedToHeartbeat() async throws {
+        let contents = "id = \"cron\"\nkind = \"cron\"\nname = \"Name\"\nprompt = \"Prompt\"\n"
+        XCTAssertNil(CodexAutomationFileStore.decode(contents))
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("cron")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try contents.write(to: folder.appendingPathComponent("automation.toml"), atomically: true, encoding: .utf8)
+        let result = await CodexAutomationFileStore(directoryURL: directory).load()
+        XCTAssertTrue(result.automations.isEmpty)
+        XCTAssertEqual(result.errors.map(\.kind), [.parse])
+    }
+
     func testPausedHeartbeatFileRoundTripsWithoutResuming() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -33,7 +66,9 @@ final class CodexAutomationStoreTests: XCTestCase {
         XCTAssertEqual(automation.status, .disabled)
         XCTAssertEqual(automation.prompt, "Find roles with = signs, \n escapes, and \"quotes\".")
         XCTAssertEqual(automation.createdAt, Date(timeIntervalSince1970: 1_782_079_587.802))
-        XCTAssertEqual(automation.schedule.rrule, "FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
+        XCTAssertEqual(automation.schedule.rrule, "FREQ=HOURLY;INTERVAL=1")
+        XCTAssertFalse(automation.schedule.isSupported)
+        XCTAssertNil(automation.schedule.nextDate(after: Date()))
 
         try store.save(automation)
         let saved = try String(

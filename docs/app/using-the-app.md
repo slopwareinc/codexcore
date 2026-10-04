@@ -100,6 +100,8 @@ ordinary new-chat composer with an unsent prompt, preserving its project,
 permission, model, and attachment controls. The dashboard also supports direct
 scheduled creation, editing, enable/disable, run now, and deletion.
 
+The local scheduler supports daily, weekday, and weekly rules at one time of day. Other recurrence rules are preserved as custom schedules and do not run automatically; choose a supported schedule to enable automatic runs. Non-heartbeat files are reported as unsupported rather than converted. Saves reread existing TOML metadata and refuse to overwrite malformed files.
+
 The app sidebar includes **Automations** alongside the other primary routes.
 
 When Codex is connected and the app is running, a due automation starts an

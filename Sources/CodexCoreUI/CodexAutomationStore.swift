@@ -35,11 +35,8 @@ public struct CodexAutomationLoadError: Error, Equatable, Sendable, LocalizedErr
 public struct CodexAutomationFileStore: Sendable {
     public let directoryURL: URL
 
-    private let cache: Cache
-
     public init(directoryURL: URL) {
         self.directoryURL = directoryURL
-        self.cache = Cache()
     }
 
     /// Loads automation files away from the caller's actor.
@@ -49,9 +46,8 @@ public struct CodexAutomationFileStore: Sendable {
     /// hiding the automations that were readable.
     public func load() async -> CodexAutomationLoadResult {
         let directoryURL = directoryURL
-        let cache = cache
         return await Task.detached(priority: .userInitiated) {
-            Self.loadSynchronously(directoryURL: directoryURL, cache: cache)
+            Self.loadSynchronously(directoryURL: directoryURL)
         }.value
     }
 
@@ -59,7 +55,7 @@ public struct CodexAutomationFileStore: Sendable {
     /// the async result yet. New callers should use `await load()` so load
     /// failures remain visible.
     public func load() -> [CodexAutomation] {
-        Self.loadSynchronously(directoryURL: directoryURL, cache: cache).automations
+        Self.loadSynchronously(directoryURL: directoryURL).automations
     }
 
     public func save(_ automation: CodexAutomation) throws {
@@ -67,7 +63,7 @@ public struct CodexAutomationFileStore: Sendable {
         try FileManager.default.createDirectory(at: automationDirectory, withIntermediateDirectories: true)
         let file = automationDirectory.appendingPathComponent("automation.toml")
 
-        let existingDocument = cache.document(for: automation.id) ?? Self.readExistingDocument(at: file)
+        let existingDocument = try Self.readExistingDocument(at: file)
         let unknownValues = existingDocument?.unknownValues
             ?? [:]
         let rrule = existingDocument.map { document in
@@ -80,22 +76,12 @@ public struct CodexAutomationFileStore: Sendable {
             unknownValues: unknownValues,
             updatedAtMilliseconds: updatedAt
         ).write(to: file, atomically: true, encoding: .utf8)
-        cache.store(
-            Document(
-                automation: automation,
-                rrule: rrule,
-                unknownValues: unknownValues,
-                updatedAtMilliseconds: updatedAt
-            ),
-            for: automation.id
-        )
     }
 
     public func delete(id: String) throws {
         let directory = directoryURL.appendingPathComponent(id, isDirectory: true)
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         try FileManager.default.removeItem(at: directory)
-        cache.remove(for: id)
     }
 
     /// Encodes the official Codex automation schema.
@@ -169,12 +155,6 @@ private extension CodexAutomationFileStore {
             defer { lock.unlock() }
             return documents[id]
         }
-
-        func remove(for id: String) {
-            lock.lock()
-            documents.removeValue(forKey: id)
-            lock.unlock()
-        }
     }
 
     enum StoreError: Error, CustomStringConvertible {
@@ -189,7 +169,7 @@ private extension CodexAutomationFileStore {
         }
     }
 
-    static func loadSynchronously(directoryURL: URL, cache: Cache) -> CodexAutomationLoadResult {
+    static func loadSynchronously(directoryURL: URL) -> CodexAutomationLoadResult {
         let fileManager = FileManager.default
         let directories: [URL]
         do {
@@ -200,7 +180,8 @@ private extension CodexAutomationFileStore {
             ).filter { url in
                 (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             }.sorted { $0.path < $1.path }
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
             return CodexAutomationLoadResult()
         } catch {
             return CodexAutomationLoadResult(errors: [
@@ -231,7 +212,6 @@ private extension CodexAutomationFileStore {
             do {
                 let document = try parse(contents)
                 automations.append(document.automation)
-                cache.store(document, for: document.automation.id)
             } catch {
                 errors.append(CodexAutomationLoadError(
                     url: file,
@@ -247,14 +227,21 @@ private extension CodexAutomationFileStore {
         )
     }
 
-    static func readExistingDocument(at file: URL) -> Document? {
-        guard let contents = try? String(contentsOf: file, encoding: .utf8) else { return nil }
-        return try? parse(contents)
+    static func readExistingDocument(at file: URL) throws -> Document? {
+        do {
+            return try parse(String(contentsOf: file, encoding: .utf8))
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
+            return nil
+        }
     }
 
     static func parse(_ contents: String) throws -> Document {
         var parser = TOMLParser(contents)
         let values = try parser.parse()
+        if let kind = try string(values["kind"], key: "kind"), kind != "heartbeat" {
+            throw StoreError.invalidField("kind")
+        }
         guard let id = values["id"]?.stringValue else { throw StoreError.missingRequiredField("id") }
         guard let name = values["name"]?.stringValue else { throw StoreError.missingRequiredField("name") }
         guard let prompt = values["prompt"]?.stringValue else { throw StoreError.missingRequiredField("prompt") }
