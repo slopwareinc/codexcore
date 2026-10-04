@@ -362,7 +362,6 @@ final class CodexCoreAppModel {
         loginTask?.cancel()
         loginTask = nil
         cancelCurrentThreadObservation()
-        cancelThreadIndexObservation()
         activeTurnCompletionTask?.cancel()
         sideChatTurnCompletionTask?.cancel()
         activeTurnCompletionTask = nil
@@ -1395,25 +1394,12 @@ final class CodexCoreAppModel {
     }
 
     nonisolated private static func gitBranch(in path: String) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            do {
-                try process.run()
-                process.waitUntilExit()
-                guard process.terminationStatus == 0 else { return nil }
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let branch = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return branch?.isEmpty == false ? branch : nil
-            } catch {
-                return nil
-            }
-        }.value
+        guard let result = try? await CodexProcessProbe.runAsync(
+            executable: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["rev-parse", "--abbrev-ref", "HEAD"],
+            directory: URL(fileURLWithPath: path)
+        ), result.status == 0 else { return nil }
+        return result.output.nilIfBlank
     }
 
     private func refreshSlashCommands(forceReload: Bool = false) async {
