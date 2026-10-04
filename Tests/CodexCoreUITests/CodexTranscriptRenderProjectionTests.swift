@@ -960,6 +960,44 @@ struct CodexTranscriptRenderProjectionTests {
         })
     }
 
+    @Test func heightCacheReleasesPreviousWindowWidths() async throws {
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        let turn = CodexTurnV2(
+            id: "turn", finalAnswer: .init(id: "answer", text: "A stable answer.", isStreaming: false),
+            status: .done(durationMs: 1)
+        )
+        let presentation = CodexThreadUIPresentation(threadID: "thread", transcript: .init(turns: [turn]))
+        for width in stride(from: 600, through: 900, by: 10) {
+            let snapshot = try await projector.project(
+                presentation: presentation, availableWidth: CGFloat(width), theme: theme
+            )
+            #expect(snapshot.diagnostics.heightCacheEntryCount <= snapshot.itemsByID.count)
+        }
+    }
+
+    @Test func imageMetadataCacheReleasesSourcesFromPreviousThreads() async throws {
+        let source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAAqADAAQAAAABAAAAAQAAAACJcORAAAAADklEQVQIHWP4z8DwHwQBEPgD/dkGjrgAAAAASUVORK5CYII="
+        let projector = CodexTranscriptRenderProjector()
+        let theme = CodexTranscriptAppKitTheme(.officialDark, colorScheme: .dark)
+        for index in 0..<8 {
+            let turn = CodexTurnV2(
+                id: "turn", generatedImages: [.init(id: "image", source: source + String(repeating: " ", count: index))],
+                status: .done(durationMs: 1)
+            )
+            let snapshot = try await projector.project(
+                presentation: .init(threadID: "thread-\(index)", transcript: .init(turns: [turn])),
+                availableWidth: 860, theme: theme
+            )
+            #expect(snapshot.diagnostics.imageAspectRatioCacheCount == 1)
+        }
+        let empty = try await projector.project(
+            presentation: .init(threadID: "empty", transcript: .init(turns: [])),
+            availableWidth: 860, theme: theme
+        )
+        #expect(empty.diagnostics.imageAspectRatioCacheCount == 0)
+    }
+
     @Test func generatedImagePreviewUsesNativeAspectRatio() async throws {
         let source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAAqADAAQAAAABAAAAAQAAAACJcORAAAAADklEQVQIHWP4z8DwHwQBEPgD/dkGjrgAAAAASUVORK5CYII="
         let turn = CodexTurnV2(
