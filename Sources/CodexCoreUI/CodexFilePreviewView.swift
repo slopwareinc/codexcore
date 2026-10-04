@@ -84,7 +84,23 @@ enum CodexFilePreviewState: Sendable {
 /// own tree-sitter parser/query locally and returns only `Sendable` values, so
 /// an owning off-main task can cancel and discard it safely under strict
 /// concurrency.
-enum CodexFilePreviewLoader {
+package enum CodexFilePreviewLoader {
+    /// Exercises parser and query loading in the running executable's bundle,
+    /// including a relocated packaged app with no SwiftPM build tree nearby.
+    package static func missingHighlightGrammars() -> [String] {
+        let samples: [(String, String)] = [
+            ("swift", "let value = 1"), ("json", "{\"value\": 1}"),
+            ("js", "const value = 1;"), ("ts", "const value: number = 1;"),
+            ("py", "def f():\n    return 1"), ("go", "package main\nfunc main() {}"),
+            ("rs", "fn main() { let value = 1; }"), ("sh", "echo 'hello'"),
+            ("rb", "def hello\n  1\nend"), ("c", "int main() { return 0; }"),
+            ("yaml", "key: value"),
+        ]
+        return samples.compactMap { ext, source in
+            highlight(text: source, url: URL(fileURLWithPath: "sample.\(ext)")).isEmpty ? ext : nil
+        }
+    }
+
     /// Hard cap on bytes we will read into memory for preview.
     static let maxByteSize = 2 * 1024 * 1024
     /// Only files at or below this size get syntax highlighting (parsing cost).

@@ -31,7 +31,7 @@ CODEX_BINARY="$(Tools/install_runtime.sh)" just run
 open build/CodexCore.app
 ```
 
-Or run `just run-app` for a debug bundle. Finder launches use the runtime discovery order in [requirements](requirements.md); pin the installed path in the selected home’s `[codexcore].codex_binary_path` to make bundle launches reproducible. An existing home-config pin takes precedence over `CODEX_BINARY`. Output is `build/CodexCore.app` plus a versioned zip archive in `build/`. The packager derives `CFBundleVersion` from the Git commit count and embeds the full commit SHA in `CodexCoreGitCommit`; set `CODEXCORE_BUILD_NUMBER` to a valid numeric Core Foundation version when a release system supplies its own monotonically increasing build number.
+Or run `just run-app` for a debug bundle. Finder launches use the runtime discovery order in [requirements](requirements.md); pin the installed path in the selected home’s `[codexcore].codex_binary_path` to make bundle launches reproducible. An existing home-config pin takes precedence over `CODEX_BINARY`. Output is `build/CodexCore.app` plus a versioned zip archive in `build/`. The packager embeds the SwiftPM app and parser resource bundles, then verifies syntax highlighting by running the extracted archive’s executable with `--check-resources`. The packager derives `CFBundleVersion` from the Git commit count and embeds the full commit SHA in `CodexCoreGitCommit`; set `CODEXCORE_BUILD_NUMBER` to a valid numeric Core Foundation version when a release system supplies its own monotonically increasing build number.
 
 The packager automatically uses an installed Developer ID or Apple Development
 identity so macOS privacy grants survive rebuilds. Set

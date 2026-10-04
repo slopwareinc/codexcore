@@ -1,6 +1,6 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.13.0` with `codex-cli 0.148.0` or newer and types generated from `0.150.1`. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (development), accepting `codex-cli 0.148.x`–`0.160.x` and generating types from `0.160.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
 
 | Status | Meaning |
 | --- | --- |
@@ -47,7 +47,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.13.0` w
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |
-| Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. |
+| Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. Packaged archives validate all bundled grammar queries after relocation. |
 | Workspace terminal | Supported | Interactive Ghostty terminal in the workspace side panel. |
 | Embedded browser | Supported (manual) | WKWebView navigation only; not agent browser-tool integration. |
 | Plugin, skill, app, and MCP management | Supported | Browse and detail views use app-server inventory; install/uninstall, enable/disable, marketplace add/upgrade, and MCP OAuth actions route through the integration control plane. The public SDK also exposes paginated server-side plugin search. |

@@ -67,6 +67,15 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var terminationReplyInFlight = false
 
     static func main() {
+        if CommandLine.arguments.contains("--check-resources") {
+            let missing = CodexFilePreviewLoader.missingHighlightGrammars()
+            guard missing.isEmpty else {
+                fputs("Missing or invalid bundled syntax grammars: \(missing.joined(separator: ", "))\n", stderr)
+                exit(1)
+            }
+            print("Bundled syntax grammars verified")
+            return
+        }
         let application = NSApplication.shared
         let delegate = CodexCoreApp()
         sharedDelegate = delegate

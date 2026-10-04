@@ -6,6 +6,10 @@ import XCTest
 /// and confirming the bundled grammar/query resources resolve at runtime (build
 /// success alone does not prove the query bundles load).
 final class CodexFilePreviewLoaderTests: XCTestCase {
+    func testEveryPackagedGrammarCanParseAndHighlight() {
+        XCTAssertEqual(CodexFilePreviewLoader.missingHighlightGrammars(), [])
+    }
+
     private func load(_ contents: String, ext: String) throws -> CodexFilePreviewState {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-preview-\(UUID().uuidString).\(ext)")
