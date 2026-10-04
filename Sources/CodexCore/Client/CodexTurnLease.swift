@@ -121,25 +121,53 @@ public final class CodexThreadLease: @unchecked Sendable {
         await session.cancelObservation(observation.id)
     }
 
+    /// Updates the defaults for subsequent turns. Requires Codex 0.160.0.
+    @discardableResult
+    public func updateSettings(
+        _ params: CodexSchemaThreadSettingsUpdateParams
+    ) async throws -> CodexSchemaThreadSettingsUpdateResponse {
+        try requireThread(params.threadID)
+        return try await session.perform(CodexRequest.threadSettingsUpdate(params))
+    }
+
+    /// Reads one attachment page. Notifications carry identities only; fetch
+    /// again after an attachment invalidation or a fork. Requires Codex 0.160.0.
+    public func listAttachments(
+        cursor: String? = nil, limit: Int? = nil
+    ) async throws -> CodexSchemaThreadAttachmentListResponse {
+        try requireOpen()
+        return try await session.perform(CodexRequest.threadAttachmentList(
+            .init(cursor: cursor, limit: limit, threadID: id.rawValue)
+        ))
+    }
+
+    @discardableResult
+    public func addAttachment(
+        _ params: CodexSchemaThreadAttachmentAddParams
+    ) async throws -> CodexSchemaThreadAttachmentAddResponse {
+        try requireThread(params.threadID)
+        return try await session.perform(CodexRequest.threadAttachmentAdd(params))
+    }
+
+    @discardableResult
+    public func removeAttachment(
+        _ params: CodexSchemaThreadAttachmentRemoveParams
+    ) async throws -> CodexSchemaThreadAttachmentRemoveResponse {
+        try requireThread(params.threadID)
+        return try await session.perform(CodexRequest.threadAttachmentRemove(params))
+    }
+
     public func fork(
         _ params: CodexSchemaThreadForkParams
     ) async throws -> CodexThreadLease {
-        try requireOpen()
-        let actual = ThreadID(params.threadID)
-        guard actual == id else {
-            throw CodexLeaseError.requestThreadMismatch(expected: id, actual: actual)
-        }
+        try requireThread(params.threadID)
         return try await session.forkThread(params)
     }
 
     public func startTurn(
         _ suppliedParams: CodexSchemaTurnStartParams
     ) async throws -> CodexTurnLease {
-        try requireOpen()
-        let actualThreadID = ThreadID(suppliedParams.threadID)
-        guard actualThreadID == id else {
-            throw CodexLeaseError.requestThreadMismatch(expected: id, actual: actualThreadID)
-        }
+        try requireThread(suppliedParams.threadID)
 
         var params = suppliedParams
         let requestedIntentID = params.clientUserMessageID.map { SubmissionIntentID($0) }
@@ -215,6 +243,14 @@ public final class CodexThreadLease: @unchecked Sendable {
         )
     }
 
+    private func requireThread(_ rawID: String) throws {
+        try requireOpen()
+        let actual = ThreadID(rawID)
+        guard actual == id else {
+            throw CodexLeaseError.requestThreadMismatch(expected: id, actual: actual)
+        }
+    }
+
     fileprivate func requireOpen() throws {
         guard !isClosed else { throw CodexLeaseError.closedThread(id) }
     }
@@ -222,11 +258,7 @@ public final class CodexThreadLease: @unchecked Sendable {
     fileprivate func performSteer(
         _ suppliedParams: CodexSchemaTurnSteerParams
     ) async throws -> (response: CodexSchemaTurnSteerResponse, lease: CodexTurnLease) {
-        try requireOpen()
-        let actualThreadID = ThreadID(suppliedParams.threadID)
-        guard actualThreadID == id else {
-            throw CodexLeaseError.requestThreadMismatch(expected: id, actual: actualThreadID)
-        }
+        try requireThread(suppliedParams.threadID)
 
         var params = suppliedParams
         let expectedKey = TurnKey(
@@ -342,6 +374,25 @@ public struct CodexTurnLease: Sendable {
         }
     }
 
+    /// Applies settings to this exact live turn. `.targetUnavailable` is a
+    /// normal response when the turn has finished; it is never retried against
+    /// a different turn. Requires Codex 0.160.0.
+    @discardableResult
+    public func updateSettings(
+        _ params: CodexSchemaTurnSettingsUpdateParams
+    ) async throws -> CodexSchemaTurnSettingsUpdateResponse {
+        try requireTurn(threadID: params.threadID, turnID: params.turnID)
+        return try await thread.session.perform(CodexRequest.turnSettingsUpdate(params))
+    }
+
+    private func requireTurn(threadID: String, turnID: String) throws {
+        try thread.requireOpen()
+        let actual = TurnKey(threadID: ThreadID(threadID), turnID: TurnID(turnID))
+        guard actual == key else {
+            throw CodexLeaseError.requestTurnMismatch(expected: key, actual: actual)
+        }
+    }
+
     public func interrupt() async throws {
         try thread.requireOpen()
         _ = try await thread.session.perform(CodexRequest.turnInterrupt(
@@ -353,14 +404,7 @@ public struct CodexTurnLease: Sendable {
     public func steer(
         _ suppliedParams: CodexSchemaTurnSteerParams
     ) async throws -> CodexSchemaTurnSteerResponse {
-        try thread.requireOpen()
-        let actualKey = TurnKey(
-            threadID: ThreadID(suppliedParams.threadID),
-            turnID: TurnID(suppliedParams.expectedTurnID)
-        )
-        guard actualKey == key else {
-            throw CodexLeaseError.requestTurnMismatch(expected: key, actual: actualKey)
-        }
+        try requireTurn(threadID: suppliedParams.threadID, turnID: suppliedParams.expectedTurnID)
 
         let result = try await thread.performSteer(suppliedParams)
         guard result.lease.key == key else {
