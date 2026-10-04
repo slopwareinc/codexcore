@@ -170,11 +170,7 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
         self.projectOrder = Self.normalizedIDs(projectOrder)
         self.pinnedProjectIDs = Self.normalizedIDs(pinnedProjectIDs)
         self.hiddenProjectIDs = Set(hiddenProjectIDs.map(CodexProjectSummary.normalizedPath))
-        self.projectAliases = Dictionary(uniqueKeysWithValues: projectAliases.compactMap { path, alias in
-            let normalized = CodexProjectSummary.normalizedPath(path)
-            guard let alias = alias.nilIfBlank else { return nil }
-            return (normalized, alias)
-        })
+        self.projectAliases = Self.normalizedProjectAliases(projectAliases)
         self.selectedProjectPath = CodexProjectSummary.normalizedPath(selectedProjectPath ?? currentWorkspacePath)
         self.selectedThreadID = selectedThreadID ?? currentThreadID
         self.isProjectlessSelected = isProjectlessSelected
@@ -194,6 +190,17 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
         self.projectChatPreviewLimit = max(1, projectChatPreviewLimit)
         self.recentProjectInterval = max(0, recentProjectInterval)
         self.sortKey = sortKey
+    }
+
+    static func normalizedProjectAliases(_ aliases: [String: String]) -> [String: String] {
+        var result: [String: String] = [:]
+        for path in aliases.keys.sorted() {
+            guard let trimmedPath = path.nilIfBlank, let alias = aliases[path]?.nilIfBlank else { continue }
+            let normalized = CodexProjectSummary.normalizedPath(trimmedPath)
+            // Prefer an explicit canonical key; otherwise use stable lexical order.
+            if result[normalized] == nil || path == normalized { result[normalized] = alias }
+        }
+        return result
     }
 
     private static func normalizedIDs(_ ids: [String]) -> [String] {

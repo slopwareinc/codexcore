@@ -961,21 +961,11 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let string = CodexJSONCoercion.flatString(from: object[key])?.nilIfBlank else { continue }
-            return string
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys, trimmingWhitespace: true)
     }
 
     private static func bool(from value: CodexJSONValue?) -> Bool? {
-        switch value {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.bool(from: value)
     }
 
     private static func stringArray(from value: CodexJSONValue?) -> [String] {
@@ -1151,11 +1141,11 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
         listResponse: CodexJSONValue?,
         installedResponse: CodexJSONValue?
     ) -> [CodexAppSummary] {
-        let installedByID = Dictionary(uniqueKeysWithValues:
+        let installedByID = Dictionary(
             dictionaries(in: installedResponse, key: "apps").compactMap { object -> (String, [String: CodexJSONValue])? in
                 guard let id = string(in: object, keys: ["id"]) else { return nil }
                 return (id, object)
-            }
+            }, uniquingKeysWith: { _, latest in latest }
         )
 
         return dictionaries(in: listResponse, key: "data").compactMap { metadata in
@@ -1211,10 +1201,7 @@ public struct CodexAppSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            if let value = CodexJSONCoercion.flatString(from: object[key])?.nilIfBlank { return value }
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys, trimmingWhitespace: true)
     }
 
     private static func bool(in object: [String: CodexJSONValue], keys: [String]) -> Bool? {
@@ -1378,11 +1365,7 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func string(in object: [String: CodexJSONValue], keys: [String]) -> String? {
-        for key in keys {
-            guard let string = CodexJSONCoercion.flatString(from: object[key])?.nilIfBlank else { continue }
-            return string
-        }
-        return nil
+        CodexJSONCoercion.flatString(in: object, keys: keys, trimmingWhitespace: true)
     }
 
     private static func prompt(from value: CodexJSONValue?) -> String? {
@@ -1431,13 +1414,7 @@ public struct CodexSkillSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func bool(from value: CodexJSONValue?) -> Bool? {
-        switch value {
-        case .bool(let bool): return bool
-        case .string(let string): return Bool(string)
-        case .int(let int): return int != 0
-        case .double(let double): return double != 0
-        case .array, .dictionary, .null, nil: return nil
-        }
+        CodexJSONCoercion.bool(from: value)
     }
 }
 

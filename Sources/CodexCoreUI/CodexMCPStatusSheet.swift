@@ -134,9 +134,9 @@ public struct CodexMCPStatusSheet: View {
             enabledTools: server.enabledTools,
             disabledTools: server.disabledTools,
             defaultToolsApprovalMode: server.defaultToolsApprovalMode,
-            toolApprovalModes: Dictionary(uniqueKeysWithValues: server.tools.compactMap { tool in
+            toolApprovalModes: Dictionary(server.tools.compactMap { tool in
                 tool.approvalMode.map { (tool.name, $0) }
-            })
+            }, uniquingKeysWith: { _, latest in latest })
         )
     }
 
@@ -415,7 +415,7 @@ enum CodexMCPConfigurationText {
                 String(line[line.index(after: separator)...])
             )
         }
-        return Dictionary(uniqueKeysWithValues: entries)
+        return Dictionary(entries, uniquingKeysWith: { _, latest in latest })
     }
 
     static func lines(_ values: [String: String]) -> String {

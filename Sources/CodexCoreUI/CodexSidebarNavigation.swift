@@ -290,10 +290,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         self.projectOrder = Self.normalizedProjectOrder(projectOrder)
         self.pinnedProjectIDs = Self.normalizedProjectOrder(pinnedProjectIDs)
         self.hiddenProjectIDs = Set(hiddenProjectIDs.compactMap(Self.normalizedID))
-        self.projectAliases = Dictionary(uniqueKeysWithValues: projectAliases.compactMap { path, alias in
-            guard let id = Self.normalizedID(path), let name = alias.nilIfBlank else { return nil }
-            return (id, name)
-        })
+        self.projectAliases = CodexSidebarProjectionInput.normalizedProjectAliases(projectAliases)
         self.expandedSectionIDs = Set(expandedSectionIDs.filter {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         })
