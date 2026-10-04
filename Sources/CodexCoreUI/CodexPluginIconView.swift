@@ -1,6 +1,7 @@
 #if canImport(AppKit)
 import AppKit
 import Foundation
+import ImageIO
 import SwiftUI
 
 @MainActor
@@ -8,38 +9,70 @@ enum CodexPluginImageRepository {
     private static let cache: NSCache<NSURL, NSImage> = {
         let cache = NSCache<NSURL, NSImage>()
         cache.countLimit = 128
+        cache.totalCostLimit = 16 * 1_024 * 1_024
         return cache
     }()
-    private static var inFlight: [URL: Task<NSImage?, Never>] = [:]
+    private struct LoadedImage: @unchecked Sendable {
+        let image: NSImage
+        let cost: Int
+    }
+
+    private static var inFlight: [URL: Task<LoadedImage?, Never>] = [:]
 
     static func image(for url: URL) async -> NSImage? {
         if let cached = cachedImage(for: url) { return cached }
-        if let task = inFlight[url] { return await task.value }
+        if let task = inFlight[url] { return await task.value?.image }
         let task = Task.detached(priority: .utility) {
             await loadImage(from: url)
         }
         inFlight[url] = task
-        let image = await task.value
+        let loaded = await task.value
         inFlight[url] = nil
-        guard let image else { return nil }
-        cache.setObject(image, forKey: url as NSURL)
-        return image
+        guard let loaded else { return nil }
+        cache.setObject(loaded.image, forKey: url as NSURL, cost: loaded.cost)
+        return loaded.image
     }
 
     static func cachedImage(for url: URL) -> NSImage? {
         cache.object(forKey: url as NSURL)
     }
 
-    nonisolated private static func loadImage(from url: URL) async -> NSImage? {
-        if url.isFileURL { return NSImage(contentsOf: url) }
-        var request = URLRequest(url: url)
-        request.cachePolicy = .returnCacheDataElseLoad
-        request.timeoutInterval = 20
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) ?? true else {
-            return nil
+    nonisolated private static func loadImage(from url: URL) async -> LoadedImage? {
+        let source: CGImageSource?
+        let encodedData: Data?
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        if url.isFileURL {
+            source = CGImageSourceCreateWithURL(url as CFURL, options)
+            encodedData = nil
+        } else {
+            guard let data = try? await CodexImageResourceLoader.shared.data(
+                from: url, maximumBytes: 4 * 1_024 * 1_024
+            ) else { return nil }
+            source = CGImageSourceCreateWithData(data as CFData, options)
+            encodedData = data
         }
-        return NSImage(data: data)
+        // AppKit also supports vector formats such as PDF that ImageIO does
+        // not thumbnail. Keep that compatibility with a bounded source read.
+        guard let source else {
+            if let encodedData { return vectorImage(data: encodedData) }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            defer { try? handle.close() }
+            guard let data = try? handle.read(upToCount: 4 * 1_024 * 1_024 + 1),
+                  data.count <= 4 * 1_024 * 1_024 else { return nil }
+            return vectorImage(data: data)
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 256,
+        ] as CFDictionary) else { return nil }
+        return LoadedImage(image: NSImage(cgImage: image, size: .zero), cost: image.bytesPerRow * image.height)
+    }
+
+    nonisolated private static func vectorImage(data: Data) -> LoadedImage? {
+        guard let image = NSImage(data: data) else { return nil }
+        return LoadedImage(image: image, cost: 4 * 1_024 * 1_024)
     }
 }
 

@@ -64,7 +64,9 @@ actor CodexTranscriptAttachmentThumbnailLoader {
         let imageSource: CGImageSource?
         if let url = URL(string: source),
            url.scheme == "http" || url.scheme == "https" {
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            guard let data = try? await CodexImageResourceLoader.shared.data(
+                from: url, maximumBytes: 32 * 1_024 * 1_024
+            ) else { return nil }
             imageSource = CGImageSourceCreateWithData(data as CFData, [
                 kCGImageSourceShouldCache: false,
             ] as CFDictionary)

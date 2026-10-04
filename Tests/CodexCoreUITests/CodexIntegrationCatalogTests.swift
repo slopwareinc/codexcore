@@ -410,6 +410,33 @@ final class CodexIntegrationCatalogTests: XCTestCase {
     }
 
     @MainActor
+    func testPluginImageRepositoryRetainsAppKitVectorSupport() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("icon-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        try view.dataWithPDF(inside: view.bounds).write(to: url)
+        let image = await CodexPluginImageRepository.image(for: url)
+        XCTAssertNotNil(image)
+    }
+
+    @MainActor
+    func testPluginImageRepositoryDownsamplesOversizedRasterAssets() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 1_024, pixelsHigh: 512, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: url)
+        let loaded = await CodexPluginImageRepository.image(for: url)
+        let image = try XCTUnwrap(loaded)
+        let cgImage = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        XCTAssertEqual(cgImage.width, 256)
+        XCTAssertEqual(cgImage.height, 128)
+    }
+
+    @MainActor
     func testPluginImageRepositoryLoadsAndCachesPublishedLocalAssetOffMain() async throws {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-plugin-icon-\(UUID().uuidString).tiff")

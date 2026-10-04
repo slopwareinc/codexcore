@@ -40,9 +40,9 @@ Generated protocol boilerplate, request factories, and legacy public compatibili
 | CI did not exercise relocated app packaging | CI now packages with an ad-hoc identity and runs the packaging script's extracted-archive signature/resource checks |
 | Dead and redundant internals found by tracing | Removed unused linked-worktree probe/path holder, duplicate disconnect cancellation, obsolete automation document cache and unnecessary diff allocations |
 
-## Remaining findings, in execution order
+## Findings and execution order
 
-Priority here means engineering order: P1 can lose a user-visible operation or leave work stuck; P2 is a reproducible ownership/capacity or maintainability defect; P3 is a bounded follow-up requiring product or measurement decisions. These findings are not all fixed by PR #262.
+Priority here means engineering order: P1 can lose a user-visible operation or leave work stuck; P2 is a reproducible ownership/capacity or maintainability defect; P3 is a bounded follow-up requiring product or measurement decisions. These findings are not all fixed by PR #262. Resolved follow-ups are marked explicitly.
 
 ### 1. P1 — Automation UI commits memory before durable storage, and hides failures
 
@@ -86,11 +86,9 @@ The projector and collection cell each exceed 2,500 lines. Render-kind preparati
 
 Move one kind at a time into a preparation/measurement/configuration contract. Preserve the render oracle and test measured-versus-rendered sizes. Avoid a generic view abstraction that hides kind-specific behavior. Measure actual scrolling before attributing latency to file size.
 
-### 8. P2 — Downloaded image bytes are unbounded before downsampling
+### 8. Resolved — Downloaded image bytes were unbounded before downsampling
 
-Thumbnail/icon callers use whole-body `URLSession.data` before image decoding. Decoded cache limits do not bound download memory. The thumbnail path also needs consistent HTTP status and request deadline handling.
-
-Share a streamed resource loader with a byte budget, HTTP validation, cancellation and a visible fallback. Test excessive/error responses and cancellation with `URLProtocol`; select limits based on supported asset sizes.
+Thumbnail/icon callers previously used whole-body `URLSession.data` before image decoding. The compatibility follow-up replaces both with one pooled, chunked loader: success-status validation, declared/chunked byte limits (4 MiB icons, 32 MiB transcript previews), cancellation and a 20-second resource deadline. Raster icons are downsampled to 256 pixels off the main actor and cache cost is computed from the decoded image; bounded AppKit vector support is preserved. Regression tests cover concurrent isolation, cancellation, oversized bodies and raster/vector assets.
 
 ### 9. P2 — Voice log queue is unbounded even though log files rotate
 
@@ -118,7 +116,7 @@ Document and test uniqueness at ingestion, returning a recoverable error or dete
 
 ### 13. P3 — Tooling and local run commands have smaller robustness gaps
 
-The method generator skips unexpected schema arms rather than treating every malformed arm as an explicit failure, and lacks dedicated malformed-arm tests. Local process-kill commands can affect same-named apps from another checkout. Toolchain selection in sampling scripts can prefer an installed beta without an explicit request.
+The method generator now rejects malformed/empty inventories, malformed arms, duplicate methods and Swift case collisions, with five dedicated tests; exact pinned drift still passes. Remaining local process-kill commands can affect same-named apps from another checkout. Toolchain selection in sampling scripts can prefer an installed beta without an explicit request.
 
 Add schema-fixture failure tests without editing generated output, scope process selection to the checkout/executable, and make toolchain selection configurable. These are follow-up changes, not blockers for the current pinned runtime.
 
@@ -132,8 +130,12 @@ Set a review decoding budget if realistic payload measurements justify it. Captu
 
 The single ordered session actor, no-replay policy for uncertain mutations, pure reducer batch validation, scoped coalescing observation, indexed FIFO queues, bounded transport lines/stderr, history concurrency limits, thread leases, preview read/highlight limits, and injected dictation/startup seams are useful invariants. Replacing them with shorter but less explicit code would be a regression. Generated schema volume is necessary wire coverage, not a cleanup target.
 
+## Compatibility follow-up
+
+The verified target remains Codex 0.160.0. Thread leases now expose settings and durable attachment pages/add/remove; turn leases expose exact-turn settings updates. Shared identity checks reject mismatched or closed leases before sending. The tests preserve service-tier omission/null/value, return `targetUnavailable` without retrying another turn, and keep opaque attachment cursors. Generated schemas and factories remain untouched; the handwritten API and guide were updated together.
+
 ## Validation
 
-The complete Swift test run passed: 298 UI, 322 SDK and 22 app XCTest cases (one opt-in SDK test skipped), plus 368 UI, 11 SDK and 34 app Swift Testing cases. All 30 Python tests passed. The explicit isolated pinned-runtime smoke test passed. Packaging uses an ad-hoc signature and verifies the extracted archive and relocated resources; distribution notarization requires the separately configured signing workflow.
+The complete Swift test run passed: 305 UI, 324 SDK and 22 app XCTest cases (one opt-in SDK test skipped), plus 368 UI, 11 SDK and 34 app Swift Testing cases. All 35 Python tests passed, and exact 0.160.0 protocol drift passed. The explicit isolated pinned-runtime smoke test passed. Packaging uses an ad-hoc signature and verifies the extracted archive and relocated resources; distribution notarization requires the separately configured signing workflow.
 
 Existing Ghostty view-update warnings remain visible in the test output. No claim of a warning-free build, exhaustive security review, or production performance certification is made. For subsequent fixes, preserve this report's remaining findings until their specific failure cases are tested and resolved.
