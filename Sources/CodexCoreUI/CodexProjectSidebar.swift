@@ -56,6 +56,9 @@ public struct CodexProjectSidebar: View {
     let onArchiveSelectedChats: () -> Void
     let onLoadArchivedChats: () -> Void
     let onLoadMoreArchivedChats: () -> Void
+    let hasMoreActiveChats: Bool
+    let isLoadingMoreActiveChats: Bool
+    let onLoadMoreActiveChats: () -> Void
     let onUnarchiveChat: (CodexThreadSummary) -> Void
     let sectionDestinations: [CodexSidebarSectionSummary]
     let onMoveChat: (CodexThreadSummary, String?) -> Void
@@ -92,6 +95,9 @@ public struct CodexProjectSidebar: View {
         onArchiveSelectedChats: @escaping () -> Void = {},
         onLoadArchivedChats: @escaping () -> Void = {},
         onLoadMoreArchivedChats: @escaping () -> Void = {},
+        hasMoreActiveChats: Bool = false,
+        isLoadingMoreActiveChats: Bool = false,
+        onLoadMoreActiveChats: @escaping () -> Void = {},
         onUnarchiveChat: @escaping (CodexThreadSummary) -> Void = { _ in },
         sectionDestinations: [CodexSidebarSectionSummary] = [],
         onMoveChat: @escaping (CodexThreadSummary, String?) -> Void = { _, _ in },
@@ -127,6 +133,9 @@ public struct CodexProjectSidebar: View {
         self.onArchiveSelectedChats = onArchiveSelectedChats
         self.onLoadArchivedChats = onLoadArchivedChats
         self.onLoadMoreArchivedChats = onLoadMoreArchivedChats
+        self.hasMoreActiveChats = hasMoreActiveChats
+        self.isLoadingMoreActiveChats = isLoadingMoreActiveChats
+        self.onLoadMoreActiveChats = onLoadMoreActiveChats
         self.onUnarchiveChat = onUnarchiveChat
         self.sectionDestinations = sectionDestinations
         self.onMoveChat = onMoveChat
@@ -157,6 +166,11 @@ public struct CodexProjectSidebar: View {
                     projectlessSection
                     projectListSection
                     olderProjectsSection
+                    if hasMoreActiveChats && !snapshot.isCollapsed {
+                        Button(isLoadingMoreActiveChats ? "Loading chats…" : "Load older chats", action: onLoadMoreActiveChats)
+                            .font(theme.fonts.caption).disabled(isLoadingMoreActiveChats)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                    }
                     archivedSection
                 }
                 .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
@@ -760,10 +774,10 @@ struct ProjectSidebarGroupView: View {
             HStack(spacing: 2) {
                 Button {
                     if group.isExpanded {
-                        onToggleProject(group.project.workspacePath)
+                        onToggleProject(group.project.id)
                     } else {
-                        onToggleProject(group.project.workspacePath)
-                        onSelectProject(group.project.workspacePath)
+                        onToggleProject(group.project.id)
+                        onSelectProject(group.project.id)
                     }
                 } label: {
                     HStack(spacing: 11) {
@@ -806,7 +820,7 @@ struct ProjectSidebarGroupView: View {
             }
             .onHover { isHovered = $0 }
             .animation(.easeOut(duration: 0.12), value: isHovered)
-            .draggable(group.project.workspacePath) {
+            .draggable(group.project.id) {
                 Label(group.project.displayName, systemImage: "folder")
                     .font(theme.fonts.sidebar.projectTitle.font)
                     .padding(.horizontal, 12)
@@ -818,7 +832,7 @@ struct ProjectSidebarGroupView: View {
                 let placement: CodexProjectDropPlacement = location.y >= theme.fonts.sidebar.projectRowHeight / 2
                     ? .after
                     : .before
-                onMoveProject(sourcePath, group.project.workspacePath, placement)
+                onMoveProject(sourcePath, group.project.id, placement)
                 return true
             } isTargeted: { isDropTargeted = $0 }
             .confirmationDialog(
@@ -826,7 +840,7 @@ struct ProjectSidebarGroupView: View {
                 isPresented: $isArchiveConfirmationPresented
             ) {
                 Button("Archive chats", role: .destructive) {
-                    onArchiveProjectChats(group.project.workspacePath)
+                    onArchiveProjectChats(group.project.id)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -878,7 +892,7 @@ struct ProjectSidebarGroupView: View {
         HStack(spacing: 2) {
             Menu {
                 Button {
-                    onToggleProjectPin(group.project.workspacePath)
+                    onToggleProjectPin(group.project.id)
                 } label: {
                     Label(
                         group.isPinned ? "Unpin project" : "Pin project",
@@ -902,7 +916,7 @@ struct ProjectSidebarGroupView: View {
                     Label("Archive chats", systemImage: "archivebox")
                 }
                 Button(role: .destructive) {
-                    onRemoveProject(group.project.workspacePath)
+                    onRemoveProject(group.project.id)
                 } label: {
                     Label("Remove", systemImage: "xmark")
                 }
@@ -920,7 +934,7 @@ struct ProjectSidebarGroupView: View {
 
             if group.canStartNewChat {
                 Button {
-                    onStartProjectChat(group.project.workspacePath)
+                    onStartProjectChat(group.project.id)
                 } label: {
                     Image(systemName: "square.and.pencil")
                         .font(theme.fonts.chipLabel)

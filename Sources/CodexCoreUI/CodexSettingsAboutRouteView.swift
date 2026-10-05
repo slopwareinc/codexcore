@@ -10,6 +10,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
     case integrations
     case sections
     case hooks
+    case runtime
     case about
 
     public var id: String { rawValue }
@@ -27,6 +28,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .agents: return "Agent instructions"
         case .integrations: return "Integrations"
         case .sections: return "Chat sections"
+        case .runtime: return "Runtime features"
         case .hooks: return "Hooks"
         case .about: return "About"
         }
@@ -41,6 +43,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         case .agents: return "doc.text.magnifyingglass"
         case .integrations: return "puzzlepiece.extension"
         case .sections: return "rectangle.3.group"
+        case .runtime: return "square.stack.3d.up"
         case .hooks: return "bolt.shield"
         case .about: return "info.circle"
         }
@@ -50,7 +53,7 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general, .appearance, .profile, .configuration:
             return "Personal"
-        case .agents, .sections, .hooks:
+        case .agents, .sections, .hooks, .runtime:
             return "Coding"
         case .integrations:
             return "Integrations"
@@ -75,6 +78,8 @@ public enum CodexSettingsRoute: String, CaseIterable, Identifiable, Sendable {
             return ["mcp", "browser", "computer use", "plugins"]
         case .sections:
             return ["chats", "groups", "icons", "colors", "pinned"]
+        case .runtime:
+            return ["account", "gateway", "verification", "voice", "memory", "attachments", "projects", "files", "processes", "import", "experiments", "remote"]
         case .hooks:
             return ["automation", "command", "async", "mcp", "trust", "tool gates"]
         case .about:
@@ -108,6 +113,7 @@ public struct CodexSettingsAboutRouteView: View {
     public let hooksError: String?
     public let hooksProvider: (any CodexIntegrationControlPlaneProvider)?
     public let onRefreshHooks: (() -> Void)?
+    public let runtimeFeatures: AnyView?
     public let onBackToApp: (() -> Void)?
 
     @Binding private var appearanceSettings: CodexAppearanceSettings
@@ -158,6 +164,7 @@ public struct CodexSettingsAboutRouteView: View {
         hooksError: String? = nil,
         hooksProvider: (any CodexIntegrationControlPlaneProvider)? = nil,
         onRefreshHooks: (() -> Void)? = nil,
+        runtimeFeatures: AnyView? = nil,
         onBackToApp: (() -> Void)? = nil
     ) {
         self.metadata = metadata
@@ -192,6 +199,7 @@ public struct CodexSettingsAboutRouteView: View {
         self.hooksError = hooksError
         self.hooksProvider = hooksProvider
         self.onRefreshHooks = onRefreshHooks
+        self.runtimeFeatures = runtimeFeatures
         self.onBackToApp = onBackToApp
     }
 
@@ -341,6 +349,8 @@ public struct CodexSettingsAboutRouteView: View {
                 provider: hooksProvider,
                 onRefresh: { onRefreshHooks?() }
             )
+        case .runtime:
+            runtimeFeatures
         case .about:
             CodexSettingsAboutPage(
                 metadata: metadata,
@@ -410,7 +420,7 @@ public struct CodexSettingsAboutRouteView: View {
     }
 
     private var supportedRoutes: [CodexSettingsRoute] {
-        CodexSettingsRoute.availableRoutes
+        CodexSettingsRoute.availableRoutes.filter { $0 != .runtime || runtimeFeatures != nil }
     }
 
     private var effectiveApprovalOptions: [CodexApprovalSelection] {

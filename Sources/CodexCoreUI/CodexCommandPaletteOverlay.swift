@@ -16,6 +16,9 @@ public struct CodexCommandPaletteOverlay: View {
     public let onClearSearchResults: () -> Void
     public let onSelectChat: (CodexThreadSearchResult) -> Void
     public let onSelectCommand: (CodexCommandPaletteAction) -> Void
+    public let hasMoreChatResults: Bool
+    public let onLoadMoreChatResults: () async -> Void
+    public let onFindOccurrences: ((CodexThreadSearchResult, String) -> Void)?
 
     @State private var query = ""
     @State private var searchTask: Task<Void, Never>?
@@ -31,7 +34,10 @@ public struct CodexCommandPaletteOverlay: View {
         onSearchChats: @escaping (String) async -> Void,
         onClearSearchResults: @escaping () -> Void,
         onSelectChat: @escaping (CodexThreadSearchResult) -> Void,
-        onSelectCommand: @escaping (CodexCommandPaletteAction) -> Void
+        onSelectCommand: @escaping (CodexCommandPaletteAction) -> Void,
+        hasMoreChatResults: Bool = false,
+        onLoadMoreChatResults: @escaping () async -> Void = {},
+        onFindOccurrences: ((CodexThreadSearchResult, String) -> Void)? = nil
     ) {
         self.commandRows = commandRows
         self.searchResults = searchResults
@@ -42,6 +48,9 @@ public struct CodexCommandPaletteOverlay: View {
         self.onClearSearchResults = onClearSearchResults
         self.onSelectChat = onSelectChat
         self.onSelectCommand = onSelectCommand
+        self.hasMoreChatResults = hasMoreChatResults
+        self.onLoadMoreChatResults = onLoadMoreChatResults
+        self.onFindOccurrences = onFindOccurrences
     }
 
     public var body: some View {
@@ -173,6 +182,10 @@ public struct CodexCommandPaletteOverlay: View {
                     ForEach(paletteModel.sections) { section in
                         sectionView(section)
                     }
+                    if hasMoreChatResults {
+                        Button("Load more matching chats") { Task { await onLoadMoreChatResults() } }
+                            .disabled(isSearchingChats).font(theme.fonts.caption)
+                    }
                 }
                 .padding(.vertical, 2)
             }
@@ -220,6 +233,12 @@ public struct CodexCommandPaletteOverlay: View {
             }
         )
         .id(row.id)
+        .contextMenu {
+            if case .chat(let result) = row.kind, let onFindOccurrences,
+               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Find matches in this chat") { onFindOccurrences(result, query.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            }
+        }
     }
 
     private func emptyCategoryRow(_ title: String) -> some View {

@@ -67,6 +67,21 @@ The canonical projection keeps the opening prompt in `CodexTurnV2.userMessage`, 
 4. Route approval and input requests through explicit host actions.
 5. Close leases when their presentation or operation reason ends.
 
+### Device-code login
+
+Keep the identified `CodexLoginAttempt` returned by `Codex.startLogin` in the
+host for the entire device-code flow. A Cancel login action calls
+`attempt.cancel()` on that attempt; canceling only its completion task does not
+send `account/login/cancel`. Scope pending completion and cancellation to the
+owning connection and login generation so an obsolete login cannot update a
+replacement flow.
+
+`CodexAuthSession.deviceCodeEnded(message:)` clears the visible verification
+URL and code after cancellation or failed completion without claiming a
+successful sign-in. Call `deviceCodeCompleted()` only for a successful login.
+Keep a failed cancellation actionable and retain its attempt until its terminal
+outcome is known.
+
 ## Workspace tabs
 
 Keep one `CodexWorkspacePanelState` per thread outside transient SwiftUI view
@@ -115,6 +130,32 @@ suppress, or replace selected canonical items before the transcript chooses its
 default activity renderer.
 
 Workspace initializer defaults include constant bindings and no-op actions, including approval resolution. Wire every capability your host exposes. Use `Sources/CodexCoreApp/CodexCoreAppModel.swift` as the reference host, but verify [support status](../reference/support-status.md) and do not copy it wholesale when a smaller adapter is enough.
+
+## Focus a search occurrence
+
+Apply `.codexTranscriptFocus(focusRequest)` to the transcript or workspace host.
+Create a `CodexTranscriptFocusRequest(threadID:turnID:itemID:)` after loading the
+occurrence's `turnCursor` history page. The request retains the exact protocol
+item identity across Markdown blocks, expands collapsed diagnostic ancestors,
+and scrolls to the item. Omit `itemID` to focus a turn instead. An unloaded target
+remains pending until the corresponding presentation arrives; a request never
+navigates a different thread. Set the request to `nil` to cancel pending focus,
+and create a fresh request to revisit the same result.
+
+## Synced project identity
+
+Use `CodexProjectSummary.id` as the durable sidebar identity. It returns the
+opaque `serverID` for synced projects and falls back to `workspacePath` for
+local projects. Keep `workspacePath` separate for folder navigation and reveal
+actions: two synced projects can share a folder while retaining distinct IDs.
+Pass both facts to `CodexSidebarNavigationSession.selectProject(_:workspacePath:)`;
+pass the optional `projectID` when calling `selectChat`, `startNewChat`, or
+`syncCurrentWorkspace` so selection does not collapse to a shared folder.
+
+After refreshing projects, call `reconcileProjectIdentities(_:)` and persist the
+navigation state when it returns `true`. It migrates legacy folder preferences
+to each matching server ID, including shared-root projects, and preserves
+explicit server-ID aliases over migrated folder aliases.
 
 ## Image resource limits
 

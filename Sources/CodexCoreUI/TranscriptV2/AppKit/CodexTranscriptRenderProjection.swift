@@ -286,6 +286,7 @@ enum CodexTranscriptCopyPayload: @unchecked Sendable {
 
 struct CodexTranscriptRenderItem: @unchecked Sendable {
     var id: CodexTranscriptRenderItemID
+    var sourceItemID: String? = nil
     var sectionID: String
     var turnID: String
     var revision: Int
@@ -619,6 +620,7 @@ actor CodexTranscriptRenderProjector {
                 }
                 let item = CodexTranscriptRenderItem(
                     id: id,
+                    sourceItemID: draft.sourceItemID,
                     sectionID: sectionID,
                     turnID: turn.id,
                     revision: revision,
@@ -718,6 +720,7 @@ actor CodexTranscriptRenderProjector {
                           renderedMCPAppIDs.insert(call.id).inserted else { continue }
                     append(ItemDraft(
                         id: "\(sectionID):row:\(call.id):mcp-app",
+                        sourceItemID: call.id,
                         fingerprint: "mcp-app:\(descriptor.id):\(descriptor.revision):\(descriptor.preferredDisplayMode.rawValue)",
                         mcpApp: descriptor,
                         action: .openMCPApp(descriptor),
@@ -749,11 +752,11 @@ actor CodexTranscriptRenderProjector {
                     case .prose(let prose):
                         if tailMode { continue }
                         let sourceID = "\(sectionID):commentary:\(prose.id)"
-                        for draft in contentDrafts(
+                        for var draft in contentDrafts(
                             text: prose.text, streaming: prose.isStreaming, sourceID: sourceID,
                             role: .commentary, theme: theme, cacheHits: &preparedTextCacheHits,
                             cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
-                        ) { append(draft) }
+                        ) { draft.sourceItemID = prose.id; append(draft) }
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
@@ -779,6 +782,7 @@ actor CodexTranscriptRenderProjector {
                         )
                         append(ItemDraft(
                             id: "\(sectionID):group:\(group.id):summary",
+                            sourceItemID: group.id,
                             fingerprint: "group-summary:\(String(describing: summaryRender))",
                             workRow: summaryRender,
                             action: .toggleRow(rowID: group.id),
@@ -838,6 +842,7 @@ actor CodexTranscriptRenderProjector {
                             )
                             append(ItemDraft(
                                 id: "\(sectionID):row:\(rowID)",
+                                sourceItemID: rowID,
                                 fingerprint: "row:\(String(describing: rowRender))",
                                 workRow: rowRender,
                                 action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
@@ -871,6 +876,7 @@ actor CodexTranscriptRenderProjector {
                                 }
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):diff-panel",
+                                    sourceItemID: rowID,
                                     fingerprint: "diff-panel:\(fileChangeRender.panel.selectedFileIndex):\(selectedPreparedChange.fingerprint):\(fileChangeRender.panelFingerprint):\(fileChangeRender.panel.omittedFileCount)",
                                     preparedText: prepared,
                                     diffPanel: fileChangeRender.panel,
@@ -899,6 +905,7 @@ actor CodexTranscriptRenderProjector {
                                 }
                                 append(ItemDraft(
                                     id: "\(sectionID):row:\(rowID):detail",
+                                    sourceItemID: rowID,
                                     fingerprint: "detail:\(bounded)",
                                     textRole: .expandedOutput,
                                     preparedText: prepared,
@@ -915,6 +922,7 @@ actor CodexTranscriptRenderProjector {
                         if tailMode, call.status != .inProgress { continue }
                         append(ItemDraft(
                             id: "\(sectionID):product:\(call.id)",
+                            sourceItemID: call.id,
                             fingerprint: "product:\(String(describing: call))",
                             productTool: call,
                             action: CodexProductToolPresentationV2.threadReference(call).map {
@@ -949,6 +957,7 @@ actor CodexTranscriptRenderProjector {
                         )
                         append(ItemDraft(
                             id: "\(sectionID):inline-activity:\(activity.id)",
+                            sourceItemID: activity.id,
                             fingerprint: "inline-activity:\(String(describing: activity))",
                             workRow: rowRender,
                             action: hasExpandableContent ? .toggleRow(rowID: rowID) : nil,
@@ -967,6 +976,7 @@ actor CodexTranscriptRenderProjector {
                             let label = URL(fileURLWithPath: imagePath).lastPathComponent
                             append(ItemDraft(
                                 id: "\(sectionID):inline-activity:\(activity.id):image",
+                                sourceItemID: activity.id,
                                 fingerprint: "inline-activity-image:\(imagePath)",
                                 agentChips: [.init(
                                     id: "\(activity.id):image",
@@ -992,6 +1002,7 @@ actor CodexTranscriptRenderProjector {
                             let bounded = Self.bounded(detail, limit: 20_000)
                             append(ItemDraft(
                                 id: "\(sectionID):inline-activity:\(activity.id):detail",
+                                sourceItemID: activity.id,
                                 fingerprint: "inline-activity-detail:\(bounded)",
                                 textRole: .notice,
                                 preparedText: Self.preparePlain(
@@ -1011,6 +1022,7 @@ actor CodexTranscriptRenderProjector {
                         if tailMode { continue }
                         append(ItemDraft(
                             id: "\(sectionID):notice:\(notice.id)",
+                            sourceItemID: notice.id,
                             fingerprint: "notice:\(notice.message)",
                             textRole: .notice,
                             preparedText: Self.preparePlain(notice.message, font: theme.captionFont, color: theme.textTertiary, theme: theme),
@@ -1076,11 +1088,11 @@ actor CodexTranscriptRenderProjector {
 
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 let sourceID = "\(sectionID):final:\(answer.id)"
-                for draft in contentDrafts(
+                for var draft in contentDrafts(
                     text: answer.text, streaming: answer.isStreaming, sourceID: sourceID,
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
-                ) { append(draft) }
+                ) { draft.sourceItemID = answer.id; append(draft) }
             }
             for image in turn.generatedImages {
                 let label = CodexTranscriptImageSource.localFilePath(image.source)
@@ -1088,6 +1100,7 @@ actor CodexTranscriptRenderProjector {
                     ?? "Generated image"
                 append(ItemDraft(
                     id: "\(sectionID):generated-image:\(image.id)",
+                    sourceItemID: image.id,
                     fingerprint: "generated-image:\(image.source)",
                     agentChips: [.init(
                         id: image.id,
@@ -1109,6 +1122,7 @@ actor CodexTranscriptRenderProjector {
             for failure in turn.imageGenerationFailures {
                 append(ItemDraft(
                     id: "\(sectionID):generated-image-failure:\(failure.id)",
+                    sourceItemID: failure.id,
                     fingerprint: "generated-image-failure:\(failure.type):\(failure.message)",
                     textRole: .notice,
                     preparedText: Self.preparePlain(
@@ -1245,6 +1259,7 @@ actor CodexTranscriptRenderProjector {
 private extension CodexTranscriptRenderProjector {
     struct ItemDraft {
         var id: String
+        var sourceItemID: String?
         var fingerprint: String
         var textRole: CodexTranscriptTextRole?
         var preparedText: CodexPreparedTranscriptText?
@@ -1273,6 +1288,7 @@ private extension CodexTranscriptRenderProjector {
 
         init(
             id: String,
+            sourceItemID: String? = nil,
             fingerprint: String,
             textRole: CodexTranscriptTextRole? = nil,
             preparedText: CodexPreparedTranscriptText? = nil,
@@ -1301,6 +1317,7 @@ private extension CodexTranscriptRenderProjector {
             isScrollableOutput: Bool = false
         ) {
             self.id = id
+            self.sourceItemID = sourceItemID
             self.fingerprint = fingerprint
             self.textRole = textRole
             self.preparedText = preparedText
@@ -1828,7 +1845,7 @@ private extension CodexTranscriptRenderProjector {
                 copyText: user.text.isEmpty ? user.displayText : user.text
             ))
         }
-        return drafts
+        return drafts.map { draft in var draft = draft; draft.sourceItemID = user.id; return draft }
     }
 
     func cachedPreparedText(

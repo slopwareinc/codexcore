@@ -257,6 +257,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     public private(set) var isBulkSelectionMode: Bool
     public private(set) var sortKey: CodexSidebarSortKey
     public private(set) var selectedProjectPath: String
+    public private(set) var selectedProjectID: String?
     public private(set) var selectedThreadID: String?
     public private(set) var isProjectlessSelected: Bool
 
@@ -284,7 +285,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         self.expandedProjectIDs = Set(expandedProjectIDs.compactMap { id in
             let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            let normalizedID = CodexProjectSummary.normalizedPath(trimmed)
+            let normalizedID = CodexProjectSummary.normalizedIdentity(trimmed)
             return normalizedID.isEmpty ? nil : normalizedID
         })
         self.projectOrder = Self.normalizedProjectOrder(projectOrder)
@@ -301,6 +302,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         self.isBulkSelectionMode = isBulkSelectionMode
         self.sortKey = sortKey
         self.selectedProjectPath = normalized
+        self.selectedProjectID = nil
         self.selectedThreadID = selectedThreadID
         self.isProjectlessSelected = false
     }
@@ -331,7 +333,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     }
 
     public mutating func toggleProject(_ workspacePath: String) {
-        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        let id = CodexProjectSummary.normalizedIdentity(workspacePath)
         if expandedProjectIDs.contains(id) {
             expandedProjectIDs.remove(id)
         } else {
@@ -344,7 +346,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     }
 
     public mutating func expandProject(_ workspacePath: String) {
-        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        let id = CodexProjectSummary.normalizedIdentity(workspacePath)
         expandedProjectIDs.insert(id)
     }
 
@@ -407,11 +409,11 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         placement: CodexProjectDropPlacement,
         among projects: [CodexProjectSummary]
     ) -> Bool {
-        let source = CodexProjectSummary.normalizedPath(sourcePath)
-        let target = CodexProjectSummary.normalizedPath(targetPath)
+        let source = CodexProjectSummary.normalizedIdentity(sourcePath)
+        let target = CodexProjectSummary.normalizedIdentity(targetPath)
         guard source != target else { return false }
 
-        var order = projects.map(\.workspacePath)
+        var order = projects.map(\.id)
             .sorted { lhs, rhs in
                 let left = projectOrder.firstIndex(of: lhs)
                 let right = projectOrder.firstIndex(of: rhs)
@@ -447,14 +449,14 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
 
     @discardableResult
     public mutating func toggleProjectPin(_ workspacePath: String) -> Bool {
-        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        let id = CodexProjectSummary.normalizedIdentity(workspacePath)
         let mutation = CodexSidebarMutation.toggledPin(id: id, in: pinnedProjectIDs)
         pinnedProjectIDs = mutation.ids
         return mutation.isPinned
     }
 
     public mutating func renameProject(_ workspacePath: String, displayName: String) {
-        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        let id = CodexProjectSummary.normalizedIdentity(workspacePath)
         if let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank {
             projectAliases[id] = name
         } else {
@@ -463,7 +465,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     }
 
     public mutating func removeProject(_ workspacePath: String) {
-        let id = CodexProjectSummary.normalizedPath(workspacePath)
+        let id = CodexProjectSummary.normalizedIdentity(workspacePath)
         hiddenProjectIDs.insert(id)
         pinnedProjectIDs.removeAll { $0 == id }
     }
@@ -487,61 +489,69 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         if let alias = projectAliases.removeValue(forKey: oldID) {
             projectAliases[newID] = alias
         }
-        if selectedProjectPath == oldID {
-            selectedProjectPath = newID
-        }
+        if selectedProjectPath == oldID { selectedProjectPath = newID }
+        if selectedProjectID == oldID { selectedProjectID = newID }
     }
 
     @discardableResult
     public mutating func restoreProject(_ workspacePath: String) -> Bool {
-        hiddenProjectIDs.remove(CodexProjectSummary.normalizedPath(workspacePath)) != nil
+        hiddenProjectIDs.remove(CodexProjectSummary.normalizedIdentity(workspacePath)) != nil
     }
 
-    public mutating func selectProject(_ workspacePath: String) {
-        let normalized = CodexProjectSummary.normalizedPath(workspacePath)
+    public mutating func selectProject(_ identity: String, workspacePath: String? = nil) {
+        let id = CodexProjectSummary.normalizedIdentity(identity)
+        let normalized = CodexProjectSummary.normalizedPath(workspacePath ?? identity)
+        selectedProjectID = id
         selectedProjectPath = normalized
-        expandedProjectIDs.insert(normalized)
+        expandedProjectIDs.insert(id)
         selectedThreadID = nil
         isProjectlessSelected = false
         selectRoute(.chat)
     }
 
-    public mutating func startNewChat(workspacePath: String) {
+    public mutating func startNewChat(workspacePath: String, projectID: String? = nil) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
+        if let projectID { selectedProjectID = projectID }
+        else if selectedProjectPath != normalized { selectedProjectID = nil }
         selectedProjectPath = normalized
-        expandedProjectIDs.insert(normalized)
+        expandedProjectIDs.insert(selectedProjectID ?? normalized)
         selectedThreadID = nil
         isProjectlessSelected = false
         selectRoute(.chat)
     }
 
     public mutating func startNewProjectlessChat() {
+        selectedProjectID = nil
         selectedThreadID = nil
         isProjectlessSelected = true
         selectRoute(.chat)
     }
 
-    public mutating func selectChat(_ threadID: String, workspacePath: String?) {
+    public mutating func selectChat(_ threadID: String, workspacePath: String?, projectID: String? = nil) {
+        selectedProjectID = projectID
         selectedThreadID = threadID
         isProjectlessSelected = false
         if let workspacePath, !workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let normalized = CodexProjectSummary.normalizedPath(workspacePath)
             selectedProjectPath = normalized
-            expandedProjectIDs.insert(normalized)
+            expandedProjectIDs.insert(projectID ?? normalized)
         }
         selectRoute(.chat)
     }
 
     public mutating func selectProjectlessChat(_ threadID: String) {
+        selectedProjectID = nil
         selectedThreadID = threadID
         isProjectlessSelected = true
         selectRoute(.chat)
     }
 
-    public mutating func syncCurrentWorkspace(_ workspacePath: String, currentThreadID: String?) {
+    public mutating func syncCurrentWorkspace(_ workspacePath: String, currentThreadID: String?, projectID: String? = nil) {
         let normalized = CodexProjectSummary.normalizedPath(workspacePath)
+        if let projectID { selectedProjectID = projectID }
+        else if selectedProjectPath != normalized { selectedProjectID = nil }
         selectedProjectPath = normalized
-        expandedProjectIDs.insert(normalized)
+        expandedProjectIDs.insert(selectedProjectID ?? normalized)
         selectedThreadID = currentThreadID
         isProjectlessSelected = false
     }
@@ -580,6 +590,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
             hiddenProjectIDs: hiddenProjectIDs,
             projectAliases: projectAliases,
             selectedProjectPath: selectedProjectPath,
+            selectedProjectID: selectedProjectID,
             selectedThreadID: selectedThreadID,
             isProjectlessSelected: isProjectlessSelected,
             selectedThreadIDs: selectedThreadIDs,
@@ -601,6 +612,33 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
         ))
     }
 
+    /// Migrates legacy folder-keyed preferences once server identities arrive.
+    /// A previously shared folder preference applies to each matching project;
+    /// explicit server-ID preferences take precedence on subsequent refreshes.
+    @discardableResult
+    public mutating func reconcileProjectIdentities(_ projects: [CodexProjectSummary]) -> Bool {
+        let previous = self
+        let synced = projects.filter { $0.serverID != nil }
+        let byPath = Dictionary(grouping: synced, by: \.workspacePath)
+        func migrated(_ identities: [String]) -> [String] {
+            var seen: Set<String> = []
+            return identities.flatMap { id in byPath[id]?.map(\.id) ?? [id] }.filter { seen.insert($0).inserted }
+        }
+        expandedProjectIDs = Set(migrated(Array(expandedProjectIDs)))
+        hiddenProjectIDs = Set(migrated(Array(hiddenProjectIDs)))
+        projectOrder = migrated(projectOrder)
+        pinnedProjectIDs = migrated(pinnedProjectIDs)
+        for (path, matches) in byPath {
+            if let alias = projectAliases.removeValue(forKey: path) {
+                for project in matches where projectAliases[project.id] == nil { projectAliases[project.id] = alias }
+            }
+        }
+        if selectedProjectID == nil, let matches = byPath[selectedProjectPath], matches.count == 1 {
+            selectedProjectID = matches[0].id
+        }
+        return self != previous
+    }
+
     public static func defaultExpandedProjectIDs(projects _: [CodexProjectSummary], now _: TimeInterval = Date().timeIntervalSince1970) -> Set<String> {
         []
     }
@@ -608,7 +646,7 @@ public struct CodexSidebarNavigationSession: Sendable, Equatable {
     private static func normalizedID(_ id: String) -> String? {
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let normalizedID = CodexProjectSummary.normalizedPath(trimmed)
+        let normalizedID = CodexProjectSummary.normalizedIdentity(trimmed)
         return normalizedID.isEmpty ? nil : normalizedID
     }
 
