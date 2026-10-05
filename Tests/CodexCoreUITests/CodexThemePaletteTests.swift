@@ -201,13 +201,32 @@ struct CodexThemePaletteTests {
     }
 
     @Test
-    func onlyHighContrastOptsOutOfGlass() {
+    func flatPresentationsOptOutOfGlass() {
         for preset in CodexAgentThemePreset.allCases {
             #expect(
-                preset.theme.effects.usesLiquidGlass == (preset != .highContrast),
+                preset.theme.effects.usesLiquidGlass == (preset != .highContrast && preset != .t3Code),
                 "\(preset.displayName) has the wrong glass opt-out"
             )
         }
+    }
+
+    @Test
+    func t3PresentationResolvesForBothNativeRenderersAndKeepsStoredChoices() throws {
+        let defaults = CodexAppearanceSettings()
+        #expect(defaults.preset == .t3Code)
+        #expect(defaults.appearanceMode == .system)
+        for scheme in [ColorScheme.light, .dark] {
+            let theme = defaults.agentTheme(uiFontSize: 14, reduceMotion: false, resolvedFor: scheme)
+            #expect(theme.interfaceStyle == .t3Code)
+            #expect(theme.colors.canvas == CodexPaletteSpec.t3Code.canvas.resolved(scheme))
+            #expect(theme.spacing.transcriptOuterMaxWidth == theme.spacing.composerMaxWidth)
+            #expect(theme.spacing.toolbarHeight == 52)
+            #expect(!theme.effects.usesLiquidGlass)
+        }
+        let saved = CodexAppearanceSettings(preset: .midnight, appearanceMode: .light)
+        let decoded = try JSONDecoder().decode(CodexAppearanceSettings.self, from: JSONEncoder().encode(saved))
+        #expect(decoded.preset == .midnight)
+        #expect(decoded.agentTheme(uiFontSize: 14, reduceMotion: false).interfaceStyle == .native)
     }
 
     @Test

@@ -43,7 +43,7 @@ final class CodexPreferenceStorageTests: XCTestCase {
             onFailure: failures.record
         )
 
-        XCTAssertEqual(settings, .official)
+        XCTAssertEqual(settings, .t3Code)
         XCTAssertTrue(
             failures.values.contains {
                 guard case let .decodingFailed(key, _) = $0 else { return false }

@@ -299,7 +299,7 @@ public enum CodexAppearanceSettingsStorage {
             from: store,
             onFailure: onFailure
         ) else {
-            return .official
+            return .t3Code
         }
         if stored.sourceKey != key {
             _ = saveAppearanceSettings(stored.value.settings, to: store, onFailure: onFailure)
