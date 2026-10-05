@@ -9,8 +9,9 @@ final class RequiredNullableSchemaTests: XCTestCase {
         XCTAssertNil(decoded.linkID)
     }
 
-    func testRequiredNullableKeyCannotBeMissing() {
-        XCTAssertThrowsError(try CodexJSONValue.dictionary(["connectorId": .string("connector")])
-            .decode(CodexSchemaMCPResourceReadTarget.self))
+    func testNullableDecodingAcceptsFieldsAbsentInOlderRuntimeResponses() throws {
+        let value = try CodexJSONValue.dictionary(["connectorId": .string("connector")])
+            .decode(CodexSchemaMCPResourceReadTarget.self)
+        XCTAssertNil(value.linkID)
     }
 }

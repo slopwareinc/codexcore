@@ -5577,7 +5577,7 @@ public struct CodexSchemaMCPResourceReadTarget: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.connectorID = try container.decode(String.self, forKey: .connectorID)
-        self.linkID = try container.decode(String?.self, forKey: .linkID)
+        self.linkID = try container.decodeIfPresent(String.self, forKey: .linkID)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -9998,7 +9998,7 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         self.parentThreadID = try container.decodeIfPresent(String.self, forKey: .parentThreadID)
         self.path = try container.decodeIfPresent(String.self, forKey: .path)
         self.preview = try container.decode(String.self, forKey: .preview)
-        self.projectID = try container.decode(String?.self, forKey: .projectID)
+        self.projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
         self.reasoningEffort = try container.decodeIfPresent(CodexSchemaReasoningEffort.self, forKey: .reasoningEffort)
         self.recencyAt = try container.decodeIfPresent(Int.self, forKey: .recencyAt)
         self.section = try container.decodeIfPresent(CodexSchemaThreadSection.self, forKey: .section)
@@ -12303,7 +12303,7 @@ public struct CodexSchemaThreadProjectUpdatedNotification: Codable, Sendable, Eq
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.projectID = try container.decode(String?.self, forKey: .projectID)
+        self.projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
         self.threadID = try container.decode(String.self, forKey: .threadID)
     }
 
@@ -13283,7 +13283,7 @@ public struct CodexSchemaThreadSectionMoveParams: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.beforeThreadID = try container.decodeIfPresent(String.self, forKey: .beforeThreadID)
-        self.sectionID = try container.decode(String?.self, forKey: .sectionID)
+        self.sectionID = try container.decodeIfPresent(String.self, forKey: .sectionID)
         self.threadID = try container.decode(String.self, forKey: .threadID)
     }
 
