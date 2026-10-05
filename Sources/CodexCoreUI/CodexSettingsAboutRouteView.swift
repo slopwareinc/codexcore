@@ -932,7 +932,7 @@ public struct CodexAppearanceSettingsView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             CodexSettingsPageTitle("Appearance")
-            CodexThemePresetPicker(preset: $settings.preset)
+            CodexThemePresetPicker(preset: $settings.preset, accentHue: $settings.accentHue)
             VStack(spacing: 0) {
                 CodexAppearanceModeRow(mode: $settings.appearanceMode)
                 CodexSettingsSliderRow(
@@ -1055,99 +1055,218 @@ private struct CodexFontPreviewRow: View {
 
 public struct CodexThemePresetPicker: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     @Binding private var preset: CodexAgentThemePreset
+    @Binding private var accentHue: Double?
 
-    public init(preset: Binding<CodexAgentThemePreset>) {
+    public init(preset: Binding<CodexAgentThemePreset>, accentHue: Binding<Double?> = .constant(nil)) {
         self._preset = preset
+        self._accentHue = accentHue
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.md) {
-            Text("Theme")
-                .font(theme.fonts.label)
-                .foregroundStyle(theme.colors.textPrimary)
+    /// Accent hues offered beside the family's own, in OKLCH degrees, spaced
+    /// so neighbors stay distinguishable at swatch size.
+    static let accentHues: [Double] = [25, 50, 85, 140, 168, 205, 240, 274, 305, 345]
 
-            // A grid, not a row: eight families do not fit side by side, and a
-            // horizontally squeezed swatch stops previewing anything.
+    public var body: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.lg) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
+                Text("Theme")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text("Each theme brings its own light. Glass in the window picks it up.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+
+            // Previews render in the current appearance, so what you see on the
+            // card is what the window becomes.
             LazyVGrid(
                 columns: Array(
-                    repeating: GridItem(.flexible(), spacing: theme.spacing.sm),
+                    repeating: GridItem(.flexible(), spacing: theme.spacing.md),
                     count: 4
                 ),
-                spacing: theme.spacing.md
+                spacing: theme.spacing.lg
             ) {
-                ForEach(CodexAgentThemePreset.allCases) { option in
+                ForEach(CodexAgentThemePreset.pickerCases) { option in
+                    // `nativeLight` is the legacy alias of Graphite and selects its card.
+                    let isSelected = (preset == .nativeLight ? .officialDark : preset) == option
                     Button {
-                        preset = option
+                        withAnimation(.snappy(duration: theme.animations.snappyDuration)) { preset = option }
                     } label: {
-                        VStack(spacing: theme.spacing.sm) {
-                            CodexPresetSwatch(preset: option, isSelected: preset == option)
+                        VStack(alignment: .leading, spacing: theme.spacing.sm) {
+                            CodexPresetSwatch(
+                                preset: option,
+                                isSelected: isSelected,
+                                accentHue: option.supportsAccentOverride ? accentHue : nil
+                            )
                             Text(option.displayName)
-                                .font(theme.fonts.caption)
-                                .foregroundStyle(preset == option ? theme.colors.textPrimary : theme.colors.textTertiary)
+                                .font(theme.fonts.caption.weight(.medium))
+                                .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                                 .lineLimit(1)
+                                .padding(.leading, 2)
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help(option.summary)
                     .accessibilityLabel("\(option.displayName) theme. \(option.summary)")
-                    .accessibilityAddTraits(preset == option ? .isSelected : [])
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
+
+            accentRow
         }
         .settingsPanel(theme: theme)
     }
+
+    private var accentRow: some View {
+        let enabled = preset.supportsAccentOverride
+        return HStack(spacing: theme.spacing.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accent")
+                    .font(theme.fonts.label)
+                    .foregroundStyle(theme.colors.textPrimary)
+                Text(enabled ? "Re-hue controls and light. Contrast is kept automatically." : "High Contrast keeps its own accent.")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+            Spacer(minLength: theme.spacing.md)
+            HStack(spacing: theme.spacing.xs + 2) {
+                accentSwatch(hue: nil)
+                ForEach(Self.accentHues, id: \.self) { hue in
+                    accentSwatch(hue: hue)
+                }
+            }
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.4)
+        }
+    }
+
+    private func accentSwatch(hue: Double?) -> some View {
+        let isSelected = accentHue == hue
+        let fill = preset.palette(accentHue: hue).accent.resolved(colorScheme)
+        let label = hue.map { "Accent hue \(Int($0)) degrees" } ?? "Theme accent"
+        return Button {
+            withAnimation(.snappy(duration: theme.animations.snappyDuration)) { accentHue = hue }
+        } label: {
+            ZStack {
+                Circle().fill(fill)
+                if hue == nil {
+                    // The family's own accent is marked, so "reset" is findable.
+                    Image(systemName: "sparkle")
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(preset.palette.onAccent.resolved(colorScheme))
+                }
+            }
+            .frame(width: 20, height: 20)
+            .padding(3)
+            .overlay {
+                Circle()
+                    .strokeBorder(isSelected ? theme.colors.textPrimary : .clear, lineWidth: 1.5)
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
 }
 
-/// Previews a family as a split tile: light rendering on the left, dark on the
-/// right. Each theme now works in both appearances, and the swatch says so.
+/// A miniature of the window in this family: its atmosphere, a floating glass
+/// sidebar, a line of transcript, and the accent on a primary control.
+/// Rendered in the current appearance, so the card previews the real result.
 public struct CodexPresetSwatch: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     let preset: CodexAgentThemePreset
     let isSelected: Bool
+    let accentHue: Double?
 
-    public init(preset: CodexAgentThemePreset, isSelected: Bool) {
+    public init(preset: CodexAgentThemePreset, isSelected: Bool, accentHue: Double? = nil) {
         self.preset = preset
         self.isSelected = isSelected
+        self.accentHue = accentHue
     }
 
     public var body: some View {
-        let palette = preset.palette
-        let shape = RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+        let palette = preset.palette(accentHue: accentHue)
+        let atmosphere = preset.atmosphere(accentHue: accentHue)
+        let isDark = colorScheme == .dark
+        let scheme = colorScheme
+        let shape = RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
 
-        return HStack(spacing: 0) {
-            half(palette, scheme: .light)
-            half(palette, scheme: .dark)
-        }
-        .clipShape(shape)
-        .overlay {
-            shape.stroke(
-                isSelected ? theme.colors.accent : theme.colors.border,
-                lineWidth: isSelected ? 2 : 1
+        return ZStack(alignment: .topLeading) {
+            MeshGradient(
+                width: 3,
+                height: 3,
+                points: [
+                    [0, 0], [0.55, 0], [1, 0],
+                    [0, 0.48], [0.46, 0.52], [1, 0.42],
+                    [0, 1], [0.6, 1], [1, 1]
+                ],
+                colors: atmosphere.colors(for: isDark).map(CodexColorPair.decode)
             )
-        }
-        .frame(height: 58)
-    }
 
-    private func half(_ palette: CodexPaletteSpec, scheme: ColorScheme) -> some View {
-        // Colors are resolved explicitly per half rather than left adaptive, so
-        // both renderings show at once regardless of the current appearance.
-        VStack(spacing: 4) {
-            Circle()
-                .fill(palette.accent.resolved(scheme))
-                .frame(width: 10, height: 10)
-            RoundedRectangle(cornerRadius: 1, style: .continuous)
-                .fill(palette.textPrimary.resolved(scheme).opacity(0.7))
-                .frame(width: 18, height: 2.5)
-            RoundedRectangle(cornerRadius: 1, style: .continuous)
-                .fill(palette.textSecondary.resolved(scheme))
-                .frame(width: 12, height: 2.5)
+            HStack(alignment: .top, spacing: 6) {
+                // Sidebar pane: a frosted lift of the canvas, like the real one.
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Capsule()
+                            .fill(palette.textSecondary.resolved(scheme).opacity(index == 0 ? 0.55 : 0.3))
+                            .frame(width: index == 0 ? 22 : 16, height: 2.5)
+                    }
+                }
+                .padding(6)
+                .frame(width: 38, alignment: .topLeading)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(
+                    palette.surfaceElevated.resolved(scheme).opacity(isDark ? 0.42 : 0.55),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Capsule()
+                        .fill(palette.userBubble.resolved(scheme))
+                        .frame(width: 30, height: 7)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Capsule()
+                        .fill(palette.textPrimary.resolved(scheme).opacity(0.75))
+                        .frame(width: 38, height: 2.5)
+                    Capsule()
+                        .fill(palette.textSecondary.resolved(scheme).opacity(0.6))
+                        .frame(width: 28, height: 2.5)
+                    Spacer(minLength: 0)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Circle()
+                            .fill(palette.accent.resolved(scheme))
+                            .frame(width: 9, height: 9)
+                    }
+                    .padding(3)
+                    .background(
+                        palette.surfaceElevated.resolved(scheme).opacity(isDark ? 0.5 : 0.7),
+                        in: Capsule()
+                    )
+                }
+                .padding(.vertical, 2)
+            }
+            .padding(6)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(palette.canvas.resolved(scheme))
+        .frame(height: 72)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(palette.textPrimary.resolved(scheme).opacity(0.08), lineWidth: 1) }
+        .padding(3)
+        .overlay {
+            // Selection is concentric with the card, outside it, so the
+            // preview itself is never covered.
+            RoundedRectangle(cornerRadius: theme.radii.medium + 3, style: .continuous)
+                .strokeBorder(isSelected ? theme.colors.accent : .clear, lineWidth: 2)
+        }
     }
 }
 

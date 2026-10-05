@@ -88,6 +88,9 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public var textFontFamily: String?
     /// Family name for monospaced contexts (code, diffs). `nil` = system mono.
     public var monoFontFamily: String?
+    /// Re-hues the family's accent and atmosphere, in OKLCH degrees. `nil`
+    /// keeps the family's own accent. Ignored by families without a seed.
+    public var accentHue: Double?
 
     public init(
         preset: CodexAgentThemePreset = .officialDark,
@@ -97,7 +100,8 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         diffMarkerStyle: CodexDiffMarkerStyle = .color,
         dockIconVariant: CodexDockIconVariant = .default,
         textFontFamily: String? = nil,
-        monoFontFamily: String? = nil
+        monoFontFamily: String? = nil,
+        accentHue: Double? = nil
     ) {
         self.preset = preset
         // Absent an explicit choice, honor the appearance the preset's name used
@@ -109,6 +113,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         self.dockIconVariant = dockIconVariant
         self.textFontFamily = textFontFamily?.nilIfBlank
         self.monoFontFamily = monoFontFamily?.nilIfBlank
+        self.accentHue = accentHue.map { $0.truncatingRemainder(dividingBy: 360) }
     }
 
     /// Decodes key by key. The synthesized decoder does not apply property
@@ -125,7 +130,8 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
             diffMarkerStyle: try container.decodeIfPresent(CodexDiffMarkerStyle.self, forKey: .diffMarkerStyle) ?? .color,
             dockIconVariant: try container.decodeIfPresent(CodexDockIconVariant.self, forKey: .dockIconVariant) ?? .default,
             textFontFamily: try container.decodeIfPresent(String.self, forKey: .textFontFamily),
-            monoFontFamily: try container.decodeIfPresent(String.self, forKey: .monoFontFamily)
+            monoFontFamily: try container.decodeIfPresent(String.self, forKey: .monoFontFamily),
+            accentHue: try container.decodeIfPresent(Double.self, forKey: .accentHue)
         )
     }
 
@@ -134,7 +140,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     }
 
     public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
-        var theme = preset.theme
+        var theme = preset.theme(accentHue: effectiveAccentHue)
         theme.fonts = .official.scaled(
             baseTextSize: uiFontSize,
             textFamily: textFontFamily,
@@ -152,8 +158,19 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
         resolvedFor scheme: ColorScheme
     ) -> CodexAgentTheme {
         var theme = agentTheme(uiFontSize: uiFontSize, reduceMotion: reduceMotion)
-        theme.colors = CodexAgentTheme.Colors(spec: preset.palette, resolvedFor: scheme)
+        theme.colors = CodexAgentTheme.Colors(spec: palette, resolvedFor: scheme)
         return theme
+    }
+
+    /// The accent hue actually applied: an override only means something for a
+    /// generated family.
+    public var effectiveAccentHue: Double? {
+        preset.supportsAccentOverride ? accentHue : nil
+    }
+
+    /// The palette after any accent override.
+    public var palette: CodexPaletteSpec {
+        preset.palette(accentHue: effectiveAccentHue)
     }
 }
 
@@ -292,6 +309,8 @@ public struct CodexAgentTheme {
     public var radii: Radii
     public var effects: Effects
     public var animations: Animations
+    /// The light behind the window's glass. See `CodexBackdrop`.
+    public var atmosphere: CodexAtmosphere
 
     public init(
         colors: Colors,
@@ -299,7 +318,8 @@ public struct CodexAgentTheme {
         spacing: Spacing = .official,
         radii: Radii = .official,
         effects: Effects = .official,
-        animations: Animations = .official
+        animations: Animations = .official,
+        atmosphere: CodexAtmosphere = CodexThemeSeed.graphite.atmosphere
     ) {
         self.colors = colors
         self.fonts = fonts
@@ -307,6 +327,7 @@ public struct CodexAgentTheme {
         self.radii = radii
         self.effects = effects
         self.animations = animations
+        self.atmosphere = atmosphere
     }
 
     public struct Colors {
@@ -1039,9 +1060,10 @@ public extension View {
 /// The built-in theme families. Each renders in both light and dark, so the
 /// preset chooses character and `CodexAppearanceMode` chooses appearance.
 ///
-/// The raw values of the original five are preserved because they are persisted
-/// in the stored appearance settings; `officialDark` and `nativeLight` now name
-/// the same neutral family, which is why both map to `.slate`.
+/// Raw values are persisted in the stored appearance settings, which is why the
+/// original names survive beneath the new display names. `nativeLight` is a
+/// legacy alias of `officialDark` (the same family, implying light appearance)
+/// and is not offered in the picker.
 public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
     case officialDark
     case nativeLight
@@ -1050,19 +1072,25 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     case sage
     case rose
     case violet
+    case aurora
     case highContrast
 
     public var id: String { rawValue }
 
+    /// The families offered in the theme picker, in display order.
+    public static let pickerCases: [CodexAgentThemePreset] = [
+        .officialDark, .midnight, .aurora, .sage, .warmMinimal, .rose, .violet, .highContrast
+    ]
+
     public var displayName: String {
         switch self {
-        case .officialDark: return "Slate"
-        case .nativeLight: return "Paper"
-        case .midnight: return "Midnight"
-        case .warmMinimal: return "Warm Sand"
-        case .sage: return "Sage"
-        case .rose: return "Rose"
-        case .violet: return "Violet"
+        case .officialDark, .nativeLight: return "Graphite"
+        case .midnight: return "Tide"
+        case .warmMinimal: return "Ember"
+        case .sage: return "Moss"
+        case .rose: return "Bloom"
+        case .violet: return "Orchid"
+        case .aurora: return "Aurora"
         case .highContrast: return "High Contrast"
         }
     }
@@ -1070,27 +1098,52 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     /// A one-line character description for the settings picker.
     public var summary: String {
         switch self {
-        case .officialDark: return "Neutral graphite. Nothing competes with syntax."
-        case .nativeLight: return "Neutral, biased bright."
-        case .midnight: return "Deep cool blue with a cyan accent."
+        case .officialDark, .nativeLight: return "Neutral graphite, indigo light."
+        case .midnight: return "Deep water, cyan light."
         case .warmMinimal: return "Paper and lamplight."
-        case .sage: return "Muted green. The calmest family."
-        case .rose: return "Dusty rose, warm without yellow."
-        case .violet: return "Cool violet, low chroma."
-        case .highContrast: return "Maximum contrast for legibility."
+        case .sage: return "Forest shade. The calmest family."
+        case .rose: return "Coral dusk, warm without yellow."
+        case .violet: return "Orchid and twilight."
+        case .aurora: return "Night sky with green and violet light."
+        case .highContrast: return "Flat, maximum contrast. No glass."
         }
     }
 
-    public var palette: CodexPaletteSpec {
+    /// The seed this family is generated from. `nil` only for High Contrast,
+    /// which is specified by hand because its whole point is to sit outside
+    /// the generator's tonal recipe.
+    public var seed: CodexThemeSeed? {
         switch self {
-        case .officialDark, .nativeLight: return .slate
-        case .midnight: return .midnight
-        case .warmMinimal: return .warmSand
-        case .sage: return .sage
-        case .rose: return .rose
-        case .violet: return .violet
-        case .highContrast: return .highContrast
+        case .officialDark, .nativeLight: return .graphite
+        case .midnight: return .tide
+        case .warmMinimal: return .ember
+        case .sage: return .moss
+        case .rose: return .bloom
+        case .violet: return .orchid
+        case .aurora: return .aurora
+        case .highContrast: return nil
         }
+    }
+
+    /// Whether the user may re-hue this family's accent.
+    public var supportsAccentOverride: Bool { seed != nil }
+
+    public var palette: CodexPaletteSpec { palette(accentHue: nil) }
+
+    public func palette(accentHue: Double?) -> CodexPaletteSpec {
+        guard let seed = seed(accentHue: accentHue) else { return .highContrast }
+        return seed.palette
+    }
+
+    public func atmosphere(accentHue: Double?) -> CodexAtmosphere {
+        guard let seed = seed(accentHue: accentHue) else { return .flat(CodexPaletteSpec.highContrast.canvas) }
+        return seed.atmosphere
+    }
+
+    private func seed(accentHue: Double?) -> CodexThemeSeed? {
+        guard let seed else { return nil }
+        guard let accentHue else { return seed }
+        return seed.withAccentHue(accentHue)
     }
 
     /// The appearance this family is shown in when the user has not chosen one.
@@ -1104,19 +1157,23 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
         }
     }
 
-    public var theme: CodexAgentTheme {
+    public var theme: CodexAgentTheme { theme(accentHue: nil) }
+
+    public func theme(accentHue: Double?) -> CodexAgentTheme {
         CodexAgentTheme(
-            colors: CodexAgentTheme.Colors(spec: palette),
-            effects: effects
+            colors: CodexAgentTheme.Colors(spec: palette(accentHue: accentHue)),
+            effects: effects,
+            atmosphere: atmosphere(accentHue: accentHue)
         )
     }
 
     /// The same theme with colors resolved for one known appearance, for
     /// AppKit-backed views that cannot use adaptive colors.
-    public func theme(resolvedFor scheme: ColorScheme) -> CodexAgentTheme {
+    public func theme(resolvedFor scheme: ColorScheme, accentHue: Double? = nil) -> CodexAgentTheme {
         CodexAgentTheme(
-            colors: CodexAgentTheme.Colors(spec: palette, resolvedFor: scheme),
-            effects: effects
+            colors: CodexAgentTheme.Colors(spec: palette(accentHue: accentHue), resolvedFor: scheme),
+            effects: effects,
+            atmosphere: atmosphere(accentHue: accentHue)
         )
     }
 
@@ -1127,12 +1184,8 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
             // is flat maximum contrast. Reduce Transparency covers every other
             // family independently of this choice.
             return .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0)
-        case .midnight:
-            return .init(usesLiquidGlass: true, surfaceOpacity: 0.88, glowOpacity: 0.20)
-        case .warmMinimal:
-            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.12)
-        case .officialDark, .nativeLight, .sage, .rose, .violet:
-            return .init(usesLiquidGlass: true, surfaceOpacity: 0.90, glowOpacity: 0.14)
+        default:
+            return .init(usesLiquidGlass: true, surfaceOpacity: 0.92, glowOpacity: 1)
         }
     }
 }
@@ -1162,28 +1215,45 @@ public enum CodexAppearanceMode: String, CaseIterable, Codable, Identifiable, Se
     }
 }
 
-/// A soft Codex chat backdrop that adapts to light and dark appearances.
+/// The window's backdrop: the theme's atmosphere, a soft 3x3 mesh of light.
+///
+/// This is what every glass surface in the window refracts. Without it, glass
+/// samples a flat canvas and reads as grey plastic; with it, chrome picks up the
+/// theme's light at the edges while the reading column stays calm.
 public struct CodexBackdrop: View {
     @Environment(\.codexAgentTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public init() {}
 
     public var body: some View {
-        let glowOpacity = theme.effects.glowOpacity * (colorScheme == .dark ? 0.55 : 1)
-        ZStack {
-            theme.colors.canvas
-            RadialGradient(
-                colors: [theme.colors.accent.opacity(glowOpacity), .clear],
-                center: .topTrailing, startRadius: 1, endRadius: 720
-            )
-            RadialGradient(
-                colors: [theme.colors.accent.opacity(glowOpacity * 0.5), .clear],
-                center: .bottomLeading, startRadius: 1, endRadius: 640
-            )
+        Group {
+            if reduceTransparency || !theme.effects.usesLiquidGlass {
+                theme.colors.canvas
+            } else {
+                MeshGradient(
+                    width: 3,
+                    height: 3,
+                    points: Self.points,
+                    colors: theme.atmosphere
+                        .colors(for: colorScheme == .dark)
+                        .map(CodexColorPair.decode),
+                    smoothsColors: true
+                )
+            }
         }
         .ignoresSafeArea()
+        .accessibilityHidden(true)
     }
+
+    /// Slightly off-grid interior points so the light pools read as organic
+    /// rather than as a visible lattice.
+    private static let points: [SIMD2<Float>] = [
+        [0, 0], [0.55, 0], [1, 0],
+        [0, 0.48], [0.46, 0.52], [1, 0.42],
+        [0, 1], [0.6, 1], [1, 1]
+    ]
 }
 
 /// Codex brand mark used by chat rows, empty states, and launch panels.
