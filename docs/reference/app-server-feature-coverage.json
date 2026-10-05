@@ -1,0 +1,1694 @@
+{
+  "schemaVersion": 1,
+  "upstreamVersion": "codex-cli 0.160.0",
+  "inventory": {
+    "clientMethods": 167,
+    "notifications": 83,
+    "serverRequests": 11
+  },
+  "meaning": "Explicit ownership ledger, not a claim that static validation substitutes for behavioral or live UI testing.",
+  "workflows": [
+    {
+      "id": "connection",
+      "title": "Connection and initialization",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "initialize"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "func connect()"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/CodexSession.swift",
+          "symbols": [
+            "public func start("
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexConnectedSessionStartupTests.swift",
+        "Tests/CodexCoreTests/CodexSessionOrderingTests.swift"
+      ],
+      "notes": "The reference app advertises explicit gateway OAuth and probes readiness before model/inference startup."
+    },
+    {
+      "id": "authentication",
+      "title": "Managed account login, cancellation and logout",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "account/read",
+        "account/login/start",
+        "account/login/cancel",
+        "account/logout"
+      ],
+      "notifications": [
+        "account/updated",
+        "account/login/completed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "func signOut",
+            "func cancelLogin"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/Codex.swift",
+          "symbols": [
+            "func startLogin("
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/SessionOperationPrimitivesTests.swift",
+        "Tests/CodexCoreAppTests/CodexAppLoginCancellationTests.swift"
+      ],
+      "notes": "The app offers device-code and API-key sign-in; other typed login variants belong to SDK hosts and the Bedrock workflow."
+    },
+    {
+      "id": "gateway",
+      "title": "Explicit gateway OAuth readiness and sign-in",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "account/gatewayOAuth/read",
+        "account/gatewayOAuth/login",
+        "account/gatewayOAuth/cancel"
+      ],
+      "notifications": [
+        "account/gatewayOAuth/changed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeatures.swift",
+          "symbols": [
+            "func refreshGateway",
+            "func loginGateway",
+            "func cancelGatewayLogin"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeaturesView.swift",
+          "symbols": [
+            "gatewaySection"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppAccountFeaturesTests.swift"
+      ],
+      "notes": "A failed probe does not fall back. URLs are scoped to initiated login; canceled or replaced flows cannot publish late state."
+    },
+    {
+      "id": "native-verification",
+      "title": "Local verification and MCP approval proof",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "userVerification/status",
+        "userVerification/enroll",
+        "userVerification/delete",
+        "userVerification/verify",
+        "userVerification/cancel"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Client/CodexUserVerificationOperation.swift",
+          "symbols": [
+            "CodexUserVerificationOperation"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeatures.swift",
+          "symbols": [
+            "func runVerification"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeaturesView.swift",
+          "symbols": [
+            "CodexAppVerificationApprovalView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/CodexUserVerificationOperationTests.swift",
+        "Tests/CodexCoreAppTests/CodexAppAccountFeaturesTests.swift"
+      ],
+      "notes": "Cancel uses the original RPC ID on its original connection. Local key enrollment/deletion does not claim backend registration/revocation."
+    },
+    {
+      "id": "bedrock",
+      "title": "Amazon Bedrock discovery and setup",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "account/bedrock/discover",
+        "account/bedrock/setup"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeatures.swift",
+          "symbols": [
+            "func discoverBedrock",
+            "func setupBedrock",
+            "func loginBedrock"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeaturesView.swift",
+          "symbols": [
+            "CodexAppBedrockSetupView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppAccountFeaturesTests.swift"
+      ],
+      "notes": "Profile/environment and direct credentials use account/login/start variants; provider changes reconnect before catalog refresh."
+    },
+    {
+      "id": "account-usage",
+      "title": "Capabilities, usage, workspace messages and billing",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "modelProvider/capabilities/read",
+        "account/rateLimits/read",
+        "account/rateLimitResetCredit/consume",
+        "account/usage/read",
+        "account/workspaceMessages/read",
+        "account/sendAddCreditsNudgeEmail"
+      ],
+      "notifications": [
+        "account/rateLimits/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeatures.swift",
+          "symbols": [
+            "func refreshAccountDetails",
+            "func consumeResetCredit",
+            "func sendCreditNudge"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAccountFeaturesView.swift",
+          "symbols": [
+            "usageSection",
+            "resetCredits",
+            "creditNudges"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppAccountFeaturesTests.swift"
+      ],
+      "notes": "Multiple limit buckets and reset-credit inventory are preserved. Credit redemption retains an idempotency identity after uncertain outcomes; emails require confirmation."
+    },
+    {
+      "id": "models-and-permissions",
+      "title": "Model, collaboration and permission selection",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "model/list",
+        "permissionProfile/list",
+        "collaborationMode/list",
+        "configRequirements/read"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexChatConfigurationSession.swift",
+          "symbols": [
+            "refreshStartupCatalogs",
+            "applyConfigurationRequirements"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "applySelectedThreadSnapshot"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexCoreAppModelServiceTierRequestTests.swift"
+      ],
+      "notes": "Catalog metadata and canonical active-thread settings drive the host selectors."
+    },
+    {
+      "id": "diagnostics",
+      "title": "Runtime diagnostics",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "server/diagnostics"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "func refreshServerDiagnostics"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexSettingsAboutRouteView.swift",
+          "symbols": [
+            "serverDiagnostics"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexServerDiagnosticsPresentationTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "feedback",
+      "title": "Reviewed feedback upload",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "feedback/upload"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppFeedbackFeatures.swift",
+          "symbols": [
+            "func upload"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppFeedbackFeaturesView.swift",
+          "symbols": [
+            "func review"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppEnvironmentFeedbackFeaturesTests.swift"
+      ],
+      "notes": "Category/note, optional selected chat, logs, extra host-local files and tags are reviewed before one explicit upload; no automatic retries."
+    },
+    {
+      "id": "thread-lifecycle",
+      "title": "Chat lifecycle and selected transcript hydration",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/start",
+        "thread/resume",
+        "thread/fork",
+        "thread/archive",
+        "thread/unarchive",
+        "thread/delete",
+        "thread/unsubscribe",
+        "thread/name/set",
+        "thread/read",
+        "thread/items/list",
+        "thread/compact/start"
+      ],
+      "notifications": [
+        "thread/started",
+        "thread/status/changed",
+        "thread/archived",
+        "thread/deleted",
+        "thread/unarchived",
+        "thread/closed",
+        "thread/name/updated",
+        "thread/compacted"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "func resumeChat",
+            "func archiveSidebarChat"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/CodexTurnLease.swift",
+          "symbols": [
+            "public final class CodexThreadLease",
+            "public func close()"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/CodexSession.swift",
+          "symbols": [
+            "threadItemsList"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/CodexFacadeTests.swift",
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift"
+      ],
+      "notes": "Lease close owns unsubscribe. Sidebar mutations, new/resumed/forked chats and compaction are real host workflows."
+    },
+    {
+      "id": "thread-history",
+      "title": "History, occurrence search and reversion",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/timeline/list",
+        "thread/turns/list",
+        "thread/revert",
+        "thread/searchOccurrences",
+        "thread/loaded/list"
+      ],
+      "notifications": [
+        "thread/reverted"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureController.swift",
+          "symbols": [
+            "loadLoadedThreads",
+            "findOccurrences"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "openSearchOccurrence"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexTranscriptFocusRequest.swift",
+          "symbols": [
+            "CodexTranscriptFocusRequest"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeaturesSheet.swift",
+          "symbols": [
+            "CodexThreadFeaturesSheet"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift",
+        "Tests/CodexCoreUITests/CodexTranscriptFocusTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thread-resources",
+      "title": "Durable attachments, memory and metadata",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/attachment/add",
+        "thread/attachment/list",
+        "thread/attachment/remove",
+        "thread/metadata/update",
+        "thread/settings/update",
+        "thread/memoryMode/set",
+        "memory/status",
+        "memory/reset"
+      ],
+      "notifications": [
+        "thread/attachment/updated",
+        "thread/settings/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureModels.swift",
+          "symbols": [
+            "CodexThreadFeatureProvider"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureController.swift",
+          "symbols": [
+            "mutate"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeaturesSheet.swift",
+          "symbols": [
+            "CodexThreadFeaturesSheet"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thread-goals",
+      "title": "Persistent goals",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/goal/get",
+        "thread/goal/set",
+        "thread/goal/clear"
+      ],
+      "notifications": [
+        "thread/goal/updated",
+        "thread/goal/cleared"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureController.swift",
+          "symbols": [
+            "CodexThreadFeatureController"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "setGoal"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "thread-queue",
+      "title": "Durable follow-up queue",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/queue/add",
+        "thread/queue/list",
+        "thread/queue/update",
+        "thread/queue/delete",
+        "thread/queue/reorder",
+        "thread/queue/start"
+      ],
+      "notifications": [
+        "thread/queue/changed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "addDurableQueuedFollowUp",
+            "removeQueuedFollowUp"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureController.swift",
+          "symbols": [
+            "mutate"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "projects-and-sections",
+      "title": "Projects, sections and sidebar search",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "project/list",
+        "project/read",
+        "project/create",
+        "project/import",
+        "project/update",
+        "project/move",
+        "project/delete",
+        "threadSection/list",
+        "threadSection/create",
+        "threadSection/update",
+        "threadSection/delete",
+        "thread/section/move",
+        "thread/list",
+        "thread/search"
+      ],
+      "notifications": [
+        "project/changed",
+        "thread/project/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppProjectFeatures.swift",
+          "symbols": [
+            "CodexAppProjectFeatures"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexThreadListSession.swift",
+          "symbols": [
+            "fetchActivePage",
+            "fetchSearchPage"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "func createThreadSection"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRuntimeWorkflowTests.swift",
+        "Tests/CodexCoreUITests/CodexProjectIdentityAndPaginationTests.swift"
+      ],
+      "notes": "Project identity is independent of its primary root. Pagination keeps separate cursors and roots."
+    },
+    {
+      "id": "turns-and-review",
+      "title": "Turn submission, steering, live settings and review",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "turn/start",
+        "turn/settings/update",
+        "turn/steer",
+        "turn/interrupt",
+        "review/start",
+        "thread/approveGuardianDeniedAction"
+      ],
+      "notifications": [
+        "error",
+        "thread/tokenUsage/updated",
+        "turn/started",
+        "turn/completed",
+        "turn/diff/updated",
+        "turn/plan/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "startTurn"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel+Review.swift",
+          "symbols": [
+            "func startCodeReview"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexLiveTurnSettingsController.swift",
+          "symbols": [
+            "func submit"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexThreadFeatureController.swift",
+          "symbols": [
+            "approveDeniedActionConfirmed"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/CodexTurnLeaseTests.swift",
+        "Tests/CodexCoreAppTests/CodexCoreAppModelReviewSessionTests.swift",
+        "Tests/CodexCoreAppTests/CodexThreadFeatureControllerTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "canonical-transcript",
+      "title": "Streaming transcript, tools, hooks and Guardian reviews",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [
+        "hook/started",
+        "hook/completed",
+        "item/started",
+        "item/completed",
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/autoApprovalReview/started",
+        "item/autoApprovalReview/completed",
+        "item/commandExecution/outputDelta",
+        "item/commandExecution/terminalInteraction",
+        "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated",
+        "item/mcpToolCall/progress",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
+        "item/reasoning/textDelta"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/StateEngine/ProtocolStateAdapter.swift",
+          "symbols": [
+            "decodeNotification"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CanonicalPresentation/CodexCanonicalTranscriptProjector.swift",
+          "symbols": [
+            "CodexCanonicalTranscriptProjector"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ProtocolStateAdapterTests.swift",
+        "Tests/CodexCoreUITests/CodexCanonicalTranscriptProjectorTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "realtime-voice",
+      "title": "Realtime Voice over WebRTC",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/realtime/start",
+        "thread/realtime/appendText",
+        "thread/realtime/appendSpeech",
+        "thread/realtime/stop",
+        "thread/realtime/listVoices"
+      ],
+      "notifications": [
+        "thread/realtime/started",
+        "thread/realtime/itemAdded",
+        "thread/realtime/item/started",
+        "thread/realtime/item/transcript/delta",
+        "thread/realtime/item/completed",
+        "thread/realtime/transcript/delta",
+        "thread/realtime/transcript/done",
+        "thread/realtime/sdp",
+        "thread/realtime/error",
+        "thread/realtime/closed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexVoiceChatSession.swift",
+          "symbols": [
+            "func start(",
+            "func refreshVoices",
+            "func sendSpeech"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexVoiceTranscriptAccumulator.swift",
+          "symbols": [
+            "CodexVoiceTranscriptAccumulator"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexVoiceSettingsView.swift",
+          "symbols": [
+            "CodexVoiceSettingsView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexVoiceRuntimeFeaturesTests.swift"
+      ],
+      "notes": "V3 validates against the v1 voice catalog. Voice/model/output choices apply to the next session; item IDs own transcript utterances."
+    },
+    {
+      "id": "realtime-pcm",
+      "title": "Realtime PCM transport for SDK hosts",
+      "coverage": "sdk-workflow",
+      "clientMethods": [
+        "thread/realtime/appendAudio"
+      ],
+      "notifications": [
+        "thread/realtime/outputAudio/delta"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Client/Codex+Realtime.swift",
+          "symbols": [
+            "func threadRealtimeAppendAudio"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Session/RealtimeObserverHub.swift",
+          "symbols": [
+            "CodexRealtimeEvent"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/SessionOperationPrimitivesTests.swift"
+      ],
+      "notes": "SDK hosts supply PCM frames and consume typed audio events. The reference app sends microphone audio through WebRTC, not this RPC."
+    },
+    {
+      "id": "remote-control",
+      "title": "Remote access, pairing and revocation",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "remoteControl/enable",
+        "remoteControl/disable",
+        "remoteControl/status/read",
+        "remoteControl/pairing/start",
+        "remoteControl/pairing/status",
+        "remoteControl/client/list",
+        "remoteControl/client/revoke"
+      ],
+      "notifications": [
+        "remoteControl/status/changed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppRemoteControlFeatures.swift",
+          "symbols": [
+            "func bind",
+            "func startPairing",
+            "func revoke"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppRemoteControlFeaturesView.swift",
+          "symbols": [
+            "CodexAppRemoteControlFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRemoteControlFeaturesTests.swift"
+      ],
+      "notes": "Binding only observes; enable/disable and client revocation are confirmed actions. Pairing secrets expire and are dropped on hide, claim, replacement, or disconnect."
+    },
+    {
+      "id": "environments",
+      "title": "Executor environment setup and inspection",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "environment/add",
+        "environment/info",
+        "environment/status"
+      ],
+      "notifications": [
+        "thread/environment/connected",
+        "thread/environment/disconnected"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppEnvironmentFeatures.swift",
+          "symbols": [
+            "func add(",
+            "func refreshStatus",
+            "func readInfo"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppEnvironmentFeaturesView.swift",
+          "symbols": [
+            "CodexAppEnvironmentFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppEnvironmentFeedbackFeaturesTests.swift"
+      ],
+      "notes": "Status never triggers recovery. Shell information explicitly starts/recovers the executor. Bearer authentication requires a secure or literal loopback destination."
+    },
+    {
+      "id": "files-and-search",
+      "title": "File operations, watches and file mentions",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "fs/readFile",
+        "fs/writeFile",
+        "fs/createDirectory",
+        "fs/getMetadata",
+        "fs/readDirectory",
+        "fs/remove",
+        "fs/copy",
+        "fs/watch",
+        "fs/unwatch",
+        "fuzzyFileSearch",
+        "fuzzyFileSearch/sessionStart",
+        "fuzzyFileSearch/sessionUpdate",
+        "fuzzyFileSearch/sessionStop"
+      ],
+      "notifications": [
+        "fs/changed",
+        "fuzzyFileSearch/sessionUpdated",
+        "fuzzyFileSearch/sessionCompleted"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppFileFeatures.swift",
+          "symbols": [
+            "CodexAppFileFeatures"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMentionSearchSession.swift",
+          "symbols": [
+            "fuzzyFileSearch"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppFileFeaturesView.swift",
+          "symbols": [
+            "CodexAppFileFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRuntimeWorkflowTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "processes",
+      "title": "Processes, terminal commands and PTY control",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "command/exec",
+        "command/exec/write",
+        "command/exec/terminate",
+        "command/exec/resize",
+        "process/spawn",
+        "process/writeStdin",
+        "process/kill",
+        "process/resizePty",
+        "thread/shellCommand"
+      ],
+      "notifications": [
+        "command/exec/outputDelta",
+        "process/outputDelta",
+        "process/exited"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppProcessFeatures.swift",
+          "symbols": [
+            "func start(",
+            "func write",
+            "func resize",
+            "func stop"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppProcessFeaturesView.swift",
+          "symbols": [
+            "CodexAppProcessFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppProcessFeaturesTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "background-terminals",
+      "title": "Background terminal inventory and cleanup",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
+        "thread/backgroundTerminals/clean"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "backgroundTerminals"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexBackgroundTerminalWorkspaceTab.swift",
+          "symbols": [
+            "CodexBackgroundTerminalWorkspaceTab"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppActionTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "imports",
+      "title": "External agent configuration migration",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "externalAgentConfig/import/recordHistory",
+        "externalAgentConfig/import/readHistories"
+      ],
+      "notifications": [
+        "externalAgentConfig/import/progress",
+        "externalAgentConfig/import/completed"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppImportFeatures.swift",
+          "symbols": [
+            "func startImport",
+            "observeImports"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppImportFeaturesView.swift",
+          "symbols": [
+            "CodexAppImportFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRuntimeWorkflowTests.swift"
+      ],
+      "notes": "The import observer is registered before dispatch, preserving completion-before-response and partial migration receipts."
+    },
+    {
+      "id": "experiments",
+      "title": "Experimental flags and local rollout compression",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "experimentalFeature/list",
+        "experimentalFeature/enablement/set",
+        "rollout/compress"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppExperimentalFeatures.swift",
+          "symbols": [
+            "func refresh",
+            "func setEnabled",
+            "func compress"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppExperimentalFeaturesView.swift",
+          "symbols": [
+            "CodexAppExperimentalFeaturesView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRuntimeWorkflowTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "integration-catalog",
+      "title": "Skills, apps, plugins, hooks and marketplaces",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "skills/list",
+        "skills/extraRoots/set",
+        "skills/config/write",
+        "hooks/list",
+        "marketplace/add",
+        "marketplace/remove",
+        "marketplace/upgrade",
+        "plugin/list",
+        "plugin/search",
+        "plugin/installed",
+        "plugin/reconcile",
+        "plugin/read",
+        "plugin/skill/read",
+        "plugin/install",
+        "plugin/uninstall",
+        "app/read",
+        "app/list",
+        "app/installed"
+      ],
+      "notifications": [
+        "skills/changed",
+        "app/list/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexIntegrationFeatureWorkflows.swift",
+          "symbols": [
+            "CodexIntegrationFeatureWorkflows"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexIntegrationCatalogSession.swift",
+          "symbols": [
+            "func refresh"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexPluginRouteView.swift",
+          "symbols": [
+            "CodexPluginRouteView"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexIntegrationFeatureWorkflowsTests.swift",
+        "Tests/CodexCoreUITests/CodexIntegrationCatalogTests.swift",
+        "Tests/CodexCoreUITests/CodexIntegrationControlPlaneTests.swift"
+      ],
+      "notes": "Search, details, skill contents/root edits, reconciliation, installation and marketplace changes have actual catalog/sheet actions."
+    },
+    {
+      "id": "plugin-sharing",
+      "title": "Plugin sharing and checkout",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "plugin/share/save",
+        "plugin/share/updateTargets",
+        "plugin/share/list",
+        "plugin/share/checkout",
+        "plugin/share/delete"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexPluginSharingSheet.swift",
+          "symbols": [
+            "CodexPluginSharingSheet"
+          ],
+          "role": "entrypoint"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexPluginSharingSheet.swift",
+          "symbols": [
+            "pluginShareSave",
+            "pluginShareUpdateTargets",
+            "pluginShareDelete"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexIntegrationFeatureWorkflowsTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "configuration",
+      "title": "Lossless versioned runtime configuration changes",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "config/read",
+        "config/value/write",
+        "config/batchWrite"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPConfigurationHydration.swift",
+          "symbols": [
+            "static func configurations(from response:"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPStatusSheet.swift",
+          "symbols": [
+            "CodexMCPStatusSheet"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexIntegrationFeatureWorkflows.swift",
+          "symbols": [
+            "configBatchWrite"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexIntegrationFeatureWorkflowsTests.swift",
+        "Tests/CodexCoreUITests/CodexIntegrationControlPlaneTests.swift"
+      ],
+      "notes": "Fresh server configuration is hydrated before edits and expected versions retained; arbitrary MCP fields are not reconstructed from a lossy subset."
+    },
+    {
+      "id": "mcp-management",
+      "title": "MCP status, login and reload",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "mcpServer/oauth/login",
+        "config/mcpServer/reload",
+        "mcpServerStatus/list"
+      ],
+      "notifications": [
+        "mcpServer/oauthLogin/completed",
+        "mcpServer/startupStatus/updated"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexIntegrationControlPlane.swift",
+          "symbols": [
+            "CodexIntegrationControlPlane"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPStatusSheet.swift",
+          "symbols": [
+            "CodexMCPStatusSheet"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexIntegrationControlPlaneTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "mcp-inspection",
+      "title": "Scoped MCP resources, tools, streams and widgets",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "mcpServer/resource/read",
+        "mcpServer/event/stream/start",
+        "mcpServer/event/stream/stop",
+        "mcpServer/tool/call"
+      ],
+      "notifications": [
+        "mcpServer/event/stream/notification"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPEventStreamWorkflow.swift",
+          "symbols": [
+            "CodexMCPEventStreamWorkflow"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPInspectorSheet.swift",
+          "symbols": [
+            "CodexMCPInspectorSheet"
+          ],
+          "role": "entrypoint"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPAppView.swift",
+          "symbols": [
+            "CodexMCPAppView"
+          ],
+          "role": "entrypoint"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexMCPAppBridge.swift",
+          "symbols": [
+            "CodexMCPAppDescriptor"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreUITests/CodexIntegrationFeatureWorkflowsTests.swift",
+        "Tests/CodexCoreUITests/CodexMCPAppHostTests.swift",
+        "Tests/CodexCoreAppTests/CodexMCPAppModelScopeTests.swift"
+      ],
+      "notes": "Streams observe before dispatch and stop on ambiguous starts. Widgets receive scoped resource/tool access with sandboxed initialize/input/result, fullscreen and context callbacks."
+    },
+    {
+      "id": "windows-sandbox",
+      "title": "Windows-only sandbox capabilities",
+      "coverage": "platform-capability",
+      "clientMethods": [
+        "windowsSandbox/setupStart",
+        "windowsSandbox/readiness"
+      ],
+      "notifications": [
+        "windows/worldWritableWarning",
+        "windowsSandbox/setupCompleted"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Session/OperationObserverAPI.swift",
+          "symbols": [
+            "func observeWindowsSandboxSetup"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/StateEngine/ProtocolStateAdapter.swift",
+          "symbols": [
+            "windowsWorldWritableWarning"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/SessionOperationPrimitivesTests.swift",
+        "Tests/CodexCoreTests/ProtocolStateAdapterTests.swift"
+      ],
+      "notes": "Typed SDK setup/readiness and notifications are available to Windows-capable hosts. The macOS reference app has no Windows setup UI."
+    },
+    {
+      "id": "mock-internal",
+      "title": "Upstream internal mock method",
+      "coverage": "internal-only",
+      "clientMethods": [
+        "mock/experimentalMethod"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Client/CodexSessionCommands.swift",
+          "symbols": [
+            "func mockExperimentalMethod"
+          ],
+          "role": "protocol"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/CodexSessionCommandsTests.swift"
+      ],
+      "notes": "Generated sealed protocol surface only. Deliberately excluded from product workflow claims."
+    },
+    {
+      "id": "out-of-band-elicitation",
+      "title": "Scoped SDK host elicitation lifecycle",
+      "coverage": "sdk-workflow",
+      "clientMethods": [
+        "thread/increment_elicitation",
+        "thread/decrement_elicitation"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Client/CodexTurnLease.swift",
+          "symbols": [
+            "withOutOfBandElicitation"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/CodexOutOfBandElicitation.swift",
+          "symbols": [
+            "CodexOutOfBandElicitation"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/CodexOutOfBandElicitationTests.swift"
+      ],
+      "notes": "SDK hosts pause a thread around host-owned interactions. Paired cleanup is guarded by the lease connection epoch; the reference app uses the server-owned MCP approval lifecycle."
+    },
+    {
+      "id": "side-conversation-boundary",
+      "title": "Side-chat fork boundary injection",
+      "coverage": "app-workflow",
+      "clientMethods": [
+        "thread/inject_items"
+      ],
+      "notifications": [],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "ensureSideChatThread",
+            "lease.injectItems"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexSideConversationPolicy.swift",
+          "symbols": [
+            "boundary"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/CodexTurnLease.swift",
+          "symbols": [
+            "func injectItems"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexSideConversationPolicyTests.swift",
+        "Tests/CodexCoreTests/CodexOutOfBandElicitationTests.swift"
+      ],
+      "notes": "After an ephemeral fork the app clears inherited goals and injects an explicit side-conversation boundary before inference; obsolete selection closes the lease."
+    },
+    {
+      "id": "runtime-notices",
+      "title": "Model requirements, auth recovery, safety and typed warnings",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [
+        "autoApprovalReview/strictReviewRequired",
+        "model/rerouted",
+        "model/verification",
+        "modelProvider/authRecoveryStarted",
+        "modelProvider/authRecoveryCompleted",
+        "model/safetyBuffering/updated",
+        "turn/moderationMetadata",
+        "warning",
+        "guardianWarning",
+        "deprecationNotice",
+        "configWarning"
+      ],
+      "serverRequests": [],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexAppRuntimeNoticeFeatures.swift",
+          "symbols": [
+            "CodexAppRuntimeNoticeProvider",
+            "func present"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppRuntimeNoticeFeaturesView.swift",
+          "symbols": [
+            "CodexAppRuntimeNoticeFeaturesView"
+          ],
+          "role": "entrypoint"
+        },
+        {
+          "path": "Sources/CodexCore/StateEngine/ProtocolStateAdapter.swift",
+          "symbols": [
+            "providerAuthRecoveryActive"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexAppRuntimeNoticeFeaturesTests.swift",
+        "Tests/CodexCoreTests/ProtocolAuthRecoveryOrderingTests.swift"
+      ],
+      "notes": "Connection/thread/turn selection scopes notices. Typed user-facing warning fields and from/to model names remain actionable; native/provider payloads and moderation blobs are summarized without rendering raw values."
+    },
+    {
+      "id": "approvals",
+      "title": "Command, file, permission and legacy approval prompts",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [
+        "serverRequest/resolved"
+      ],
+      "serverRequests": [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+        "applyPatchApproval",
+        "execCommandApproval"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Session/ServerRequestProtocol.swift",
+          "symbols": [
+            "CodexParsedServerRequest",
+            "CodexValidatedServerRequestResult"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexPromptRuntimeSession.swift",
+          "symbols": [
+            "func resolveApprovalPrompt"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexPromptPanels.swift",
+          "symbols": [
+            "CodexApprovalRequestsPanel"
+          ],
+          "role": "entrypoint"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift",
+        "Tests/CodexCoreUITests/CodexPromptParsingTests.swift",
+        "Tests/CodexCoreUITests/CodexPromptStateSessionTests.swift"
+      ],
+      "notes": "Typed inbox request keys and schema-validated response variants guard approval. Resolved or replaced requests cannot accept stale UI answers."
+    },
+    {
+      "id": "interactive-input",
+      "title": "Tool user input and MCP form, URL or native verification",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [],
+      "serverRequests": [
+        "item/tool/requestUserInput",
+        "mcpServer/elicitation/request"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexPromptRuntimeSession.swift",
+          "symbols": [
+            "func submitInteractivePrompt",
+            "func acceptInteractivePrompt"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreUI/CodexPromptModels.swift",
+          "symbols": [
+            "case .userVerification"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppShell.swift",
+          "symbols": [
+            "CodexAppVerificationApprovalView"
+          ],
+          "role": "entrypoint"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel.swift",
+          "symbols": [
+            "mcpElicitationMode?.isUserVerification"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift",
+        "Tests/CodexCoreUITests/CodexPromptParsingTests.swift",
+        "Tests/CodexCoreAppTests/CodexAppAccountFeaturesTests.swift"
+      ],
+      "notes": "MCP form, URL and openai/userVerification requests are distinct typed variants. Native proof is accepted only while its exact request is still pending; canceled or obsolete proof is discarded."
+    },
+    {
+      "id": "host-dynamic-tools",
+      "title": "Reference-host dynamic thread tools",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [],
+      "serverRequests": [
+        "item/tool/call"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel+VoiceTaskTools.swift",
+          "symbols": [
+            "handleThreadTaskToolRequest",
+            "supportedThreadToolNames"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Session/ServerRequestProtocol.swift",
+          "symbols": [
+            "dynamicToolCall"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreAppTests/CodexVoiceThreadToolContractTests.swift",
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift"
+      ],
+      "notes": "The app registers and handles its documented thread tools; SDK hosts register their own tools and validate results through the same server-request seam."
+    },
+    {
+      "id": "host-attestation",
+      "title": "Local host attestation response",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [],
+      "serverRequests": [
+        "attestation/generate"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreApp/CodexCoreAppModel+VoiceTaskTools.swift",
+          "symbols": [
+            "case .attestation",
+            "CodexAppAttestation.shared.token()"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCoreApp/CodexAppAttestation.swift",
+          "symbols": [
+            "func token"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift"
+      ],
+      "notes": "The local host answers the typed request using its attestation provider; logging records byte count only, never token content."
+    },
+    {
+      "id": "host-current-time",
+      "title": "Automatic typed time response",
+      "coverage": "app-workflow",
+      "clientMethods": [],
+      "notifications": [],
+      "serverRequests": [
+        "currentTime/read"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCoreUI/CodexPromptRuntimeSession.swift",
+          "symbols": [
+            "case .currentTime",
+            "CodexValidatedServerRequestResult.currentTime"
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift",
+        "Tests/CodexCoreUITests/CodexPromptStateSessionTests.swift"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "external-token-refresh",
+      "title": "External ChatGPT token host extension",
+      "coverage": "host-extension",
+      "clientMethods": [],
+      "notifications": [],
+      "serverRequests": [
+        "account/chatgptAuthTokens/refresh"
+      ],
+      "evidence": [
+        {
+          "path": "Sources/CodexCore/Session/ServerRequestProtocol.swift",
+          "symbols": [
+            "case tokenRefresh",
+            "accessToken"
+          ],
+          "role": "owner"
+        },
+        {
+          "path": "Sources/CodexCore/Client/Codex.swift",
+          "symbols": [
+            "serverRequestHandler",
+            "func startLogin("
+          ],
+          "role": "owner"
+        }
+      ],
+      "tests": [
+        "Tests/CodexCoreTests/ServerRequestProtocolTests.swift",
+        "Tests/CodexCoreTests/CodexFacadeTests.swift"
+      ],
+      "notes": "SDK hosts using chatgptAuthTokens supply the refresh handler and own secret lifecycle. The reference app uses managed login, API keys or Bedrock and does not instantiate external-token auth. An unconfigured host returns a capability error, never stale credentials."
+    }
+  ]
+}

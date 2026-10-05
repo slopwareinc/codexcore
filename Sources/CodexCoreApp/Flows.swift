@@ -96,10 +96,14 @@ struct SignInFlowView: View {
                         .background(theme.colors.accent, in: RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .disabled(model.isStartingLogin || model.canCancelLogin || model.isCancellingLogin)
 
                     if let code = model.deviceCode {
                         CodexDeviceCodeCard(code: code, urlString: model.deviceCodeURL, openURL: openURL)
+                        Button(model.isCancellingLogin ? "Cancelling login…" : "Cancel login") { Task { await model.cancelLogin() } }
+                            .disabled(model.isCancellingLogin)
                     }
+                    if let error = model.loginErrorMessage { CodexErrorBanner(message: error) }
 
                     HStack(spacing: 10) {
                         Rectangle().fill(theme.colors.border).frame(height: 1)
@@ -114,7 +118,7 @@ struct SignInFlowView: View {
                         SecureField("OpenAI API key", text: $model.apiKey)
                             .textFieldStyle(.roundedBorder)
                         Button("Use key") { Task { await model.loginWithAPIKey() } }
-                            .disabled(model.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(model.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isStartingLogin || model.canCancelLogin || model.isCancellingLogin)
                     }
                 }
                 .frame(maxWidth: 440)

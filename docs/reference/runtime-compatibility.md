@@ -52,6 +52,11 @@ verified target for this migration. No new required fields were introduced in
 shared schema definitions compared with 0.150.1. The accepted version range is
 not a claim that every new feature exists on older runtimes.
 
+The reference app uses the complete generated feature stack and requires the
+`0.160.x` runtime line. An older SDK-compatible runtime gets an explicit upgrade
+message before gateway probing or feature initialization. SDK hosts can still
+use the older core lifecycle floor and negotiate their own feature availability.
+
 ## 0.150.1 migration
 
 The stable 0.150 schema adds thread timeline reads, MCP event-stream start and

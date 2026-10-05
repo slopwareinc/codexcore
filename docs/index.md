@@ -29,6 +29,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Use the app
 
 - [App tour and workflows](app/using-the-app.md)
+- [Runtime features](app/runtime-features.md)
 - [Tools, diff previews, and worktrees](app/tools-and-worktrees.md)
 
 ## Understand and contribute
@@ -41,6 +42,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Runtime compatibility](reference/runtime-compatibility.md)
 - [Products and module boundaries](reference/products.md)
 - [Support status](reference/support-status.md)
+- [App-server feature coverage](reference/app-server-feature-coverage.md)
 - [Official transcript widget and state oracle](reference/official-transcript-widget-oracle.md)
 - [Development](contributing/development.md)
 - [Protocol upgrades](contributing/protocol-upgrades.md)

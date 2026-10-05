@@ -100,7 +100,7 @@ struct CodexSidebarOrganizationConcurrencyTests {
         try await transport.completeProjectMove(at: 1, failure: false)
         await Task.yield()
 
-        #expect(model.sidebarNavigationSession.projectOrder == ["/tmp/beta", "/tmp/gamma", "/tmp/alpha"])
+        #expect(model.sidebarNavigationSession.projectOrder == ["beta-project", "gamma-project", "alpha-project"])
         #expect(model.sidebarActionError == nil)
 
         await codex.close()

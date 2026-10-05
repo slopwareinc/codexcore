@@ -5,6 +5,8 @@ import CodexCoreUI
 
 struct CodexCoreAppShell: View {
     @Bindable var model: CodexCoreAppModel
+    @State private var selectedMCPApp: CodexMCPAppDescriptor?
+    @State private var isSearchOccurrencesPresented = false
     @State private var isRenameSheetPresented = false
     @State private var isMCPStatusSheetPresented = false
     @State private var isStatusSheetPresented = false
@@ -96,6 +98,7 @@ struct CodexCoreAppShell: View {
         .overlay(alignment: .topTrailing) {
             if !model.approvalPrompts.isEmpty || !model.interactivePrompts.isEmpty {
                 VStack(alignment: .trailing, spacing: 10) {
+                    if let error = model.verificationPromptError { CodexErrorBanner(message: error) }
                     if !model.approvalPrompts.isEmpty {
                         CodexApprovalRequestsPanel(
                             prompts: model.approvalPrompts,
@@ -105,9 +108,19 @@ struct CodexCoreAppShell: View {
                         )
                     }
 
+                    ForEach(model.interactivePrompts.filter { $0.mcpElicitationMode?.isUserVerification == true }) { prompt in
+                        if case .userVerification(let params) = prompt.mcpElicitationMode {
+                            CodexAppVerificationApprovalView(
+                                features: model.accountFeatures, params: params,
+                                onVerified: { model.submitVerificationProof(id: prompt.id, proof: $0) },
+                                onCancelled: { model.declineInteractivePrompt(id: prompt.id) }
+                            ).id(prompt.id)
+                        }
+                    }
+
                     if !model.interactivePrompts.isEmpty {
                         CodexInteractivePromptsPanel(
-                            prompts: model.interactivePrompts,
+                            prompts: model.interactivePrompts.filter { $0.mcpElicitationMode?.isUserVerification != true },
                             onSubmit: { id, answers in model.submitInteractivePrompt(id: id, answers: answers) },
                             onAccept: { id in model.acceptInteractivePrompt(id: id) },
                             onDecline: { id in model.declineInteractivePrompt(id: id) }
@@ -133,11 +146,40 @@ struct CodexCoreAppShell: View {
                     onSelectChat: { result in
                         Task { await model.resumeSearchResult(result) }
                     },
-                    onSelectCommand: handleCommandPaletteAction
+                    onSelectCommand: handleCommandPaletteAction,
+                    hasMoreChatResults: model.threadListSession.searchNextCursor != nil,
+                    onLoadMoreChatResults: { await model.loadMoreSearchResults() },
+                    onFindOccurrences: { target, query in
+                        Task {
+                            await model.resumeSearchResult(target)
+                            guard model.currentThreadID == target.id else { return }
+                            await model.threadFeatures.findOccurrences(query)
+                            isSearchOccurrencesPresented = true
+                        }
+                    }
                 )
                 .codexAgentTheme(model.theme)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
+        }
+        .sheet(item: $selectedMCPApp) { descriptor in
+            if let provider = model.integrationControlPlaneProvider {
+                let accountRevision = model.accountContextRevision
+                CodexMCPAppView(descriptor: descriptor, provider: provider, displayMode: .fullscreen,
+                    onSendMessage: { descriptor, text in Task { await model.sendMCPAppMessage(text, threadID: descriptor.threadID, expectedAccountRevision: accountRevision) } },
+                    onUpdateModelContext: { model.updateMCPAppContext($0, value: $1, expectedAccountRevision: accountRevision) },
+                    onClose: { selectedMCPApp = nil })
+                    .frame(minWidth: 740, minHeight: 650).codexAgentTheme(model.theme)
+            } else { Text("Reconnect to load this app.").padding(24) }
+        }
+        .onChange(of: model.currentThreadID) { _, id in
+            if selectedMCPApp?.threadID != id { selectedMCPApp = nil }
+        }
+        .onChange(of: model.accountContextRevision) { selectedMCPApp = nil }
+        .onChange(of: model.isConnected) { _, connected in if !connected { selectedMCPApp = nil } }
+        .sheet(isPresented: $isSearchOccurrencesPresented) {
+            CodexThreadFeaturesSheet(controller: model.threadFeatures, modelOptions: model.modelOptions,
+                                     projects: model.recentProjects, plugins: model.plugins).codexAgentTheme(model.theme)
         }
         .sheet(isPresented: $isRenameSheetPresented) {
             RenameChatSheet(
@@ -247,6 +289,9 @@ struct CodexCoreAppShell: View {
             onArchiveSelectedChats: { Task { await model.archiveSelectedSidebarChats() } },
             onLoadArchivedChats: { Task { await model.refreshArchivedSidebarChats() } },
             onLoadMoreArchivedChats: { Task { await model.loadMoreArchivedSidebarChats() } },
+            hasMoreActiveChats: model.threadListSession.activeNextCursor != nil,
+            isLoadingMoreActiveChats: model.threadListSession.isLoadingMoreActive,
+            onLoadMoreActiveChats: { Task { await model.loadMoreActiveChats() } },
             onUnarchiveChat: { chat in Task { await model.unarchiveSidebarChat(chat) } },
             sectionDestinations: model.threadSections.enumerated().map {
                 CodexSidebarSectionSummary(schema: $0.element, position: $0.offset)
@@ -342,7 +387,11 @@ struct CodexCoreAppShell: View {
                 onRefresh: { model.requestPluginRefresh() },
                 onAction: { model.performPluginCatalogAction($0) },
                 onReadPlugin: { model.requestPluginRead($0) },
-                onOpenMCPDetails: { isMCPStatusSheetPresented = true }
+                onOpenMCPDetails: { isMCPStatusSheetPresented = true },
+                provider: model.integrationControlPlaneProvider,
+                threadID: model.currentThreadID,
+                workingDirectories: model.workspaceRoots,
+                appsNeedingAuthentication: model.pluginAuthenticationApps
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .codexAgentTheme(model.theme)
@@ -362,10 +411,34 @@ struct CodexCoreAppShell: View {
     }
 
     private func chatWorkspace(proxy: GeometryProxy) -> some View {
+        hostMCPApps(chatWorkspaceContent(proxy: proxy), threadID: model.currentThreadID)
+    }
+
+    @ViewBuilder private func hostMCPApps<Content: View>(_ content: Content, threadID: String?) -> some View {
+        if let provider = model.integrationControlPlaneProvider {
+            let accountRevision = model.accountContextRevision
+            content.codexMCPAppHost(provider: provider,
+                onOpenFullscreen: { if model.accountContextRevision == accountRevision, model.currentThreadID == $0.threadID { selectedMCPApp = $0 } },
+                onSendMessage: { descriptor, text in Task { await model.sendMCPAppMessage(text, threadID: descriptor.threadID, expectedAccountRevision: accountRevision) } },
+                onUpdateModelContext: { model.updateMCPAppContext($0, value: $1, expectedAccountRevision: accountRevision) },
+                appResources: CodexMCPAppCatalogResource.catalog(from: model.mcpServers))
+                .codexTranscriptFocus(model.transcriptFocusRequest)
+                .id(model.accountContextRevision)
+        } else { content }
+    }
+
+    private func chatWorkspaceContent(proxy: GeometryProxy) -> some View {
         let isCurrentVoiceTask = model.voiceSession.isActive
             && model.voiceSession.threadID == model.currentThreadID
-        let voiceAccessory: AnyView? = isCurrentVoiceTask
-            ? AnyView(
+        let bottomAccessory = AnyView(
+            VStack(alignment: .leading, spacing: model.theme.spacing.sm) {
+                CodexAppRuntimeNoticeFeaturesView(features: model.runtimeNotices, threadID: model.currentThreadID,
+                                                 turnID: model.activeTurnLease?.key.turnID.rawValue)
+                if let error = model.liveTurnSettings.errorMessage { CodexErrorBanner(message: error) }
+                if let message = model.liveTurnSettings.message {
+                    Text(message).font(model.theme.fonts.caption).foregroundStyle(model.theme.colors.textSecondary)
+                }
+                if isCurrentVoiceTask {
                 CodexVoiceConversationPanel(
                     session: model.voiceSession,
                     reduceMotion: model.appearanceSettings.reduceMotion,
@@ -376,8 +449,9 @@ struct CodexCoreAppShell: View {
                     onToggleOutputMute: { model.toggleVoiceOutputMute() },
                     onEnd: { Task { await model.stopVoiceChat() } }
                 )
-            )
-            : nil
+                }
+            }
+        )
         let supplementalVoicePresentation = model.voiceSession.threadID == model.currentThreadID
             ? model.voiceSession.transcriptPresentation
             : CodexVoiceTranscriptPresentation()
@@ -505,7 +579,7 @@ struct CodexCoreAppShell: View {
                     model.resolveApprovalPrompt(id: id, approved: approved)
                 },
                 showsComposer: !isCurrentVoiceTask,
-                bottomAccessory: voiceAccessory,
+                bottomAccessory: bottomAccessory,
                 supplementalTranscriptTurns: supplementalVoicePresentation.turns,
                 supplementalTranscriptPresentedAtByTurnID: supplementalVoicePresentation.presentedAtByTurnID
             )
