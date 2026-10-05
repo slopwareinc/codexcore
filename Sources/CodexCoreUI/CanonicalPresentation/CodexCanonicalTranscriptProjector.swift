@@ -9,12 +9,14 @@ import Foundation
 public struct CodexCanonicalTranscriptProjector: Sendable {
     private let itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2?
     private let fileChangeProjector: CodexCanonicalFileChangeProjector
+    private let eventRegistry: CodexTranscriptEventRegistry
 
     public init(
         itemPresentationPolicy: CodexTranscriptItemPresentationPolicyV2? = nil
     ) {
         self.itemPresentationPolicy = itemPresentationPolicy
         self.fileChangeProjector = .init()
+        self.eventRegistry = .init()
     }
 
     init(
@@ -23,6 +25,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
     ) {
         self.itemPresentationPolicy = itemPresentationPolicy
         self.fileChangeProjector = .init(diffPreparer: fileChangeDiffPreparer)
+        self.eventRegistry = .init()
     }
 
     func projectCore(
@@ -133,6 +136,7 @@ public struct CodexCanonicalTranscriptProjector: Sendable {
             guard let projected = try projectTurn(
                 turnID: turnID,
                 canonical: turn,
+                thread: snapshot.threads[threadID],
                 items: items,
                 intents: visibleIntentByTurn[turnID] ?? [],
                 previous: old?.turnsByID[turnID],
@@ -188,6 +192,7 @@ private extension CodexCanonicalTranscriptProjector {
     func projectTurn(
         turnID: TurnID,
         canonical: CanonicalTurn?,
+        thread: CanonicalThread?,
         items: [CanonicalItem],
         intents: [SubmissionIntent],
         previous: CodexTurnV2?,
@@ -236,13 +241,52 @@ private extension CodexCanonicalTranscriptProjector {
                     continue
                 }
             }
+
+            // Narrow typed adapters own the interpretation of protocol fields
+            // that need richer transcript semantics. Core work rows still use
+            // the established grouping path below, while adapters can add
+            // cards, context, citations, and bounded MCP blocks without
+            // growing this coordinator's switch.
+            if let event = eventRegistry.event(for: item, completed: completed) {
+                switch event {
+                case .structuredCard(let card):
+                    appendStructuredCard(normalizedStructuredCard(card, turnID: turnID), to: &turn)
+                    continue
+                case .mcpContent(let blocks):
+                    if item.kind == .mcpToolCall {
+                        for row in try makeWorkRows(
+                            item,
+                            completed: completed,
+                            previousFileRow: previousFileRows[item.key.itemID.rawValue],
+                            mcpContent: blocks,
+                            checkpoint: checkpoint
+                        ) {
+                            appendWorkRow(row, to: &turn)
+                        }
+                        continue
+                    }
+                case .memoryCitations, .sourceCitations, .outputResources,
+                     .userContext, .approvalReview, .hookActivity, .recovery, .notice:
+                    // These are consumed by the item-specific or turn-extension
+                    // adapter below. Keeping the event typed avoids a raw
+                    // payload fallback for unknown/malformed values.
+                    break
+                }
+            }
             switch item.kind {
-            case .userMessage:
-                let isInitialMessage = turn.userMessage == nil
+                case .userMessage:
+                    let isInitialMessage = turn.userMessage == nil
+                let typedContext: (attachments: [CodexUserAttachmentV2], context: [CodexUserContextV2]) = {
+                    guard case .userContext(let attachments, let context)? = eventRegistry.event(for: item, completed: completed)
+                    else { return ([], []) }
+                    return (attachments, context)
+                }()
                 guard let message = userMessage(
                     item,
                     sentAt: item.startedAt.map(Self.date)
-                        ?? (isInitialMessage ? canonical?.startedAt.map(Self.date) : nil)
+                        ?? (isInitialMessage ? canonical?.startedAt.map(Self.date) : nil),
+                    attachments: typedContext.attachments,
+                    context: typedContext.context
                 ) else { continue }
                 if turn.userMessage == nil {
                     turn.userMessage = message
@@ -258,11 +302,15 @@ private extension CodexCanonicalTranscriptProjector {
                 }
             case .hookPrompt:
                 break
-            case .agentMessage:
+                case .agentMessage:
+                let provenance = eventRegistry.provenance(for: item)
                 appendAgent(
                     item,
                     completed: completed,
                     sentAt: item.startedAt.map(Self.date) ?? canonical?.completedAt.map(Self.date),
+                    memoryCitations: provenance.memoryCitations,
+                    sourceCitations: provenance.sourceCitations,
+                    outputResources: provenance.outputResources,
                     to: &turn
                 )
             case .plan:
@@ -353,8 +401,55 @@ private extension CodexCanonicalTranscriptProjector {
                 ) {
                     appendWorkRow(row, to: &turn)
                 }
-            case .unknown:
-                appendNotice(id: item.key.itemID, message: "Activity", to: &turn)
+                case .unknown:
+                // Unknown protocol items are represented by a typed muted
+                // notice. The payload itself never reaches visible text, so a
+                // future discriminator cannot leak raw JSON into the transcript.
+                appendNotice(
+                    id: item.key.itemID,
+                    message: "Unsupported activity",
+                    to: &turn
+                )
+            }
+        }
+
+        // `turn/plan/updated` is canonical turn state rather than a durable
+        // plan item. Project it through the same typed card adapter so a plan
+        // remains visible after reconnect/history hydration.
+        if let plan = canonical?.plan, !plan.isEmpty {
+            appendStructuredCard(
+                CodexStructuredTranscriptCardV2(
+                    id: "plan:\(turnID.rawValue)",
+                    kind: .proposedPlan,
+                    title: canonical?.planExplanation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? canonical?.planExplanation ?? "Plan"
+                        : "Plan",
+                    explanation: canonical?.planExplanation,
+                    steps: plan.enumerated().map { index, step in
+                        .init(
+                            id: "plan:\(turnID.rawValue):step:\(index)",
+                            title: step.step,
+                            status: Self.structuredPlanStatus(step.status)
+                        )
+                    },
+                    status: Self.structuredPlanStatus(Self.planStatus(plan))
+                ),
+                to: &turn
+            )
+        }
+
+        if let canonical {
+            for event in eventRegistry.events(for: canonical, thread: thread) {
+                switch event {
+                case .approvalReview(let review): appendApprovalReview(review, to: &turn)
+                case .hookActivity(let hook): appendHookActivity(hook, to: &turn)
+                case .recovery(let recovery): appendRecovery(recovery, to: &turn)
+                case .notice(let notice): appendNotice(notice, to: &turn)
+                case .structuredCard(let card):
+                    appendStructuredCard(normalizedStructuredCard(card, turnID: turnID), to: &turn)
+                case .memoryCitations, .sourceCitations, .outputResources, .userContext, .mcpContent:
+                    break
+                }
             }
         }
 
@@ -461,20 +556,31 @@ private extension CodexCanonicalTranscriptProjector {
         Date(timeIntervalSince1970: TimeInterval(value.rawValue))
     }
 
-    func userMessage(_ item: CanonicalItem, sentAt: Date?) -> CodexUserMessageV2? {
+    func userMessage(
+        _ item: CanonicalItem,
+        sentAt: Date?,
+        attachments: [CodexUserAttachmentV2] = [],
+        context: [CodexUserContextV2] = []
+    ) -> CodexUserMessageV2? {
         let clientID = item.clientUserMessageID?.rawValue ?? item.payload.string("clientId")
         let rawText = item.payload.textContent
         guard !isRealtimeDelegationEnvelope(rawText) else { return nil }
         let delegation = CodexThreadDelegationEnvelope.decode(rawText)
         let visibleText = delegation?.input ?? rawText
         let decoded = CodexComposerPromptCodec.decode(visibleText)
+        let referencedFiles = decoded?.files ?? []
+        let deduplicatedAttachments = attachments.filter { attachment in
+            !referencedFiles.contains { file in file.path == attachment.value }
+        }
         return CodexUserMessageV2(
             id: item.key.itemID.rawValue,
             clientID: clientID,
             text: decoded?.request ?? visibleText,
             rawText: rawText,
-            referencedFiles: decoded?.files ?? [],
+            referencedFiles: referencedFiles,
             responseAnnotations: decoded?.responseAnnotations ?? [],
+            attachments: deduplicatedAttachments,
+            context: context,
             delegationSource: delegation.map {
                 CodexThreadReferenceV2(hostID: "local", threadID: $0.sourceThreadID.rawValue)
             },
@@ -505,9 +611,15 @@ private extension CodexCanonicalTranscriptProjector {
 
     func inputText(_ input: [CodexJSONValue]) -> String {
         input.compactMap { value -> String? in
-            if case .string(let text) = value { return text }
-            guard let object = value.object else { return nil }
-            return object.string("text") ?? object.string("content")
+            switch CodexInput(jsonValue: value) {
+            case .text(let text, _): return text
+            case .raw(let raw):
+                if case .string(let text) = raw { return text }
+                guard let object = raw.objectValue else { return nil }
+                return object.string("text") ?? object.string("content")
+            case .image, .localImage, .audio, .localAudio, .skill, .mention:
+                return nil
+            }
         }.joined()
     }
 
@@ -547,6 +659,9 @@ private extension CodexCanonicalTranscriptProjector {
         _ item: CanonicalItem,
         completed: Bool,
         sentAt: Date?,
+        memoryCitations: [CodexMemoryCitationV2] = [],
+        sourceCitations: [CodexTranscriptSourceCitationV2] = [],
+        outputResources: [CodexTranscriptOutputResourceV2] = [],
         to turn: inout CodexTurnV2
     ) {
         let id = item.key.itemID.rawValue
@@ -557,7 +672,10 @@ private extension CodexCanonicalTranscriptProjector {
             id: id,
             text: text,
             isStreaming: !completed,
-            sentAt: sentAt
+            sentAt: sentAt,
+            memoryCitations: memoryCitations,
+            sourceCitations: sourceCitations,
+            outputResources: outputResources
         )
         switch item.payload.string("phase") {
         case "commentary":
@@ -609,6 +727,82 @@ private extension CodexCanonicalTranscriptProjector {
     func appendNotice(id: ItemID, message: String, to turn: inout CodexTurnV2) {
         closeWorkGroup(&turn)
         upsertNarrative(.notice(.init(id: id.rawValue, message: message)), to: &turn)
+    }
+
+    func appendNotice(_ notice: CodexTurnNoticeV2, to turn: inout CodexTurnV2) {
+        closeWorkGroup(&turn)
+        upsertNarrative(.notice(notice), to: &turn)
+    }
+
+    func appendStructuredCard(
+        _ card: CodexStructuredTranscriptCardV2,
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        if let index = turn.structuredCards.firstIndex(where: { $0.id == card.id }) {
+            turn.structuredCards[index] = card
+        } else {
+            turn.structuredCards.append(card)
+        }
+        upsertNarrative(.structuredCard(card), to: &turn)
+    }
+
+    /// Plan items and `turn/plan/updated` carry the same semantic card. Keep a
+    /// turn-scoped identity so streaming updates replace the card in place and
+    /// hydration never shows a raw plan plus a synthetic summary.
+    func normalizedStructuredCard(
+        _ card: CodexStructuredTranscriptCardV2,
+        turnID: TurnID
+    ) -> CodexStructuredTranscriptCardV2 {
+        var normalized = card
+        switch card.kind {
+        case .todo:
+            normalized.id = "todo:\(turnID.rawValue)"
+        case .proposedPlan:
+            normalized.id = "plan:\(turnID.rawValue)"
+        case .planImplementation:
+            normalized.id = "plan-implementation:\(turnID.rawValue)"
+        }
+        return normalized
+    }
+
+    func appendApprovalReview(
+        _ review: CodexApprovalReviewCardV2,
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        if let index = turn.approvalReviews.firstIndex(where: { $0.id == review.id }) {
+            turn.approvalReviews[index] = review
+        } else {
+            turn.approvalReviews.append(review)
+        }
+        upsertNarrative(.approvalReview(review), to: &turn)
+    }
+
+    func appendHookActivity(
+        _ hook: CodexHookActivityV2,
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        if let index = turn.hookActivities.firstIndex(where: { $0.id == hook.id }) {
+            turn.hookActivities[index] = hook
+        } else {
+            turn.hookActivities.append(hook)
+        }
+        upsertNarrative(.hookActivity(hook), to: &turn)
+    }
+
+    func appendRecovery(
+        _ recovery: CodexTranscriptRecoveryNoticeV2,
+        to turn: inout CodexTurnV2
+    ) {
+        closeWorkGroup(&turn)
+        if let index = turn.recoveryNotices.firstIndex(where: { $0.id == recovery.id }) {
+            turn.recoveryNotices[index] = recovery
+        } else {
+            turn.recoveryNotices.append(recovery)
+        }
+        upsertNarrative(.recovery(recovery), to: &turn)
     }
 
     func appendInlineActivity(
@@ -666,7 +860,8 @@ private extension CodexCanonicalTranscriptProjector {
                     activity.status = .completed
                     narrative[index] = .inlineActivity(activity)
                 }
-            case .productToolCall, .notice:
+            case .structuredCard, .approvalReview, .hookActivity, .recovery,
+                 .productToolCall, .notice:
                 break
             }
         }
@@ -677,10 +872,26 @@ private extension CodexCanonicalTranscriptProjector {
 // MARK: - Work grammar
 
 private extension CodexCanonicalTranscriptProjector {
+    static func structuredPlanStatus(_ status: CanonicalPlanStepStatus) -> CodexStructuredTranscriptCardStatusV2 {
+        switch status {
+        case .pending: .pending
+        case .inProgress: .inProgress
+        case .completed: .completed
+        case .unknown(let value): .unknown(value)
+        }
+    }
+
+    static func planStatus(_ steps: [CanonicalPlanStep]) -> CanonicalPlanStepStatus {
+        if steps.contains(where: { $0.status == .inProgress }) { return .inProgress }
+        if steps.allSatisfy({ $0.status == .completed }) { return .completed }
+        return .pending
+    }
+
     func makeWorkRows(
         _ item: CanonicalItem,
         completed: Bool,
         previousFileRow: CodexFileChangeRowV2?,
+        mcpContent: [CodexMCPContentBlockV2]? = nil,
         checkpoint: () throws -> Void
     ) rethrows -> [CodexWorkRowV2] {
         let id = item.key.itemID.rawValue
@@ -728,12 +939,25 @@ private extension CodexCanonicalTranscriptProjector {
                 errorFirstLine: state == .failed ? mcpError(item.payload) : nil,
                 arguments: item.payload["arguments"],
                 result: item.payload["result"],
-                readOnlyHint: item.payload.bool("readOnlyHint")
+                readOnlyHint: item.payload.bool("readOnlyHint"),
+                contentBlocks: mcpContent ?? []
             ))]
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else { return [] }
-            return [.webSearch(.init(id: id, query: query, status: state))]
+            let results = (item.payload.array("results") ?? []).enumerated().compactMap { index, value -> CodexWebSearchResultV2? in
+                guard let object = value.object,
+                      let title = object.string("title")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !title.isEmpty
+                else { return nil }
+                return .init(
+                    id: object.string("id") ?? "\(id):result:\(index)",
+                    title: title,
+                    url: object.string("url"),
+                    snippet: object.string("snippet") ?? object.string("description")
+                )
+            }
+            return [.webSearch(.init(id: id, query: query, status: state, results: results))]
         case .collabAgentToolCall:
             return collabToolRows(item, fallbackState: state).map(CodexWorkRowV2.collabAgent)
         case .subAgentActivity:

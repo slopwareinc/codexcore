@@ -11,7 +11,16 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
     public var isPinnedToBottom: Bool
     public var expandedWorkTurnIDs: Set<String>
     public var expandedRowIDs: Set<String>
+    /// Disclosure and focus are presentation decorations, never protocol facts.
+    public var expandedCardIDs: Set<String>
+    public var focusedItemID: String?
     public var selectedDiffFileIndexByRowID: [String: Int]
+    /// Presentation-only inline editor state. Canonical user content is never
+    /// mutated until the host explicitly commits the edit.
+    public var editingMessageID: String?
+    public var editingMessageText: String
+    public var bookmarkedTurnIDs: Set<String>
+    public var outputBadgesByTurnID: [String: String]
     public var agentDisplayNameByThreadID: [String: String]
     public var agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2]
     public var presentedAtByTurnID: [String: Date]
@@ -24,7 +33,13 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         isPinnedToBottom: Bool = true,
         expandedWorkTurnIDs: Set<String> = [],
         expandedRowIDs: Set<String> = [],
+        expandedCardIDs: Set<String> = [],
+        focusedItemID: String? = nil,
         selectedDiffFileIndexByRowID: [String: Int] = [:],
+        editingMessageID: String? = nil,
+        editingMessageText: String = "",
+        bookmarkedTurnIDs: Set<String> = [],
+        outputBadgesByTurnID: [String: String] = [:],
         agentDisplayNameByThreadID: [String: String] = [:],
         agentDisplayStatusByThreadID: [String: CodexAgentDisplayStatusV2] = [:],
         presentedAtByTurnID: [String: Date] = [:],
@@ -36,7 +51,13 @@ public struct CodexThreadUIPresentation: Sendable, Equatable {
         self.isPinnedToBottom = isPinnedToBottom
         self.expandedWorkTurnIDs = expandedWorkTurnIDs
         self.expandedRowIDs = expandedRowIDs
+        self.expandedCardIDs = expandedCardIDs
+        self.focusedItemID = focusedItemID
         self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
+        self.editingMessageID = editingMessageID
+        self.editingMessageText = editingMessageText
+        self.bookmarkedTurnIDs = bookmarkedTurnIDs
+        self.outputBadgesByTurnID = outputBadgesByTurnID
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
         self.agentDisplayStatusByThreadID = agentDisplayStatusByThreadID
         self.presentedAtByTurnID = presentedAtByTurnID

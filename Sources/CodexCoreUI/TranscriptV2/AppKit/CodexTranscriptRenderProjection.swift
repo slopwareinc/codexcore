@@ -164,6 +164,9 @@ enum CodexTranscriptTextRole: Sendable, Equatable {
 
 enum CodexTranscriptRenderAction: Sendable, Equatable {
     case toggleWork(turnID: String)
+    case toggleCard(cardID: String)
+    case focusItem(itemID: String)
+    case toggleBookmark(turnID: String)
     case toggleRow(rowID: String)
     case selectDiffFile(rowID: String, index: Int)
     case openSubagent(threadID: String)
@@ -172,6 +175,8 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openFile(path: String, line: Int?)
     case openReview(CodexTranscriptReviewRequest)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
+    case retryTurn(turnID: String)
+    case retryHistory(threadID: String)
 }
 
 struct CodexTranscriptApprovalRender: Sendable, Equatable {
@@ -298,6 +303,9 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
+    /// Renderer-independent typed node selected by the render registry. Legacy
+    /// fields remain for compatibility with the existing AppKit cell adapter.
+    var renderNode: CodexTranscriptRenderNodeV2?
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
@@ -522,6 +530,7 @@ actor CodexTranscriptRenderProjector {
     private var cachedProjectionSignature: ProjectionCacheSignature?
     private var cachedSectionsByTurnID: [String: CachedTurnSection] = [:]
     private let codeHighlighter: any CodexCodeHighlighter = CodexRegexCodeHighlighter()
+    private let rendererRegistry = CodexTranscriptRendererRegistry.default
 
     func project(
         presentation: CodexThreadUIPresentation,
@@ -625,6 +634,7 @@ actor CodexTranscriptRenderProjector {
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
+                    renderNode: draft.renderNode,
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
@@ -661,6 +671,51 @@ actor CodexTranscriptRenderProjector {
                     cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses
                 ) { append(draft) }
+            }
+
+            if presentation.bookmarkedTurnIDs.contains(turn.id) {
+                let bookmark = CodexTranscriptWorkRowRender(
+                    kind: .other,
+                    label: "Bookmarked turn",
+                    status: .completed,
+                    systemImage: "bookmark.fill",
+                    style: .inlineActivity,
+                    durationMs: nil,
+                    isExpanded: false,
+                    hasDetail: false,
+                    isSubagentLink: false
+                )
+                append(ItemDraft(
+                    id: "\(sectionID):bookmark",
+                    fingerprint: "bookmark:\(turn.id)",
+                    workRow: bookmark,
+                    action: .toggleBookmark(turnID: turn.id),
+                    accessibilityLabel: "Bookmarked turn",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptColumnMetrics.workRowHeight
+                ))
+            }
+            if let badge = presentation.outputBadgesByTurnID[turn.id],
+               !badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let output = CodexTranscriptWorkRowRender(
+                    kind: .other,
+                    label: String(badge.prefix(120)),
+                    status: .completed,
+                    systemImage: "checkmark.seal",
+                    style: .inlineActivity,
+                    durationMs: nil,
+                    isExpanded: false,
+                    hasDetail: false,
+                    isSubagentLink: false
+                )
+                append(ItemDraft(
+                    id: "\(sectionID):output-badge",
+                    fingerprint: "output-badge:\(badge)",
+                    workRow: output,
+                    accessibilityLabel: "Output badge: \(badge)",
+                    maxWidthKind: .card,
+                    fixedHeight: CodexTranscriptColumnMetrics.workRowHeight
+                ))
             }
 
             let showsWork = turn.presentationStyle == .realtimeVoice
@@ -725,6 +780,16 @@ actor CodexTranscriptRenderProjector {
                             role: .commentary, theme: theme, cacheHits: &preparedTextCacheHits,
                             cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                         ) { append(draft) }
+                        if let citationDraft = provenanceDraft(
+                            citations: prose.memoryCitations,
+                            sources: prose.sourceCitations,
+                            outputs: prose.outputResources,
+                            sectionID: sectionID,
+                            sourceID: prose.id,
+                            theme: theme
+                        ) {
+                            append(citationDraft)
+                        }
                     case .workGroup(let group):
                         let rows = tailMode ? group.rows.filter(\.isInProgress) : group.rows
                         if rows.isEmpty { continue }
@@ -752,6 +817,7 @@ actor CodexTranscriptRenderProjector {
                             id: "\(sectionID):group:\(group.id):summary",
                             fingerprint: "group-summary:\(String(describing: summaryRender))",
                             workRow: summaryRender,
+                            renderNode: rendererRegistry.node(for: .workGroup(group)),
                             action: .toggleRow(rowID: group.id),
                             accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
@@ -811,6 +877,7 @@ actor CodexTranscriptRenderProjector {
                                 id: "\(sectionID):row:\(rowID)",
                                 fingerprint: "row:\(String(describing: rowRender))",
                                 workRow: rowRender,
+                                renderNode: Self.renderNode(for: row),
                                 action: subagentThreadID.map(CodexTranscriptRenderAction.openSubagent)
                                     ?? (hasDetail ? .toggleRow(rowID: rowID) : nil),
                                 copyText: detail,
@@ -989,6 +1056,66 @@ actor CodexTranscriptRenderProjector {
                             accessibilityLabel: notice.message,
                             maxWidthKind: .card
                         ))
+                    case .structuredCard(let card):
+                        if tailMode { continue }
+                        let expanded = presentation.expandedCardIDs.contains(card.id)
+                        let summary = Self.structuredCardSummary(card, expanded: expanded)
+                        append(ItemDraft(
+                            id: "\(sectionID):structured-card:\(card.id)",
+                            fingerprint: "structured-card:\(String(describing: card))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            renderNode: .structuredCard(card),
+                            action: card.steps.isEmpty && card.explanation?.isEmpty != false ? nil : .toggleCard(cardID: card.id),
+                            copyText: summary,
+                            accessibilityLabel: "\(card.title), \(card.summary), \(expanded ? "details shown" : "details hidden")",
+                            maxWidthKind: .card
+                        ))
+                    case .approvalReview(let review):
+                        if tailMode { continue }
+                        let summary = [review.title, review.statusLabel, review.rationale]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        append(ItemDraft(
+                            id: "\(sectionID):approval-review:\(review.id)",
+                            fingerprint: "approval-review:\(String(describing: review))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            renderNode: .approvalReview(review),
+                            copyText: summary,
+                            accessibilityLabel: "\(review.title), \(review.statusLabel)",
+                            maxWidthKind: .card
+                        ))
+                    case .hookActivity(let hook):
+                        if tailMode { continue }
+                        let summary = [hook.label, hook.statusMessage]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
+                        append(ItemDraft(
+                            id: "\(sectionID):hook:\(hook.id)",
+                            fingerprint: "hook:\(String(describing: hook))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                            renderNode: .hookActivity(hook),
+                            copyText: summary,
+                            accessibilityLabel: "\(hook.label), hook \(Self.statusTitle(hook.status))",
+                            maxWidthKind: .card
+                        ))
+                    case .recovery(let recovery):
+                        let summary = Self.recoveryDisplayText(recovery)
+                        append(ItemDraft(
+                            id: "\(sectionID):recovery:\(recovery.id)",
+                            fingerprint: "recovery:\(String(describing: recovery))",
+                            textRole: .notice,
+                            preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                            renderNode: .recovery(recovery),
+                            action: Self.recoveryAction(recovery, turn: turn, threadID: presentation.threadID),
+                            copyText: summary,
+                            accessibilityLabel: summary,
+                            maxWidthKind: .card
+                        ))
                         }
                     }
                 }
@@ -1024,6 +1151,82 @@ actor CodexTranscriptRenderProjector {
                 }
             }
 
+            // Failed turns keep recovery affordances visible even while their
+            // historical work disclosure is collapsed.
+            if !workExpanded, case .failed = turn.status {
+                for recovery in turn.recoveryNotices {
+                    let summary = Self.recoveryDisplayText(recovery)
+                    append(ItemDraft(
+                        id: "\(sectionID):recovery:\(recovery.id)",
+                        fingerprint: "recovery:\(String(describing: recovery))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .recovery(recovery),
+                        action: Self.recoveryAction(recovery, turn: turn, threadID: presentation.threadID),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+            }
+            if !workExpanded, case .done = turn.status {
+                for card in turn.structuredCards {
+                    let expanded = presentation.expandedCardIDs.contains(card.id)
+                    let summary = Self.structuredCardSummary(card, expanded: expanded)
+                    append(ItemDraft(
+                        id: "\(sectionID):structured-card:\(card.id)",
+                        fingerprint: "structured-card:\(String(describing: card))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                        renderNode: .structuredCard(card),
+                        action: card.steps.isEmpty && card.explanation?.isEmpty != false ? nil : .toggleCard(cardID: card.id),
+                        copyText: summary,
+                        accessibilityLabel: "\(card.title), \(card.summary), \(expanded ? "details shown" : "details hidden")",
+                        maxWidthKind: .card
+                    ))
+                }
+                for review in turn.approvalReviews {
+                    let summary = "\(review.title): \(review.statusLabel)"
+                    append(ItemDraft(
+                        id: "\(sectionID):approval-review:\(review.id)",
+                        fingerprint: "approval-review:\(String(describing: review))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .approvalReview(review),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+                for hook in turn.hookActivities {
+                    let summary = "\(hook.label): \(Self.statusTitle(hook.status))"
+                    append(ItemDraft(
+                        id: "\(sectionID):hook:\(hook.id)",
+                        fingerprint: "hook:\(String(describing: hook))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.textSecondary, theme: theme),
+                        renderNode: .hookActivity(hook),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+                for recovery in turn.recoveryNotices {
+                    let summary = Self.recoveryDisplayText(recovery)
+                    append(ItemDraft(
+                        id: "\(sectionID):recovery:\(recovery.id)",
+                        fingerprint: "recovery:\(String(describing: recovery))",
+                        textRole: .notice,
+                        preparedText: Self.preparePlain(summary, font: theme.captionFont, color: theme.warning, theme: theme),
+                        renderNode: .recovery(recovery),
+                        action: Self.recoveryAction(recovery, turn: turn, threadID: presentation.threadID),
+                        copyText: summary,
+                        accessibilityLabel: summary,
+                        maxWidthKind: .card
+                    ))
+                }
+            }
+
             if let turnDiff {
                 let rowHeight = CodexTranscriptTurnDiffCard.rowHeight
                 let disclosureHeight: CGFloat = turnDiff.hiddenFileCount > 0 || turnDiff.isExpanded
@@ -1052,6 +1255,16 @@ actor CodexTranscriptRenderProjector {
                     role: .finalAnswer, theme: theme, cacheHits: &preparedTextCacheHits,
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { append(draft) }
+                if let citationDraft = provenanceDraft(
+                    citations: answer.memoryCitations,
+                    sources: answer.sourceCitations,
+                    outputs: answer.outputResources,
+                    sectionID: sectionID,
+                    sourceID: answer.id,
+                    theme: theme
+                ) {
+                    append(citationDraft)
+                }
             }
             for image in turn.generatedImages {
                 let label = CodexTranscriptImageSource.localFilePath(image.source)
@@ -1214,6 +1427,7 @@ private extension CodexTranscriptRenderProjector {
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
+        var renderNode: CodexTranscriptRenderNodeV2?
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
@@ -1241,6 +1455,7 @@ private extension CodexTranscriptRenderProjector {
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
+            renderNode: CodexTranscriptRenderNodeV2? = nil,
             directive: CodexTranscriptDirectiveRender? = nil,
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
@@ -1268,6 +1483,7 @@ private extension CodexTranscriptRenderProjector {
             self.code = code
             self.footer = footer
             self.productTool = productTool
+            self.renderNode = renderNode
             self.directive = directive
             self.approval = approval
             self.action = action
@@ -1472,6 +1688,69 @@ private extension CodexTranscriptRenderProjector {
                     cacheHits: &cacheHits,
                     cacheMisses: &cacheMisses
                 ))
+            } else if case .math = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
+            } else if case .mermaid = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
+            } else if case .visualization = block {
+                if !textRun.isEmpty {
+                    drafts.append(textRunDraft(
+                        blocks: textRun,
+                        sourceID: sourceID,
+                        runIndex: textRunIndex,
+                        role: role,
+                        theme: theme,
+                        cacheHits: &cacheHits,
+                        cacheMisses: &cacheMisses
+                    ))
+                    textRun.removeAll(keepingCapacity: true)
+                    textRunIndex += 1
+                }
+                drafts.append(draft(
+                    block: block,
+                    role: role,
+                    theme: theme,
+                    cacheHits: &cacheHits,
+                    cacheMisses: &cacheMisses
+                ))
             } else {
                 textRun.append(block)
             }
@@ -1538,11 +1817,25 @@ private extension CodexTranscriptRenderProjector {
             }
         }
         let text = prepared.attributedString.string
+        let hasRichBlock = blocks.contains { block in
+            switch block {
+            case .math, .mermaid, .visualization: true
+            default: false
+            }
+        }
+        let renderNode = hasRichBlock
+            ? rendererRegistry.node(for: .prose(.init(
+                id: sourceID,
+                text: CodexBlockProjector.previousText(from: blocks) ?? "",
+                isStreaming: role == .liveTail
+            )))
+            : nil
         return ItemDraft(
             id: "\(sourceID):selection-surface:\(runIndex)",
             fingerprint: "selection-surface:\(role):\(runFingerprint)",
             textRole: role,
             preparedText: prepared,
+            renderNode: renderNode,
             copyText: text,
             accessibilityLabel: "\(role == .finalAnswer ? "Assistant" : "Commentary"): \(text)",
             maxWidthKind: .card
@@ -1581,6 +1874,69 @@ private extension CodexTranscriptRenderProjector {
                 code: CodexTranscriptCodeRender(language: language, code: displayCode),
                 copyText: code,
                 accessibilityLabel: "Code block \(language ?? "code"): \(code)",
+                maxWidthKind: .card
+            )
+        case .math(let id, let latex, let display):
+            let bounded = Self.bounded(latex, limit: 40_000)
+            let prepared = cachedPreparedText(
+                content: bounded,
+                style: "math",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.preparePlain(bounded, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+            }
+            return ItemDraft(
+                id: itemID ?? id,
+                fingerprint: "math:\(display):\(bounded)",
+                textRole: role,
+                preparedText: prepared,
+                code: .init(language: "math", code: bounded),
+                copyText: latex,
+                accessibilityLabel: "Mathematical expression: \(bounded)",
+                maxWidthKind: .card
+            )
+        case .mermaid(let id, let diagram, let complete):
+            let bounded = Self.bounded(diagram, limit: 40_000)
+            let prepared = cachedPreparedText(
+                content: bounded,
+                style: "mermaid-\(complete)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.preparePlain(bounded, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+            }
+            return ItemDraft(
+                id: itemID ?? id,
+                fingerprint: "mermaid:\(complete):\(bounded)",
+                textRole: role,
+                preparedText: prepared,
+                code: .init(language: "mermaid", code: bounded),
+                copyText: diagram,
+                accessibilityLabel: "Mermaid diagram: \(bounded)",
+                maxWidthKind: .card
+            )
+        case .visualization(let id, let source, let complete):
+            let bounded = Self.bounded(source, limit: 40_000)
+            let prepared = cachedPreparedText(
+                content: bounded,
+                style: "visualization-\(complete)",
+                theme: theme,
+                cacheHits: &cacheHits,
+                cacheMisses: &cacheMisses
+            ) {
+                Self.preparePlain(bounded, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+            }
+            return ItemDraft(
+                id: itemID ?? id,
+                fingerprint: "visualization:\(complete):\(bounded)",
+                textRole: role,
+                preparedText: prepared,
+                code: .init(language: "visualization", code: bounded),
+                copyText: source,
+                accessibilityLabel: "Visualization source: \(bounded)",
                 maxWidthKind: .card
             )
         default:
@@ -1759,6 +2115,50 @@ private extension CodexTranscriptRenderProjector {
                 bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
             ))
         }
+        if !user.attachments.isEmpty {
+            let chips = user.attachments.map { attachment in
+                CodexTranscriptAgentChipRender(
+                    id: "\(user.id):attachment:\(attachment.id)",
+                    label: attachment.label,
+                    status: .done,
+                    threadID: nil,
+                    taskSummary: attachment.value,
+                    latestUpdate: attachment.detail,
+                    attachmentKind: attachment.kind == .image ? .image : .file
+                )
+            }
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):typed-attachments",
+                fingerprint: "typed-attachments:\(user.attachments)",
+                agentChips: chips,
+                accessibilityLabel: "Attached input: \(user.attachments.map(\.label).joined(separator: ", "))",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
+        if !user.context.isEmpty {
+            let chips = user.context.map { context in
+                CodexTranscriptAgentChipRender(
+                    id: "\(user.id):context:\(context.id)",
+                    label: context.kind == .untrusted ? "Untrusted context" : "Context",
+                    status: .done,
+                    threadID: nil,
+                    taskSummary: context.value,
+                    latestUpdate: context.id,
+                    attachmentKind: nil
+                )
+            }
+            drafts.append(ItemDraft(
+                id: "\(sectionID):user:\(user.id):context",
+                fingerprint: "context:\(user.context)",
+                agentChips: chips,
+                accessibilityLabel: "Additional context attached",
+                isTrailingAligned: true,
+                maxWidthKind: .user,
+                bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+            ))
+        }
         if !visibleUserText.isEmpty {
             drafts.append(ItemDraft(
                 id: "\(sectionID):user:\(user.id)",
@@ -1784,6 +2184,77 @@ private extension CodexTranscriptRenderProjector {
             ))
         }
         return drafts
+    }
+
+    func provenanceDraft(
+        citations: [CodexMemoryCitationV2],
+        sources: [CodexTranscriptSourceCitationV2],
+        outputs: [CodexTranscriptOutputResourceV2],
+        sectionID: String,
+        sourceID: String,
+        theme _: CodexTranscriptAppKitTheme
+    ) -> ItemDraft? {
+        guard !citations.isEmpty || !sources.isEmpty || !outputs.isEmpty else { return nil }
+        var chips = citations.map { citation in
+            CodexTranscriptAgentChipRender(
+                id: "\(sourceID):memory-citation:\(citation.id)",
+                label: "\(citation.path):\(citation.lineStart)",
+                status: .done,
+                threadID: nil,
+                taskSummary: citation.path,
+                latestUpdate: citation.note,
+                attachmentKind: .file
+            )
+        }
+        chips += sources.map { source in
+            CodexTranscriptAgentChipRender(
+                id: "\(sourceID):source:\(source.id)",
+                label: source.title,
+                status: .done,
+                threadID: nil,
+                taskSummary: source.location,
+                latestUpdate: source.snippet,
+                attachmentKind: source.location.hasPrefix("http") ? nil : .file
+            )
+        }
+        chips += outputs.map { output in
+            CodexTranscriptAgentChipRender(
+                id: "\(sourceID):output:\(output.id)",
+                label: output.name,
+                status: .done,
+                threadID: nil,
+                taskSummary: output.location,
+                latestUpdate: output.mimeType,
+                attachmentKind: output.kind == .image ? .image : .file
+            )
+        }
+        let labels = citations.map { "\($0.path):\($0.lineStart)-\($0.lineEnd)" }
+            + sources.map { "\($0.title): \($0.location)" }
+            + outputs.map(\.name)
+        let action: CodexTranscriptRenderAction?
+        if let citation = citations.first {
+            action = .openFile(path: citation.path, line: citation.lineStart)
+        } else if let source = sources.first, source.location.hasPrefix("http") {
+            action = .openURL(source.location)
+        } else if let output = outputs.first, output.location.hasPrefix("http") {
+            action = .openURL(output.location)
+        } else if let output = outputs.first {
+            action = .openFile(path: output.location, line: nil)
+        } else {
+            action = nil
+        }
+        let citationsOnly = !citations.isEmpty && sources.isEmpty && outputs.isEmpty
+        return ItemDraft(
+            id: "\(sectionID):\(citationsOnly ? "memory-citations" : "provenance"):\(sourceID)",
+            fingerprint: "provenance:\(citations):\(sources):\(outputs)",
+            agentChips: chips,
+            action: action,
+            copyText: labels.joined(separator: "\n"),
+            accessibilityLabel: "\(citationsOnly ? "Memory citations" : "Sources and outputs"): \(labels.joined(separator: ", "))",
+            isTrailingAligned: false,
+            maxWidthKind: .card,
+            bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+        )
     }
 
     func cachedPreparedText(
@@ -2005,6 +2476,12 @@ private extension CodexTranscriptRenderProjector {
             return prepareTable(model, role: role, theme: theme)
         case .code:
             return preparePlain("", font: theme.codeFont, color: theme.codeText, theme: theme)
+        case .math(_, let latex, _):
+            return preparePlain(latex, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+        case .mermaid(_, let diagram, _):
+            return preparePlain(diagram, font: theme.codeFont, color: theme.textPrimary, theme: theme)
+        case .visualization(_, let source, _):
+            return preparePlain(source, font: theme.codeFont, color: theme.textPrimary, theme: theme)
         }
     }
 
@@ -2257,6 +2734,15 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    static func renderNode(for row: CodexWorkRowV2) -> CodexTranscriptRenderNodeV2? {
+        guard case .mcpToolCall(let value) = row,
+              !value.contentBlocks.isEmpty else { return nil }
+        if let widget = value.widgets.first {
+            return .mcpAppWidget(widget)
+        }
+        return .mcpContent(value.contentBlocks)
+    }
+
     static func workIsExpanded(_ turn: CodexTurnV2, presentation: CodexThreadUIPresentation) -> Bool {
         switch turn.status {
         case .working: true
@@ -2341,6 +2827,69 @@ private extension CodexTranscriptRenderProjector {
         }
     }
 
+    static func statusTitle(_ status: CodexWorkItemStatusV2) -> String {
+        switch status {
+        case .inProgress: "in progress"
+        case .completed: "completed"
+        case .failed: "failed"
+        case .declined: "declined"
+        case .unknown: "status unavailable"
+        }
+    }
+
+    static func structuredCardSummary(
+        _ card: CodexStructuredTranscriptCardV2,
+        expanded: Bool
+    ) -> String {
+        var lines = [card.title]
+        if let explanation = card.explanation?.trimmingCharacters(in: .whitespacesAndNewlines), !explanation.isEmpty {
+            lines.append(explanation)
+        }
+        lines.append(card.summary)
+        if expanded {
+            lines.append(contentsOf: card.steps.map { step in
+                let status: String = switch step.status {
+                case .pending: "pending"
+                case .inProgress: "in progress"
+                case .completed: "completed"
+                case .failed: "failed"
+                case .unknown: "status unavailable"
+                }
+                return status + ": " + step.title
+            })
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func recoveryAction(
+        _ recovery: CodexTranscriptRecoveryNoticeV2,
+        turn: CodexTurnV2,
+        threadID: String
+    ) -> CodexTranscriptRenderAction? {
+        guard recovery.canRetry else { return nil }
+        if recovery.scope?.hasPrefix("history") == true {
+            return .retryHistory(threadID: threadID)
+        }
+        guard turn.userMessage != nil else { return nil }
+        return .retryTurn(turnID: turn.id)
+    }
+
+    static func recoveryDisplayText(_ recovery: CodexTranscriptRecoveryNoticeV2) -> String {
+        var suffix: [String] = []
+        if let attempt = recovery.attempt {
+            if let maximum = recovery.maximumAttempts, maximum > 0 {
+                suffix.append("attempt \(attempt) of \(maximum)")
+            } else {
+                suffix.append("attempt \(attempt)")
+            }
+        }
+        if let countdown = recovery.countdownSeconds {
+            suffix.append("retrying in \(countdown)s")
+        }
+        guard !suffix.isEmpty else { return recovery.message }
+        return recovery.message + " (" + suffix.joined(separator: ", ") + ")"
+    }
+
     static func duration(for row: CodexWorkRowV2) -> Int? {
         switch row {
         case .command(let value): value.durationMs
@@ -2360,11 +2909,10 @@ private extension CodexTranscriptRenderProjector {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
         case .fileChange: return nil
         case .mcpToolCall(let value):
-            let parts = [
-                value.arguments.map { "Arguments\n\($0.description)" },
-                value.result.map { "Result\n\($0.description)" }
-            ].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return CodexMCPContentPresentationV2.toolDetail(
+                arguments: value.arguments,
+                blocks: value.contentBlocks
+            )
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames
@@ -2373,6 +2921,13 @@ private extension CodexTranscriptRenderProjector {
             }.joined(separator: "\n\n")
             let parts = [value.action == .sentInput ? value.instructions?.codexAppKitNilIfEmpty : nil, replies.codexAppKitNilIfEmpty].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        case .webSearch(let value):
+            let results = value.results.prefix(12).map { result in
+                [result.title, result.url, result.snippet]
+                    .compactMap { $0?.codexAppKitNilIfEmpty }
+                    .joined(separator: "\n")
+            }
+            return results.isEmpty ? nil : results.joined(separator: "\n\n")
         default: return nil
         }
     }
@@ -2446,11 +3001,15 @@ private extension CodexTranscriptRenderProjector {
                     })
                 case .productToolCall(let call):
                     let label = [call.namespace, call.tool].compactMap { $0 }.joined(separator: " · ")
-                    let payload = [call.arguments.map(\.description), call.contentItems.isEmpty ? nil : call.contentItems.map(\.description).joined(separator: "\n")]
-                        .compactMap { $0 }
-                        .joined(separator: "\n")
-                    work.append([label, payload.codexAppKitNilIfEmpty].compactMap { $0 }.joined(separator: "\n"))
+                    let payload = CodexMCPContentPresentationV2.summary(
+                        call.contentItems.compactMap(CodexMCPContentBlockAdapter.decode)
+                    )
+                    work.append([label, payload].compactMap { $0 }.joined(separator: "\n"))
                 case .inlineActivity(let activity): work.append(activity.label)
+                case .structuredCard(let card): work.append(card.title)
+                case .approvalReview(let review): work.append("\(review.title): \(review.statusLabel)")
+                case .hookActivity(let hook): work.append(hook.label)
+                case .recovery(let recovery): work.append(recovery.message)
                 case .notice(let notice): work.append(notice.message)
                 }
             }
@@ -2496,8 +3055,10 @@ extension CodexTranscriptRenderProjector {
 
 private extension CodexBlock {
     var isCodeV2: Bool {
-        if case .code = self { return true }
-        return false
+        switch self {
+        case .code, .math, .mermaid, .visualization: return true
+        default: return false
+        }
     }
 }
 

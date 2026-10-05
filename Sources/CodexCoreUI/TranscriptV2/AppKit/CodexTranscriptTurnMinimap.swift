@@ -53,7 +53,16 @@ enum CodexTranscriptTurnMinimapProjection {
                     return group.header
                 case .inlineActivity(let activity) where !activity.label.isEmpty:
                     return activity.label
-                case .productToolCall, .inlineActivity, .prose, .notice, .workGroup:
+                case .structuredCard(let card) where !card.title.isEmpty:
+                    return card.title
+                case .approvalReview(let review) where !review.title.isEmpty:
+                    return review.title
+                case .hookActivity(let hook) where !hook.label.isEmpty:
+                    return hook.label
+                case .recovery(let recovery) where !recovery.message.isEmpty:
+                    return recovery.message
+                case .productToolCall, .inlineActivity, .prose, .notice, .workGroup,
+                     .structuredCard, .approvalReview, .hookActivity, .recovery:
                     continue
                 }
             }

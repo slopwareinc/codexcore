@@ -8,19 +8,44 @@ public struct CodexTurnViewV2: View {
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
+    private let onEditMessage: ((CodexUserMessageV2, String) -> Void)?
+    @State private var isEditingUserMessage = false
+    @State private var editingText = ""
     @State private var presentedAt = Date()
 
-    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }) {
+    public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }, onEditMessage: ((CodexUserMessageV2, String) -> Void)? = nil, initiallyEditing: Bool = false) {
         self.turn = turn
         self.productToolRenderer = productToolRenderer
         self.onOpenSubagent = onOpenSubagent
         self.onOpenThread = onOpenThread
+        self.onEditMessage = onEditMessage
+        self._isEditingUserMessage = State(initialValue: initiallyEditing)
+        self._editingText = State(initialValue: turn.userMessage?.rawText ?? turn.userMessage?.text ?? "")
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let user = turn.userMessage {
-                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
+                if isEditingUserMessage {
+                    CodexInlineMessageEditor(
+                        text: $editingText,
+                        onCommit: {
+                            onEditMessage?(user, editingText)
+                            isEditingUserMessage = false
+                        },
+                        onCancel: { isEditingUserMessage = false }
+                    )
+                } else {
+                    CodexUserMessageBubbleV2(
+                        message: user,
+                        presentedAt: presentedAt,
+                        onOpenThread: onOpenThread,
+                        onEdit: onEditMessage == nil ? nil : {
+                            editingText = user.rawText
+                            isEditingUserMessage = true
+                        }
+                    )
+                }
             }
 
             CodexWorkBlockViewV2(
@@ -35,6 +60,8 @@ public struct CodexTurnViewV2: View {
             )
 
             if turn.finalAnswer?.text.isEmpty == false
+                || turn.finalAnswer?.sourceCitations.isEmpty == false
+                || turn.finalAnswer?.outputResources.isEmpty == false
                 || !turn.generatedImages.isEmpty
                 || !turn.imageGenerationFailures.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -44,6 +71,29 @@ public struct CodexTurnViewV2: View {
                             isStreaming: answer.isStreaming,
                             cacheNamespace: "transcript-v2-final-\(answer.id)"
                         )
+                    }
+                    if let answer = turn.finalAnswer {
+                        ForEach(answer.memoryCitations) { citation in
+                            Label(
+                                "\(citation.path):\(citation.lineStart)-\(citation.lineEnd)",
+                                systemImage: "book.closed"
+                            )
+                            .font(theme.fonts.micro)
+                            .foregroundStyle(theme.colors.textTertiary)
+                            .accessibilityLabel("Memory citation \(citation.path), lines \(citation.lineStart) through \(citation.lineEnd)")
+                        }
+                        ForEach(answer.sourceCitations) { source in
+                            Label(source.title, systemImage: source.location.hasPrefix("http") ? "link" : "doc.text")
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .accessibilityLabel("Source \(source.title): \(source.location)")
+                        }
+                        ForEach(answer.outputResources) { resource in
+                            Label(resource.name, systemImage: resource.kind == .image ? "photo" : "doc")
+                                .font(theme.fonts.micro)
+                                .foregroundStyle(theme.colors.textTertiary)
+                                .accessibilityLabel("Generated output \(resource.name)")
+                        }
                     }
                     ForEach(turn.generatedImages) { image in
                         CodexGeneratedImageViewV2(image: image)
@@ -114,6 +164,19 @@ struct CodexUserMessageBubbleV2: View {
     let message: CodexUserMessageV2
     let presentedAt: Date
     let onOpenThread: (CodexThreadReferenceV2) -> Void
+    let onEdit: (() -> Void)?
+
+    init(
+        message: CodexUserMessageV2,
+        presentedAt: Date,
+        onOpenThread: @escaping (CodexThreadReferenceV2) -> Void,
+        onEdit: (() -> Void)? = nil
+    ) {
+        self.message = message
+        self.presentedAt = presentedAt
+        self.onOpenThread = onOpenThread
+        self.onEdit = onEdit
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 5) {
@@ -127,7 +190,10 @@ struct CodexUserMessageBubbleV2: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text(message.displayText)
+            Text(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (!message.referencedFiles.isEmpty || !message.attachments.isEmpty)
+                ? "Attached files"
+                : message.text)
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textPrimary)
                 .textSelection(.enabled)
@@ -139,11 +205,30 @@ struct CodexUserMessageBubbleV2: View {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
                         .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
                 }
+            if !message.referencedFiles.isEmpty || !message.attachments.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(message.referencedFiles) { file in
+                        Label(file.displayName, systemImage: file.isImage ? "photo" : "doc")
+                    }
+                    ForEach(message.attachments) { attachment in
+                        Label(attachment.label, systemImage: attachment.kind == .image ? "photo" : "paperclip")
+                    }
+                }
+                .font(theme.fonts.micro)
+                .foregroundStyle(theme.colors.textTertiary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Attached input: \((message.referencedFiles.map(\.displayName) + message.attachments.map(\.label)).joined(separator: ", "))")
+            }
             Text(presentedAt.formatted(date: .omitted, time: .shortened))
                 .font(theme.fonts.micro)
                 .foregroundStyle(theme.colors.textTertiary)
                 .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .contextMenu {
+            if let onEdit {
+                Button("Edit message", action: onEdit)
+            }
+        }
     }
 }

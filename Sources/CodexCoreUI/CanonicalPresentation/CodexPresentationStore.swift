@@ -2,103 +2,6 @@ import CodexCore
 import Foundation
 import Observation
 
-/// A stateless seam between `CodexSession` and presentation projection.
-///
-/// Every closure must forward to the same actor-owned canonical state engine.
-/// In particular, `observe` must return its atomic seed/stream pair; this adapter
-/// must never take its own snapshot and then subscribe separately.
-public struct CodexPresentationStateAdapter: Sendable {
-    public typealias Observe = @Sendable (
-        StateObservationScope
-    ) async -> StateSnapshotObservation<CodexSessionStateSnapshot>
-    public typealias Cancel = @Sendable (StateObservationID) async -> Void
-    public typealias CurrentSnapshot = @Sendable (
-        StateObservationScope
-    ) async -> CodexSessionStateSnapshot
-
-    private let observeClosure: Observe
-    private let cancelClosure: Cancel
-    private let currentSnapshotClosure: CurrentSnapshot
-
-    public init(
-        observe: @escaping Observe,
-        cancel: @escaping Cancel,
-        currentSnapshot: @escaping CurrentSnapshot
-    ) {
-        self.observeClosure = observe
-        self.cancelClosure = cancel
-        self.currentSnapshotClosure = currentSnapshot
-    }
-
-    fileprivate func observe(
-        scope: StateObservationScope
-    ) async -> StateSnapshotObservation<CodexSessionStateSnapshot> {
-        await observeClosure(scope)
-    }
-
-    fileprivate func cancel(observationID: StateObservationID) async {
-        await cancelClosure(observationID)
-    }
-
-    fileprivate func currentSnapshot(
-        scope: StateObservationScope
-    ) async -> CodexSessionStateSnapshot {
-        await currentSnapshotClosure(scope)
-    }
-}
-
-public extension CodexPresentationStateAdapter {
-    /// Adapter for the canonical observation Interface implemented by the sole
-    /// ordered session actor and by deterministic fixtures.
-    init<Source: CodexSessionStateObserving>(stateSource: Source) {
-        self.init(
-            observe: { scope in
-                await stateSource.observeSessionState(scope: scope)
-            },
-            cancel: { observationID in
-                await stateSource.cancelObservation(observationID)
-            },
-            currentSnapshot: { scope in
-                await stateSource.sessionStateSnapshot(scope: scope)
-            }
-        )
-    }
-
-    /// Explicit convenience for application composition roots.
-    init(session: CodexSession) {
-        self.init(stateSource: session)
-    }
-}
-
-/// The only durable state owned by the presentation layer for one thread.
-public struct CodexThreadPresentationLocalState: Sendable, Equatable {
-    public var rawScrollOffset: CGFloat
-    public var isPinnedToBottom: Bool
-    public var expandedWorkTurnIDs: Set<String>
-    public var expandedRowIDs: Set<String>
-    public var selectedDiffFileIndexByRowID: [String: Int]
-    public var firstPresentedAtByTurnID: [String: Date]
-    public var lastSeenAttentionRevision: StateRevision
-
-    public init(
-        rawScrollOffset: CGFloat = 0,
-        isPinnedToBottom: Bool = true,
-        expandedWorkTurnIDs: Set<String> = [],
-        expandedRowIDs: Set<String> = [],
-        selectedDiffFileIndexByRowID: [String: Int] = [:],
-        firstPresentedAtByTurnID: [String: Date] = [:],
-        lastSeenAttentionRevision: StateRevision = .zero
-    ) {
-        self.rawScrollOffset = rawScrollOffset
-        self.isPinnedToBottom = isPinnedToBottom
-        self.expandedWorkTurnIDs = expandedWorkTurnIDs
-        self.expandedRowIDs = expandedRowIDs
-        self.selectedDiffFileIndexByRowID = selectedDiffFileIndexByRowID
-        self.firstPresentedAtByTurnID = firstPresentedAtByTurnID
-        self.lastSeenAttentionRevision = lastSeenAttentionRevision
-    }
-}
-
 public struct CodexPresentationStoreDiagnostics: Sendable, Equatable {
     public fileprivate(set) var invalidSnapshotCount = 0
     public fileprivate(set) var receivedSignalCount = 0
@@ -341,9 +244,98 @@ public final class CodexPresentationStore {
         touch(threadID)
     }
 
+    public func setCardExpanded(_ expanded: Bool, cardID: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        if expanded {
+            local.expandedCardIDs.insert(cardID)
+        } else {
+            local.expandedCardIDs.remove(cardID)
+        }
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    public func focusTranscriptItem(_ itemID: String?, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.focusedItemID = itemID
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
     public func selectDiffFile(index: Int, rowID: String, threadID: ThreadID) {
         guard var local = localStateByThreadID[threadID] else { return }
         local.selectedDiffFileIndexByRowID[rowID] = max(0, index)
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    /// Starts an inline edit without changing canonical transcript content.
+    public func beginEditingMessage(
+        messageID: String,
+        text: String,
+        threadID: ThreadID
+    ) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.editingMessageID = messageID
+        local.editingMessageText = text
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    public func updateEditingMessageText(_ text: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID], local.editingMessageID != nil else { return }
+        local.editingMessageText = text
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    @discardableResult
+    public func commitEditingMessage(threadID: ThreadID) -> String? {
+        guard var local = localStateByThreadID[threadID], local.editingMessageID != nil else { return nil }
+        let text = local.editingMessageText
+        local.editingMessageID = nil
+        local.editingMessageText = ""
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+        return text
+    }
+
+    public func cancelEditingMessage(threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        local.editingMessageID = nil
+        local.editingMessageText = ""
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+    }
+
+    @discardableResult
+    public func toggleBookmark(turnID: String, threadID: ThreadID) -> Bool {
+        guard var local = localStateByThreadID[threadID] else { return false }
+        if local.bookmarkedTurnIDs.contains(turnID) {
+            local.bookmarkedTurnIDs.remove(turnID)
+        } else {
+            local.bookmarkedTurnIDs.insert(turnID)
+        }
+        localStateByThreadID[threadID] = local
+        if selectedThreadID == threadID { refreshActiveLocalState() }
+        touch(threadID)
+        return local.bookmarkedTurnIDs.contains(turnID)
+    }
+
+    public func setOutputBadge(_ badge: String?, turnID: String, threadID: ThreadID) {
+        guard var local = localStateByThreadID[threadID] else { return }
+        if let badge = badge?.trimmingCharacters(in: .whitespacesAndNewlines), !badge.isEmpty {
+            local.outputBadgesByTurnID[turnID] = String(badge.prefix(120))
+        } else {
+            local.outputBadgesByTurnID.removeValue(forKey: turnID)
+        }
         localStateByThreadID[threadID] = local
         if selectedThreadID == threadID { refreshActiveLocalState() }
         touch(threadID)
@@ -823,7 +815,13 @@ private extension CodexPresentationStore {
         presentation.isPinnedToBottom = local.isPinnedToBottom
         presentation.expandedWorkTurnIDs = local.expandedWorkTurnIDs
         presentation.expandedRowIDs = local.expandedRowIDs
+        presentation.expandedCardIDs = local.expandedCardIDs
+        presentation.focusedItemID = local.focusedItemID
         presentation.selectedDiffFileIndexByRowID = local.selectedDiffFileIndexByRowID
+        presentation.editingMessageID = local.editingMessageID
+        presentation.editingMessageText = local.editingMessageText
+        presentation.bookmarkedTurnIDs = local.bookmarkedTurnIDs
+        presentation.outputBadgesByTurnID = local.outputBadgesByTurnID
         presentation.presentedAtByTurnID = local.firstPresentedAtByTurnID
         activePresentation = presentation
         presentationRevision &+= 1
@@ -842,7 +840,13 @@ private extension CodexPresentationStore {
             isPinnedToBottom: localState.isPinnedToBottom,
             expandedWorkTurnIDs: localState.expandedWorkTurnIDs,
             expandedRowIDs: localState.expandedRowIDs,
+            expandedCardIDs: localState.expandedCardIDs,
+            focusedItemID: localState.focusedItemID,
             selectedDiffFileIndexByRowID: localState.selectedDiffFileIndexByRowID,
+            editingMessageID: localState.editingMessageID,
+            editingMessageText: localState.editingMessageText,
+            bookmarkedTurnIDs: localState.bookmarkedTurnIDs,
+            outputBadgesByTurnID: localState.outputBadgesByTurnID,
             presentedAtByTurnID: localState.firstPresentedAtByTurnID,
             pendingApprovals: pendingApprovals
         )

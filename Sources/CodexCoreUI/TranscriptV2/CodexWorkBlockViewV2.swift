@@ -136,6 +136,7 @@ public struct CodexWorkBlockViewV2: View {
         if narrative.contains(where: { entry in
             switch entry {
             case .workGroup, .productToolCall, .inlineActivity: true
+            case .structuredCard, .approvalReview, .hookActivity, .recovery: true
             case .prose, .notice: false
             }
         }) { return true }
@@ -201,6 +202,14 @@ public struct CodexWorkBlockViewV2: View {
             else { CodexProductToolFallbackV2(call: call, onOpenThread: onOpenThread) }
         case .inlineActivity(let activity):
             CodexInlineActivityViewV2(activity: activity)
+        case .structuredCard(let card):
+            CodexStructuredTranscriptCardViewV2(card: card)
+        case .approvalReview(let review):
+            CodexApprovalReviewCardViewV2(review: review)
+        case .hookActivity(let hook):
+            CodexHookActivityViewV2(activity: hook)
+        case .recovery(let recovery):
+            CodexTranscriptRecoveryViewV2(notice: recovery)
         }
     }
 
