@@ -100,6 +100,8 @@ public struct CodexChatWorkspaceView: View {
     private let currentThreadID: String?
     private let rateLimitBannerMessage: String?
     private let workspaceSummary: CodexWorkspaceSummaryContext?
+    private let threadResourceInventory: CodexThreadResourceInventory?
+    private let onOpenResource: ((CodexWorkspaceTabRequest) -> Void)?
     private let gitReviewSession: CodexGitReviewSession?
     private let backgroundTerminalActions: CodexBackgroundTerminalActions?
     private let showsSidebarToggle: Bool
@@ -186,6 +188,8 @@ public struct CodexChatWorkspaceView: View {
         mountedPanels: [CodexWorkspacePanelState] = [],
         rateLimitBannerMessage: String? = nil,
         workspaceSummary: CodexWorkspaceSummaryContext? = nil,
+        threadResourceInventory: CodexThreadResourceInventory? = nil,
+        onOpenResource: ((CodexWorkspaceTabRequest) -> Void)? = nil,
         gitReviewSession: CodexGitReviewSession? = nil,
         backgroundTerminalActions: CodexBackgroundTerminalActions? = nil,
         showsSidebarToggle: Bool = false,
@@ -264,6 +268,8 @@ public struct CodexChatWorkspaceView: View {
         self.mountedPanels = mountedPanels
         self.rateLimitBannerMessage = rateLimitBannerMessage
         self.workspaceSummary = workspaceSummary
+        self.threadResourceInventory = threadResourceInventory
+        self.onOpenResource = onOpenResource
         self.gitReviewSession = gitReviewSession
         self.backgroundTerminalActions = backgroundTerminalActions
         self.showsSidebarToggle = showsSidebarToggle
@@ -689,6 +695,7 @@ public struct CodexChatWorkspaceView: View {
             sideChat: sideChat,
             subagents: subagents,
             subagentCoordinator: subagentCoordinator,
+            threadResourceInventory: effectiveThreadResourceInventory,
             workspaceSummary: workspaceSummary,
             gitReviewSession: gitReviewSession,
             backgroundTerminalActions: backgroundTerminalActions,
@@ -696,9 +703,12 @@ public struct CodexChatWorkspaceView: View {
             onEnvironmentHandoffCompletion: { completion in
                 onEnvironmentHandoffCompletion?(completion)
             },
-            onOpenPlan: openPlanPanel,
-            onOpenReview: openReviewPanel,
-            onOpenBackgroundTerminalDetail: openBackgroundTerminalDetail,
+            onOpenPlan: { openPlanPanel() },
+            onOpenReview: { openReviewPanel() },
+            onOpenBackgroundTerminalDetail: { processID in
+                openBackgroundTerminalDetail(processID)
+            },
+            onOpenResource: openThreadResource,
             onSelectTab: { openPanelTab($0, from: .summary) }
         )
     }
@@ -723,6 +733,8 @@ public struct CodexChatWorkspaceView: View {
             width: resizable ? $panel.panelWidth : .constant(theme.spacing.sidePanelWidth),
             browserSessions: panel.browserSessions,
             mountedBrowserSessions: mountedTools.browser,
+            threadResourceInventory: effectiveThreadResourceInventory,
+            onOpenResource: openThreadResource,
             modelOptions: modelOptions,
             sideChatDraft: $sideChatDraft,
             isSideChatSending: isSideChatSending,
@@ -769,6 +781,79 @@ public struct CodexChatWorkspaceView: View {
         openSubagentTab(id, from: opener)
     }
 
+    private var effectiveThreadResourceInventory: CodexThreadResourceInventory? {
+        if let threadResourceInventory { return threadResourceInventory }
+        guard let threadID = currentThreadID.flatMap({ ThreadID($0) }),
+              let snapshot = presentationStore.activeCanonicalSnapshot
+        else { return nil }
+        return CodexThreadResourceProjection.project(
+            snapshot: snapshot,
+            threadID: threadID
+        )
+    }
+
+    /// Resolves typed inventory requests at the workspace boundary. Resource
+    /// adapters own their host-specific route and this method only connects
+    /// the already-registered built-ins; unknown resources are handed back to
+    /// the host without fabricating a preview surface.
+    private func openThreadResource(_ request: CodexWorkspaceTabRequest) {
+        if let onOpenResource {
+            onOpenResource(request)
+            return
+        }
+        guard let resource = effectiveThreadResourceInventory?.resource(id: request.resourceID) else {
+            return
+        }
+        switch resource.kind {
+        case .plan:
+            openPlanPanel(request: request)
+        case .review:
+            openReviewPanel(request: request)
+        case .subagent:
+            if let childID = resource.metadata.childThreadID {
+                openSubagentTab(childID.rawValue, request: request)
+            }
+        case .backgroundTerminal:
+            if let processID = resource.metadata.processID {
+                openBackgroundTerminalDetail(processID, request: request)
+            }
+        case .editedFile, .outputFile, .source:
+            guard let path = resource.metadata.path else { return }
+            let fileURL = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: workspacePath))
+                .standardizedFileURL
+            let tabID = panel.openFilePreview(
+                fileURL: fileURL,
+                opener: request.opener,
+                placement: request.placement
+            )
+            if let line = resource.metadata.line {
+                panel.workspaceTabs.updateState(
+                    CodexFilePreviewTabState(goToLine: line).tabState,
+                    for: tabID
+                )
+            }
+            showAgentPanel()
+        case .webActivity:
+            if let url = resource.metadata.url ?? resource.metadata.query {
+                let browserID = panel.openBrowser()
+                panel.browserSessions.first { $0.id == browserID }?.addressText = url
+                panel.browserSessions.first { $0.id == browserID }?.navigateToAddressText()
+                showAgentPanel()
+            }
+        case .pullRequest:
+            openReviewPanel(request: request)
+        case .sideChat:
+            if let sideChatID = resource.metadata.sourceID {
+                openPanelTab(sideChatID, from: request.opener)
+            }
+        case .generatedImage, .visualization, .artifact, .mcpResource, .mcpApp, .unknown:
+            // These adapters are supplied by later workspace slices. Keep the
+            // typed request observable to the host rather than duplicating a
+            // preview host here.
+            break
+        }
+    }
+
     /// Opens the one Subagents workspace tab for a typed child opener. The
     /// child may still be hydrating, so this path intentionally never checks
     /// the currently-loaded metadata arrays and never falls back to a legacy
@@ -790,6 +875,23 @@ public struct CodexChatWorkspaceView: View {
         showAgentPanel()
     }
 
+    private func openSubagentTab(
+        _ id: String,
+        request: CodexWorkspaceTabRequest
+    ) {
+        guard let adapter = subagentsAdapter else { return }
+        workspaceTabs.open(
+            CodexSubagentsWorkspaceTabAdapter(
+                parentThreadID: adapter.parentThreadID,
+                coordinator: adapter.coordinator,
+                selectedThreadID: id
+            ),
+            request: request
+        )
+        isCompactSummaryPanelPresented = false
+        showAgentPanel()
+    }
+
     private func openReviewPanel(_ request: CodexTranscriptReviewRequest) {
         workspaceTabs.open(
             reviewAdapter(
@@ -802,15 +904,25 @@ public struct CodexChatWorkspaceView: View {
         showAgentPanel()
     }
 
-    private func openPlanPanel() {
+    private func openPlanPanel(request: CodexWorkspaceTabRequest? = nil) {
         guard let plan = workspaceSummary?.plan else { return }
-        workspaceTabs.open(CodexPlanWorkspaceTabAdapter(plan: plan), from: .summary)
+        let adapter = CodexPlanWorkspaceTabAdapter(plan: plan)
+        if let request {
+            workspaceTabs.open(adapter, request: request)
+        } else {
+            workspaceTabs.open(adapter, from: .summary)
+        }
         showAgentPanel()
     }
 
-    private func openReviewPanel() {
+    private func openReviewPanel(request: CodexWorkspaceTabRequest? = nil) {
         guard let session = gitReviewSession else { return }
-        workspaceTabs.open(reviewAdapter(session: session), from: .summary)
+        let adapter = reviewAdapter(session: session)
+        if let request {
+            workspaceTabs.open(adapter, request: request)
+        } else {
+            workspaceTabs.open(adapter, from: .summary)
+        }
         showAgentPanel()
     }
 
@@ -880,21 +992,26 @@ public struct CodexChatWorkspaceView: View {
         workspaceTabs.register(adapters)
     }
 
-    private func openBackgroundTerminalDetail(_ processID: String) {
+    private func openBackgroundTerminalDetail(
+        _ processID: String,
+        request: CodexWorkspaceTabRequest? = nil
+    ) {
         guard let backgroundTerminals = workspaceSummary?.backgroundTerminals,
               let terminal = backgroundTerminals.terminals.first(
             where: { $0.processID == processID }
         ) else { return }
-        workspaceTabs.open(
-            CodexBackgroundTerminalWorkspaceTabAdapter(
+        let adapter = CodexBackgroundTerminalWorkspaceTabAdapter(
                 threadID: backgroundTerminals.threadID,
                 terminal: terminal,
                 onTerminate: {
                     backgroundTerminalActions?.terminate(processID)
                 }
-            ),
-            from: .summary
-        )
+            )
+        if let request {
+            workspaceTabs.open(adapter, request: request)
+        } else {
+            workspaceTabs.open(adapter, from: .summary)
+        }
         showAgentPanel()
     }
 

@@ -297,6 +297,120 @@ extension CodexCoreAppModel {
         )
     }
 
+    /// One fact-only inventory feeds both the floating Summary and the
+    /// workspace New Tab page. Panel selection and layout remain in
+    /// `CodexWorkspaceTabs`; only canonical/resource facts cross this seam.
+    var threadResourceInventory: CodexThreadResourceInventory? {
+        guard let currentThreadID,
+              let snapshot = selectedThreadSessionSnapshot?.canonical
+        else { return nil }
+
+        let threadID = ThreadID(currentThreadID)
+        var facts: [CodexThreadResourceFact] = []
+        let origin = CodexThreadResourceOrigin(
+            threadID: threadID,
+            turnID: snapshot.threads[threadID]?.turnOrder.last
+        )
+        let summary = workspaceSummaryContext
+
+        for source in summary.sourceFiles {
+            facts.append(.init(
+                id: "source:\(threadID.rawValue):\(source.id)",
+                kind: .source,
+                title: source.displayName,
+                detail: source.path,
+                origin: origin,
+                metadata: .init(path: source.path)
+            ))
+        }
+
+        for subagent in subagents where subagent.isVisibleInFloatingSummary {
+            facts.append(.init(
+                id: "subagent:\(threadID.rawValue):\(subagent.id)",
+                kind: .subagent,
+                title: subagent.floatingSummaryTitle,
+                status: .init(rawValue: subagent.status.rawValue),
+                origin: origin,
+                metadata: .init(childThreadID: ThreadID(subagent.id))
+            ))
+        }
+
+        if let sideChat {
+            facts.append(.init(
+                id: "side-chat:\(threadID.rawValue):\(sideChat.id)",
+                kind: .sideChat,
+                title: sideChat.title,
+                origin: origin,
+                metadata: .init(sourceID: sideChat.id)
+            ))
+        }
+
+        if let review = gitReviewSession {
+            let reviewStats = review.commitStats
+            let reviewDetail = reviewStats.isEmpty
+                ? review.snapshot.branchName
+                : "\(review.snapshot.branchName) · +\(reviewStats.addedLines) -\(reviewStats.removedLines)"
+            facts.append(.init(
+                id: "review:\(threadID.rawValue):workspace",
+                kind: .review,
+                title: reviewStats.isEmpty ? "Review" : "Changes",
+                detail: reviewDetail,
+                origin: origin,
+                metadata: .init(sourceID: review.snapshot.revision.sourceID)
+            ))
+            if review.snapshot.pullRequestExists {
+                facts.append(.init(
+                    id: "pull-request:\(threadID.rawValue):\(review.snapshot.branchName)",
+                    kind: .pullRequest,
+                    title: "Pull request",
+                    detail: review.snapshot.branchName,
+                    origin: origin,
+                    metadata: .init(branch: review.snapshot.branchName)
+                ))
+            }
+        }
+
+        for session in workspacePanelState.browserSessions {
+            let url = session.currentURL?.absoluteString ?? session.addressText
+            facts.append(.init(
+                id: "web:\(threadID.rawValue):\(session.id)",
+                kind: .webActivity,
+                title: session.title,
+                detail: url.nilIfBlank,
+                origin: origin,
+                metadata: .init(url: url)
+            ))
+        }
+
+        var supplementalRevision: UInt64 = 14_695_981_039_346_656_037
+        func combine(_ value: String) {
+            for byte in value.utf8 {
+                supplementalRevision ^= UInt64(byte)
+                supplementalRevision &*= 1_099_511_628_211
+            }
+            supplementalRevision ^= 0xFF
+            supplementalRevision &*= 1_099_511_628_211
+        }
+        combine(workspacePath)
+        combine(gitBranch ?? "")
+        combine(String(facts.count))
+        for fact in facts.sorted(by: { $0.id < $1.id }) {
+            combine(fact.id)
+            combine(fact.title)
+            combine(fact.detail ?? "")
+            combine(fact.status.rawValue)
+        }
+
+        let input = CodexThreadResourceProjectionInput(
+            snapshot: snapshot,
+            threadID: threadID,
+            supplementalFacts: facts,
+            supplementalRevision: supplementalRevision
+        )
+        _ = threadResourceProjectionCache.apply(input)
+        return threadResourceProjectionCache.inventory
+    }
+
     private var currentDiffReviewRevision: CodexGitReviewRevision {
         guard let sourceID = runtimeSession.currentDiffSourceID,
               let revision = runtimeSession.currentDiffRevision else { return .manual }

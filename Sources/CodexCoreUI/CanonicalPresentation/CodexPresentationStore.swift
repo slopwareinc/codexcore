@@ -136,6 +136,15 @@ public final class CodexPresentationStore {
     public private(set) var isSelectionHydrated = true
     public private(set) var diagnostics = CodexPresentationStoreDiagnostics()
 
+    /// The latest atomic canonical seed for the selected thread. This is an
+    /// observation-backed read seam for lightweight projections such as the
+    /// thread-resource inventory; it does not expose presentation choices or
+    /// transcript renderer state.
+    public var activeCanonicalSnapshot: CanonicalStateSnapshot? {
+        _ = observedRevision
+        return latestSnapshot
+    }
+
     @ObservationIgnored private let coalescingInterval: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let projector: CodexCanonicalTranscriptProjector
