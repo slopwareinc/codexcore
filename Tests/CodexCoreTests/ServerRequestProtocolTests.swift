@@ -19,6 +19,26 @@ final class ServerRequestProtocolTests: XCTestCase {
         }
     }
 
+    func testNativeVerificationNeedsNoFormMessageAndRetainsChallenge() throws {
+        let parsed = try CodexServerRequestParser.parse(
+            connectionEpoch: 5, id: .string("verify"), method: "mcpServer/elicitation/request",
+            params: ["threadId": .string("chat"), "serverName": .string("apps"),
+                     "mode": .string("openai/userVerification"), "challenge": .string("opaque"),
+                     "title": .string("Approve action"), "description": .string("Device approval"),
+                     "_meta": .dictionary(["correlation": .string("original")])]
+        )
+        guard case .mcpElicitation(let request) = parsed.body,
+              case .userVerification(let params) = request.mode else { return XCTFail("Expected native verification") }
+        XCTAssertEqual(params.challenge, "opaque")
+        XCTAssertEqual(params.title, "Approve action")
+        XCTAssertEqual(request.message, "Device approval")
+        XCTAssertEqual(request.metadata, .dictionary(["correlation": .string("original")]))
+        XCTAssertTrue(parsed.unknownFields.isEmpty)
+        let proof = CodexJSONValue.dictionary(["credentialId": .string("device"), "signature": .string("opaque-proof")])
+        XCTAssertEqual(try parsed.validate(result: .dictionary(["action": .string("accept"), "content": proof])).jsonValue,
+                       .dictionary(["action": .string("accept"), "content": proof]))
+    }
+
     func testUnknownMCPElicitationModeRemainsDeclinable() throws {
         let parsed = try CodexServerRequestParser.parse(
             connectionEpoch: 1,

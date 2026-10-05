@@ -497,7 +497,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
                 method: snapshot.method,
                 kind: .mcpElicitation,
                 title: "\(request.serverName) request",
-                detail: supported
+                detail: mode.isUserVerification || supported
                     ? request.message
                     : "\(request.message) This form contains unsupported fields and can only be declined.",
                 serverName: request.serverName,
@@ -587,7 +587,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         let schema: CodexJSONValue
         switch mcpElicitationMode {
         case .form(let value), .openAIForm(let value): schema = value
-        case .url: return nil
+        case .url, .userVerification: return nil
         }
         guard case .dictionary(let object) = schema else { return nil }
         return object
@@ -597,7 +597,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         let schema: CodexJSONValue
         switch mode {
         case .form(let value), .openAIForm(let value): schema = value
-        case .url: return false
+        case .url, .userVerification: return false
         }
         guard case .dictionary(let object) = schema,
               case .dictionary(let properties)? = object["properties"] else { return true }
@@ -615,7 +615,7 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         let schemaValue: CodexJSONValue
         switch mode {
         case .form(let value), .openAIForm(let value): schemaValue = value
-        case .url: return []
+        case .url, .userVerification: return []
         }
         guard case .dictionary(let schema) = schemaValue,
               case .dictionary(let properties)? = schema["properties"] else { return [] }
@@ -659,6 +659,8 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
             return .form(requestedSchema: sanitizedSchema(schema))
         case .openAIForm(let schema):
             return .openAIForm(requestedSchema: sanitizedSchema(schema))
+        case .userVerification(let params):
+            return .userVerification(params)
         case .url:
             return .url(elicitationID: "", url: "")
         }
@@ -694,5 +696,12 @@ public struct CodexInteractivePrompt: Identifiable, Equatable, Sendable {
         case .array(let values): return values.map(stringValue).joined(separator: " ")
         case .dictionary, .null, nil: return ""
         }
+    }
+}
+
+public extension CodexMCPElicitationMode {
+    var isUserVerification: Bool {
+        if case .userVerification = self { return true }
+        return false
     }
 }

@@ -46,13 +46,14 @@ public extension CodexSchemaThreadRealtimeStartParams {
         offerSDP: String,
         realtimeSessionID: String = UUID().uuidString,
         model: String = "gpt-live-1-codex",
-        voice: CodexSchemaRealtimeVoice = .sol
+        voice: CodexSchemaRealtimeVoice = .sol,
+        outputModality: CodexSchemaRealtimeOutputModality = .audio
     ) -> Self {
         Self(
             flushTranscriptTailOnSessionEnd: true,
             includeStartupContext: false,
             model: model,
-            outputModality: .audio,
+            outputModality: outputModality,
             realtimeSessionID: realtimeSessionID,
             threadID: threadID,
             transport: CodexSchemaThreadRealtimeStartTransport(.dictionary([

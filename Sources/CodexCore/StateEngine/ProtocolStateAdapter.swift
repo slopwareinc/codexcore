@@ -686,10 +686,15 @@ private extension ProtocolStateAdapter {
 
         case .modelProviderAuthRecoveryStarted, .modelProviderAuthRecoveryCompleted:
             let value: CodexSchemaAuthRecoveryNotification = try decodeNotification(method, params)
+            let turn = TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID))
             return .state([.turnExtensionReplaced(
-                turn: TurnKey(threadID: .init(value.threadID), turnID: .init(value.turnID)),
+                turn: turn,
                 key: method.rawValue,
                 value: .dictionary(params)
+            ), .turnExtensionReplaced(
+                turn: turn,
+                key: "providerAuthRecoveryActive",
+                value: .bool(method == .modelProviderAuthRecoveryStarted)
             )])
 
         case .modelSafetyBufferingUpdated:

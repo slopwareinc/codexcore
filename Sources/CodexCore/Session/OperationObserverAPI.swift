@@ -36,7 +36,7 @@ public extension Codex {
     /// Register before `externalAgentConfigImport(_:)` to receive progress and
     /// completion for its returned import id.
     func observeExternalAgentConfigImport(
-        importID: String
+        importID: String? = nil
     ) async throws -> AsyncThrowingStream<CodexExternalAgentConfigImportEvent, Error> {
         try await session.observeExternalAgentConfigImport(importID: importID)
     }

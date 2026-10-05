@@ -3,6 +3,34 @@ import Foundation
 import XCTest
 
 final class SessionOperationPrimitivesTests: XCTestCase {
+    func testConnectionWideImportsRetainEarlyCompletionsWithoutClosingOtherImports() async throws {
+        var hub = CodexExternalAgentConfigImportObserverHub()
+        let observation = hub.observe(connectionEpoch: 7, importID: nil)
+        let early = CodexSchemaExternalAgentConfigImportCompletedNotification(importID: "early", itemTypeResults: [])
+        let own = CodexSchemaExternalAgentConfigImportCompletedNotification(importID: "own", itemTypeResults: [])
+        XCTAssertEqual(hub.publish(connectionEpoch: 6, event: .completed(early)), 0)
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: .completed(early)), 1)
+        XCTAssertEqual(hub.publish(connectionEpoch: 7, event: .completed(own)), 1)
+        var iterator = observation.events.makeAsyncIterator()
+        let first = try await iterator.next(), second = try await iterator.next()
+        XCTAssertEqual(first, .completed(early)); XCTAssertEqual(second, .completed(own))
+        XCTAssertEqual(hub.disconnect(connectionEpoch: 7), 1)
+    }
+
+    func testConnectionWideImportOverflowIsVisible() async {
+        var hub = CodexExternalAgentConfigImportObserverHub()
+        let observation = hub.observe(connectionEpoch: 7, importID: nil)
+        for index in 0...256 {
+            hub.publish(connectionEpoch: 7, event: .completed(.init(importID: "import-\(index)", itemTypeResults: [])))
+        }
+        do {
+            for try await _ in observation.events { }
+            XCTFail("Overflow must not silently drop import completion")
+        } catch {
+            XCTAssertEqual(error as? CodexExternalAgentConfigImportObserverError, .bufferOverflow)
+        }
+    }
+
     func testDiagnosticRingSanitizesBoundsAndReportsEviction() {
         var ring = CodexProtocolDiagnosticRing(limits: .init(
             maximumEntries: 2,

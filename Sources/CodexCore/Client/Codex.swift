@@ -119,7 +119,7 @@ public struct CodexRuntimeVersionWarning: Sendable, Equatable, CustomStringConve
     }
 
     public var description: String {
-        "Codex runtime at \(path) is \(actual); this SDK pins \(expected). The patch version differs, but major.minor matches."
+        "Codex runtime at \(path) is \(actual); this SDK generates types from \(expected). Core lifecycle compatibility does not imply availability of newer runtime features."
     }
 }
 

@@ -735,6 +735,7 @@ public actor CodexSession:
     private var nextConnectionEpoch: UInt64 = 1
     private var nextWireOrdinal: UInt64 = 0
     private var nextClientRequestID: Int64 = 1
+    private var userVerificationRequests: [UUID: ClientRequestKey] = [:]
     private var nextOutboundToken: UInt64 = 1
     private var nextWaiterID: UInt64 = 1
     private var nextSubmissionOrdinal: UInt64 = 1
@@ -875,11 +876,18 @@ public actor CodexSession:
         method: CodexAppServerClientMethod,
         params: CodexJSONValue?,
         submissionIntent: SubmissionIntent? = nil,
-        resumeHistoryReason: ThreadLeaseReason? = nil
+        resumeHistoryReason: ThreadLeaseReason? = nil,
+        expectedConnectionEpoch: UInt64? = nil
     ) async throws -> CodexSessionCallResult {
         guard case .ready(let epoch) = lifecycle,
               activeConnectionEpoch == epoch else {
             throw CodexSessionError.notReady(lifecycle)
+        }
+        if let expectedConnectionEpoch, expectedConnectionEpoch != epoch {
+            throw CodexSessionError.connectionLost(
+                connectionEpoch: expectedConnectionEpoch,
+                message: "The operation belongs to an earlier connection"
+            )
         }
         return try await beginClientRequest(
             method: method,
@@ -888,6 +896,59 @@ public actor CodexSession:
             submissionIntent: submissionIntent,
             resumeHistoryReason: resumeHistoryReason,
             isHandshake: false
+        )
+    }
+
+    /// Starts one native verification operation with an unforgeable cancellation
+    /// scope. IDs come from the session allocator and cannot be supplied by callers.
+    public func startUserVerification<Response: Decodable & Sendable>(
+        _ request: CodexAppServerRequest<Response>
+    ) throws -> CodexUserVerificationOperation<Response> {
+        try Task.checkCancellation()
+        guard [.userVerificationStatus, .userVerificationEnroll,
+               .userVerificationDelete, .userVerificationVerify].contains(request.method) else {
+            throw CodexSessionError.protocolViolation("Expected a native user-verification request")
+        }
+        guard case .ready(let epoch) = lifecycle, activeConnectionEpoch == epoch else {
+            throw CodexSessionError.notReady(lifecycle)
+        }
+        let params = try request.encodeParameters()
+        let id = try allocateClientRequestID()
+        let key = ClientRequestKey(connectionEpoch: epoch, id: id)
+        let token = UUID()
+        userVerificationRequests[token] = key
+        let task = Task<Response, Error> {
+            defer { userVerificationRequests.removeValue(forKey: token) }
+            guard userVerificationRequests[token] == key else { throw CancellationError() }
+            let call = try await beginClientRequest(
+                method: request.method, params: params,
+                connectionEpoch: epoch, submissionIntent: nil,
+                isHandshake: false, reservedID: id
+            )
+            // A canceled approval must never receive a late proof.
+            guard userVerificationRequests[token] == key else { throw CancellationError() }
+            return try call.value.decode(Response.self)
+        }
+        return CodexUserVerificationOperation(
+            connectionEpoch: epoch, requestID: id, response: task,
+            cancel: { try await self.cancelUserVerification(token: token) }
+        )
+    }
+
+    private func cancelUserVerification(token: UUID) async throws {
+        guard let key = userVerificationRequests.removeValue(forKey: token) else { return }
+        guard activeConnectionEpoch == key.connectionEpoch else { return }
+        let wasWritten = pendingClientRequests[key]?.writeAttempted == true
+        cancelClientRequestWaiter(key)
+        // Before the first write, removing the original frame is sufficient.
+        // After that boundary, keep its response context and signal the native
+        // worker on the same connection using a fresh cancel-RPC ID.
+        guard wasWritten else { return }
+        let requestID = CodexSchemaRequestID(try CodexJSONValue(encoding: key.id))
+        _ = try await beginClientRequest(
+            method: .userVerificationCancel,
+            params: try CodexJSONValue(encoding: CodexSchemaUserVerificationCancelParams(requestID: requestID)),
+            connectionEpoch: key.connectionEpoch, submissionIntent: nil, isHandshake: false
         )
     }
 
@@ -1227,10 +1288,13 @@ public actor CodexSession:
         _ = mcpServerEventStreamNotifications.cancel(id)
     }
 
-    /// Observes progress and completion for one external-agent configuration
-    /// import. Register before `externalAgentConfig/import`.
+    /// Observes progress and completion for one import, or every import in the
+    /// current connection when `importID` is nil. The server assigns the ID:
+    /// register the connection-wide stream before starting an import, then
+    /// match the response's ID, retaining any completion received before it.
+    /// Connection-wide overflow fails explicitly instead of dropping results.
     public func observeExternalAgentConfigImport(
-        importID: String
+        importID: String? = nil
     ) throws -> AsyncThrowingStream<CodexExternalAgentConfigImportEvent, Error> {
         guard case .ready(let epoch) = lifecycle,
               activeConnectionEpoch == epoch else {
@@ -1844,7 +1908,9 @@ private extension CodexSession {
                 guard shouldRun,
                       coordinatorGeneration == generation,
                       !Task.isCancelled else {
-                    await transport.close()
+                    // stop() owns cleanup after invalidating this coordinator.
+                    // Closing here could terminate a replacement connection.
+                    if coordinatorGeneration == generation { await transport.close() }
                     break
                 }
 
@@ -1856,7 +1922,7 @@ private extension CodexSession {
 
                 do {
                     let metadata = try await initializeConnection(epoch)
-                    guard activeConnectionEpoch == epoch else {
+                    guard coordinatorGeneration == generation, activeConnectionEpoch == epoch else {
                         throw CodexSessionError.connectionLost(
                             connectionEpoch: epoch,
                             message: "Connection ended during initialization"
@@ -1868,8 +1934,13 @@ private extension CodexSession {
                     resumeStartWaiters(with: metadata)
 
                     let termination = await reader.value
+                    guard coordinatorGeneration == generation else {
+                        terminalErrorByConnectionEpoch.removeValue(forKey: epoch)
+                        break
+                    }
                     readerTask = nil
                     await transport.close()
+                    guard coordinatorGeneration == generation else { break }
                     let terminalError = terminalErrorByConnectionEpoch
                         .removeValue(forKey: epoch)
                         ?? CodexSessionError.connectionLost(
@@ -1879,12 +1950,14 @@ private extension CodexSession {
                     throw terminalError
                 } catch {
                     reader.cancel()
-                    readerTask = nil
                     terminalErrorByConnectionEpoch.removeValue(forKey: epoch)
+                    guard coordinatorGeneration == generation else { break }
+                    readerTask = nil
                     if activeConnectionEpoch == epoch {
                         sealConnection(epoch, error: error)
                     }
                     await transport.close()
+                    guard coordinatorGeneration == generation else { break }
 
                     guard shouldReconnect(after: error) else {
                         shouldRun = false
@@ -1898,6 +1971,7 @@ private extension CodexSession {
                     }
                 }
             } catch {
+                guard coordinatorGeneration == generation else { break }
                 guard shouldReconnect(after: error) else {
                     shouldRun = false
                     failStartWaiters(with: error)
@@ -2088,6 +2162,7 @@ private extension CodexSession {
         guard activeConnectionEpoch == epoch else { return }
         terminalErrorByConnectionEpoch[epoch] = error
         activeConnectionEpoch = nil
+        userVerificationRequests = userVerificationRequests.filter { $0.value.connectionEpoch != epoch }
         handshakeRequestKey = nil
         bufferedHandshakeEnvelopes.removeAll(keepingCapacity: true)
         leases.connectionLost(epoch)
@@ -2170,7 +2245,8 @@ private extension CodexSession {
         submissionIntent: SubmissionIntent?,
         resumeHistoryReason: ThreadLeaseReason? = nil,
         isHandshake: Bool,
-        reducesResponse: Bool = true
+        reducesResponse: Bool = true,
+        reservedID: CodexJSONRPCID? = nil
     ) async throws -> CodexSessionCallResult {
         try Task.checkCancellation()
         guard activeConnectionEpoch == connectionEpoch else {
@@ -2180,7 +2256,7 @@ private extension CodexSession {
             )
         }
 
-        let id = try allocateClientRequestID()
+        let id = try reservedID ?? allocateClientRequestID()
         let key = ClientRequestKey(connectionEpoch: connectionEpoch, id: id)
         let frame = try CodexJSONRPCCodec.encodeRequest(
             id: id,
