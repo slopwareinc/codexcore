@@ -7,7 +7,7 @@
 - Git
 - Python 3 (generator tests)
 - Bash and `curl`/`tar` (runtime regeneration and drift tooling)
-- `codex-cli 0.148.x` through `0.160.x` (types generated from stable `0.160.0`)
+- SDK core lifecycle: `codex-cli 0.148.x` through `0.160.x`; full reference app: `0.160.x` (types generated from stable `0.160.0`)
 - `just` is optional
 
 The package declares the authoritative platform and language versions in `Package.swift`. Runtime identity is pinned in `Tools/UPSTREAM_VERSION` and validated before the SDK launches app-server.
@@ -26,6 +26,10 @@ codex-cli 0.160.0
 ```
 
 CodexCore rejects anything below the `0.148.0` floor, any different major version, or a minor version above `0.160`. Accepted versions that differ from `0.160.0` produce a warning. New generated features require a runtime that serves them. An explicit SDK or home-config pin can select a different binary than `codex --version`; check the discovery order below when a mismatch reports another path.
+
+The reference app additionally requires the generated `0.160.x` feature line.
+An older SDK-compatible binary produces an upgrade message before runtime
+feature initialization.
 
 ## Reproducible local setup
 
