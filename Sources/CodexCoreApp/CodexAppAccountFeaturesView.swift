@@ -13,6 +13,7 @@ struct CodexAppAccountFeaturesView: View {
     @State private var confirmsDelete = false
     @State private var confirmsCredit = false
     @State private var confirmsEmail = false
+    @State private var showsDailyUsage = false
     @State private var creditToRedeem: CodexSchemaRateLimitResetCredit?
     @State private var creditNudgeType: CodexSchemaAddCreditsNudgeCreditType = .credits
 
@@ -115,8 +116,14 @@ struct CodexAppAccountFeaturesView: View {
                 if let streak = usage.summary.longestStreakDays { row("Longest streak", value: "\(streak) days") }
                 if let peak = usage.summary.peakDailyTokens { row("Peak daily tokens", value: peak.formatted()) }
                 if let duration = usage.summary.longestRunningTurnSec { row("Longest turn", value: "\(duration.formatted()) seconds") }
-                ForEach(usage.dailyUsageBuckets ?? [], id: \.startDate) { bucket in
-                    row(bucket.startDate, value: "\(bucket.tokens.formatted()) tokens")
+                if let buckets = usage.dailyUsageBuckets, !buckets.isEmpty {
+                    DisclosureGroup("Daily usage (\(buckets.count) days)", isExpanded: $showsDailyUsage) {
+                        LazyVStack(alignment: .leading, spacing: theme.spacing.sm) {
+                            ForEach(buckets.reversed(), id: \.startDate) { bucket in
+                                row(bucket.startDate, value: "\(bucket.tokens.formatted()) tokens")
+                            }
+                        }
+                    }
                 }
             } else { detail("Usage is available when the provider supports account billing statistics.") }
             if let limits = features.rateLimits {
