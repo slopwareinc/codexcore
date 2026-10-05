@@ -147,7 +147,7 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
     private var effectiveTint: Color? {
         if let tint { return tint }
         guard role.usesDarkAppearanceTint, colorScheme == .dark else { return nil }
-        return theme.colors.surfaceSunken.opacity(0.55)
+        return theme.colors.surfaceSunken.opacity(0.32)
     }
 
     /// An opaque stand-in. A material underlay would be invisible behind this

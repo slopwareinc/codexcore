@@ -145,7 +145,7 @@ public struct CodexProjectSidebar: View {
     public var body: some View {
         VStack(spacing: 0) {
             Color.clear
-                .frame(height: CodexWindowChromeMetrics.titlebarHeight)
+                .frame(height: CodexWindowChromeMetrics.titlebarHeight - CodexWindowChromeMetrics.floatingSidebarInset)
 
             ScrollView(showsIndicators: true) {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 16) {
@@ -190,15 +190,15 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        // Glass samples what is behind the window, so nothing may be layered
-        // underneath it: an opaque material stack here would be all it sees.
-        .codexGlass(Rectangle(), role: .chrome)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(theme.colors.border.opacity(0.45))
-                .frame(width: 1)
-        }
+        // A floating pane of glass inset from the window edge, so the theme's
+        // atmosphere shows around it and through it. Glass draws its own edge
+        // and shadow; nothing is layered beneath it or stroked over it.
+        .codexGlass(
+            RoundedRectangle(cornerRadius: CodexWindowChromeMetrics.floatingSidebarRadius, style: .continuous),
+            role: .chrome
+        )
         .overlay(alignment: .trailing) { resizeHandle }
+        .padding(CodexWindowChromeMetrics.floatingSidebarInset)
     }
 
     @ViewBuilder
@@ -290,14 +290,7 @@ public struct CodexProjectSidebar: View {
                 .font(sidebarFonts.accountInitials(isCollapsed: snapshot.isCollapsed))
                 .foregroundStyle(theme.colors.textPrimary)
                 .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(theme.colors.accent.opacity(0.26))
-                )
-                .overlay {
-                    Circle()
-                        .stroke(theme.colors.border.opacity(0.6), lineWidth: 1)
-                }
+                .background(Circle().fill(theme.colors.accentSoft))
 
             if !snapshot.isCollapsed {
                 VStack(alignment: .leading, spacing: 2) {
@@ -317,15 +310,6 @@ public struct CodexProjectSidebar: View {
         .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
         .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
         .help(accountSummary.displayName)
-        .background {
-            Rectangle()
-                .fill(theme.colors.surface.opacity(0.12))
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(theme.colors.border.opacity(0.32))
-                        .frame(height: 1)
-                }
-        }
     }
 
     private var routeRows: some View {
@@ -599,15 +583,14 @@ public struct CodexProjectSidebar: View {
             )
         }
         .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-        .padding(.vertical, 8)
-        .background {
+        .padding(.top, 8)
+        .overlay(alignment: .top) {
+            // One inset hairline separates the scrolling list from the fixed
+            // footer; the footer itself shares the pane's glass.
             Rectangle()
-                .fill(theme.colors.surface.opacity(0.10))
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(theme.colors.border.opacity(0.28))
-                        .frame(height: 1)
-                }
+                .fill(theme.colors.border)
+                .frame(height: 1)
+                .padding(.horizontal, snapshot.isCollapsed ? 12 : 18)
         }
     }
 
@@ -1572,6 +1555,11 @@ public enum CodexWindowChromeMetrics {
     public static let titlebarHeight: CGFloat = 54
     public static let sidebarControlTopInset: CGFloat = 7
     public static let sidebarTrafficLightReserveWidth: CGFloat = 104
+    /// Gap between the floating sidebar pane and the window edges.
+    public static let floatingSidebarInset: CGFloat = 8
+    /// Corner radius of the floating sidebar pane: concentric with the window's
+    /// own corners at `floatingSidebarInset`.
+    public static let floatingSidebarRadius: CGFloat = 18
 }
 
 public extension CodexProjectSidebar {

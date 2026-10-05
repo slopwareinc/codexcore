@@ -917,7 +917,7 @@ public struct CodexAgentTheme {
                 medium: 12,
                 large: 16,
                 panel: 28,
-                composer: 28,
+                composer: 24,
                 bubble: 16,
                 pill: 999
             )

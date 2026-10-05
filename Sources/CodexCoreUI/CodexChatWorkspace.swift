@@ -522,6 +522,21 @@ public struct CodexChatWorkspaceView: View {
                     }
                 )
             )
+            // Content dissolves as it scrolls beneath the toolbar instead of
+            // being painted over with the canvas color, so the window's
+            // atmosphere stays continuous behind the toolbar's glass.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [.black.opacity(0), .black],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: theme.spacing.toolbarHeight + 28)
+                    Color.black
+                }
+                .ignoresSafeArea()
+            }
             .overlay(alignment: .topTrailing) {
                 if isDockedOverviewVisible {
                     floatingSummaryPanel
@@ -1052,29 +1067,10 @@ public struct CodexChatHeader: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .top) {
-            // Fades the transcript out as it scrolls beneath the controls so
-            // text stays legible under the bubbles. Purely visual — hit testing
-            // is off so content below the control row stays interactive.
-            scrim
-                .allowsHitTesting(false)
-
-            controlsRow
-        }
-        .frame(maxWidth: .infinity, alignment: .top)
-    }
-
-    private var scrim: some View {
-        LinearGradient(
-            colors: [
-                theme.colors.canvas,
-                theme.colors.canvas.opacity(0.82),
-                theme.colors.canvas.opacity(0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: theme.spacing.toolbarHeight + 46)
+        // The transcript masks itself beneath this row (see `chatColumn`), so
+        // the row draws no scrim of its own over the window's atmosphere.
+        controlsRow
+            .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var controlsRow: some View {
@@ -1090,9 +1086,10 @@ public struct CodexChatHeader: View {
 
             if showsSidebarToggle {
                 HeaderBubble {
+                    // Showing the sidebar is the resting state, not a mode, so
+                    // the toggle is never drawn as "on".
                     ToolbarIconButton(
                         systemImage: "sidebar.leading",
-                        isActive: isSidebarVisible,
                         help: "Toggle sidebar",
                         action: onToggleSidebar
                     )
