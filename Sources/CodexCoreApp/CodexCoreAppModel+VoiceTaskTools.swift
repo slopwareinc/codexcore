@@ -3,7 +3,7 @@ import CodexCoreUI
 import Foundation
 
 extension CodexCoreAppModel {
-    static let realtimeVoiceFeatureConfig: CodexJSONValue = .dictionary([
+    static let realtimeVoiceFeatureConfig = CodexTranscriptRuntimePolicy.threadConfig(adding: [
         "features.realtime_conversation": .bool(true),
     ])
 
@@ -205,6 +205,7 @@ extension CodexCoreAppModel {
         developerInstructions: String?
     ) -> CodexSchemaThreadStartParams {
         var parameters = wire.applying(to: CodexSchemaThreadStartParams(
+            config: Self.realtimeVoiceFeatureConfig,
             cwd: cwd,
             developerInstructions: developerInstructions,
             dynamicTools: Self.voiceTaskToolSpecs,
@@ -242,6 +243,7 @@ extension CodexCoreAppModel {
         threadID: String
     ) -> CodexSchemaThreadResumeParams {
         wire.applying(to: CodexSchemaThreadResumeParams(
+            config: Self.realtimeVoiceFeatureConfig,
             cwd: cwd,
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
@@ -267,6 +269,7 @@ extension CodexCoreAppModel {
             runtimeWorkspaceRoots: roots.map {
                 CodexSchemaAbsolutePathBuf(.string($0))
             },
+            summary: CodexTranscriptRuntimePolicy.reasoningSummary,
             threadID: threadID
         ))
         permissionConfiguration?.apply(to: &parameters)

@@ -129,7 +129,7 @@ struct CodexCoreAppShell: View {
 
                 }
                 .codexAgentTheme(model.theme)
-                .padding(.top, 54)
+                .padding(.top, CodexWindowChromeMetrics.titlebarHeight)
                 .padding(.trailing, 18)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -456,6 +456,7 @@ struct CodexCoreAppShell: View {
             ? model.voiceSession.transcriptPresentation
             : CodexVoiceTranscriptPresentation()
         let backgroundThreadID = model.currentThreadID
+        let transcriptAccountRevision = model.accountContextRevision
 
         return CodexChatWorkspaceView(
                 presentationStore: model.runtimeSession.presentationStore,
@@ -463,6 +464,9 @@ struct CodexCoreAppShell: View {
                 subagents: model.subagents,
                 subagentCoordinator: model.subagentPresentationCoordinator,
                 workspacePath: model.workspacePath,
+                workspaceTitle: model.recentProjects.first {
+                    $0.id == model.sidebarNavigationSession.selectedProjectID
+                }?.displayName,
                 chatTitle: model.currentChatTitle,
                 currentThreadID: model.currentThreadID,
                 panel: model.workspacePanelState,
@@ -522,6 +526,14 @@ struct CodexCoreAppShell: View {
                 onMentionQueryChanged: { model.updateMentionQuery($0) },
                 onMentionSelected: { model.selectMention($0) },
                 onSend: { Task { await model.sendDraft() } },
+                onSubmitTranscriptUserMessage: { text in
+                    guard let threadID = backgroundThreadID else {
+                        return .rejected(message: "Select the originating chat before sending this answer.")
+                    }
+                    return await model.sendTranscriptUserMessage(
+                        text, expectedThreadID: threadID, expectedAccountRevision: transcriptAccountRevision
+                    )
+                },
                 onInterrupt: { Task { await model.interrupt() } },
                 dictationState: model.dictationSession.state,
                 dictationActions: model.voiceSession.isActive

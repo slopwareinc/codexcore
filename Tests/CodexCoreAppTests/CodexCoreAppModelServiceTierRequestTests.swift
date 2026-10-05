@@ -5,6 +5,59 @@ import XCTest
 
 @MainActor
 final class CodexCoreAppModelServiceTierRequestTests: XCTestCase {
+    func testTextThreadLifecyclesOptIntoChecklistWithoutChangingSDKDefaults() throws {
+        let (app, _, _, _) = makeApp()
+        let params: [CodexJSONValue] = [
+            try encoded(app.threadStartParameters()),
+            try encoded(app.threadResumeParameters(threadID: "existing-thread")),
+            try encoded(app.threadResumeParametersForCurrentContext(threadID: "existing-thread")),
+            try encoded(app.threadForkParameters(threadID: "existing-thread")),
+            try encoded(app.threadForkParameters(threadID: "existing-thread", ephemeral: true)),
+            try encoded(app.threadStartParametersForCurrentDraft()),
+        ]
+        for params in params {
+            XCTAssertEqual(params.objectValue?["config"]?.objectValue?["tools.update_plan.enabled"], .bool(true))
+        }
+        XCTAssertNil(CodexSchemaThreadStartParams().config)
+        XCTAssertNil(CodexSchemaThreadResumeParams(threadID: "existing-thread").config)
+        XCTAssertNil(CodexSchemaThreadForkParams(threadID: "existing-thread").config)
+    }
+
+    func testVoiceRuntimeConfigRetainsChecklistAndRealtimeOptIns() throws {
+        let (app, _, _, _) = makeApp()
+        let wire = app.configurationSession.wireSelection
+        let start = app.voiceThreadStartParameters(
+            wire: wire, cwd: "/tmp", roots: ["/tmp"], developerInstructions: nil
+        )
+        let resume = app.voiceThreadResumeParameters(
+            wire: wire, cwd: "/tmp", roots: ["/tmp"], threadID: "voice-thread"
+        )
+        for config in [start.config, resume.config, CodexCoreAppModel.realtimeVoiceFeatureConfig] {
+            XCTAssertEqual(config?.objectValue?["tools.update_plan.enabled"], .bool(true))
+            XCTAssertEqual(config?.objectValue?["features.realtime_conversation"], .bool(true))
+        }
+    }
+
+    func testAppTurnsRequestDetailedTimelineReasoningWithoutChangingSDKDefaults() throws {
+        let (app, _, _, _) = makeApp()
+        let turn = app.turnStartParameters(
+            threadID: "existing-thread", input: [.text("inspect the implementation")],
+            clientUserMessageID: "user-message"
+        )
+        let voiceTurn = app.voiceTurnStartParameters(
+            wire: app.configurationSession.wireSelection, cwd: "/tmp", roots: ["/tmp"],
+            prompt: "inspect the implementation", threadID: "voice-thread", clientUserMessageID: "voice-message"
+        )
+        for params in [try encoded(turn), try encoded(voiceTurn)] {
+            XCTAssertEqual(params.objectValue?["summary"], .string("detailed"))
+        }
+        XCTAssertNil(CodexSchemaTurnStartParams(input: [], threadID: "sdk-thread").summary)
+    }
+
+    private func encoded<T: Encodable>(_ params: T) throws -> CodexJSONValue {
+        try JSONDecoder().decode(CodexJSONValue.self, from: JSONEncoder().encode(params))
+    }
+
     func testAppModelConstructorsCaptureTierAndMaximumEffort() throws {
         let (app, model, fast, _) = makeApp()
         app.configurationSession = CodexChatConfigurationSession(
