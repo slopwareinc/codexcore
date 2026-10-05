@@ -19,6 +19,9 @@ public struct CodexMCPStatusSheet: View {
     @State private var expandedServerNames: Set<String> = []
     @State private var activityMessage: String?
     @State private var isMutating = false
+    @State private var hydratedConfigurations: [String: CodexMCPServerConfiguration] = [:]
+    @State private var configurationTarget: CodexPluginProtocolMutation.ConfigWriteTarget?
+    @State private var inspectionServer: CodexMCPServerStatus?
 
     public init(
         servers: [CodexMCPServerStatus],
@@ -96,7 +99,8 @@ public struct CodexMCPStatusSheet: View {
                             onToggleExpanded: { toggleExpanded(server.name) },
                             onSetEnabled: { setEnabled(server, enabled: $0) },
                             onLogin: { login(server, clientRegistration: $0) },
-                            onEdit: { editor = configurations[server.name] ?? configurationStub(for: server) },
+                            onEdit: { Task { await edit(server) } },
+                            onInspect: { inspectionServer = server },
                             onRemove: { serverPendingRemoval = server }
                         )
                     }
@@ -110,6 +114,13 @@ public struct CodexMCPStatusSheet: View {
         .sheet(item: $editor) { configuration in
             CodexMCPServerEditor(configuration: configuration) { editor = nil } onSave: { save($0) }
                 .codexAgentTheme(theme)
+        }
+        .sheet(item: $inspectionServer) { server in
+            if let provider {
+                CodexMCPInspectorSheet(server: server, threadID: threadID, provider: provider,
+                                       onClose: { inspectionServer = nil })
+                    .codexAgentTheme(theme)
+            }
         }
         .confirmationDialog(
             "Remove MCP server?",
@@ -127,17 +138,21 @@ public struct CodexMCPStatusSheet: View {
         .task(id: provider != nil) { await observeStartupStatus() }
     }
 
-    private func configurationStub(for server: CodexMCPServerStatus) -> CodexMCPServerConfiguration {
-        .init(
-            name: server.name,
-            enabled: server.enabled ?? true,
-            enabledTools: server.enabledTools,
-            disabledTools: server.disabledTools,
-            defaultToolsApprovalMode: server.defaultToolsApprovalMode,
-            toolApprovalModes: Dictionary(server.tools.compactMap { tool in
-                tool.approvalMode.map { (tool.name, $0) }
-            }, uniquingKeysWith: { _, latest in latest })
-        )
+    private func edit(_ server: CodexMCPServerStatus) async {
+        guard let provider, !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+        do {
+            let response = try await provider.perform(.configRead(.init(includeLayers: true)))
+                .decode(CodexSchemaConfigReadResponse.self)
+            try Task.checkCancellation()
+            hydratedConfigurations = CodexMCPServerConfiguration.configurations(from: response)
+            configurationTarget = CodexPluginProtocolMutation.userConfigTarget(from: response)
+            guard let configuration = hydratedConfigurations[server.name] ?? configurations[server.name] else {
+                throw CodexIntegrationControlPlaneError("The full server configuration is unavailable. Refresh configuration before editing; a partial runtime inventory cannot safely replace it.")
+            }
+            editor = configuration
+        } catch is CancellationError { } catch { activityMessage = error.localizedDescription }
     }
 
     private func toggleExpanded(_ name: String) {
@@ -149,8 +164,14 @@ public struct CodexMCPStatusSheet: View {
         isMutating = true
         Task {
             do {
-                _ = try await provider.perform(CodexMCPProtocolMutation.save(configuration))
+                let request = try CodexMCPProtocolMutation.save(configuration)
+                if case .configValueWrite(var params) = request {
+                    params.expectedVersion = configurationTarget?.expectedVersion
+                    params.filePath = configurationTarget?.filePath
+                    _ = try await provider.perform(.configValueWrite(params))
+                }
                 _ = try await provider.perform(.mcpReload)
+                hydratedConfigurations[configuration.name] = configuration
                 activityMessage = "Saved \(configuration.name) and reloaded MCP servers."
                 editor = nil
                 onRefresh()
@@ -250,6 +271,7 @@ private struct MCPServerStatusRow: View {
     let onSetEnabled: (Bool) -> Void
     let onLogin: (CodexSchemaMCPServerOAuthClientRegistration) -> Void
     let onEdit: () -> Void
+    let onInspect: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -328,6 +350,7 @@ private struct MCPServerStatusRow: View {
                     ForEach(server.resourceTemplates) { resource in
                         Label(resource.displayName, systemImage: "doc.badge.gearshape")
                     }
+                    Button("Inspect resources, tools, and events", action: onInspect).disabled(!canManage || isMutating)
                 }
                 .padding(.leading, 42)
             } else if let detail = server.detail?.nilIfBlank {
