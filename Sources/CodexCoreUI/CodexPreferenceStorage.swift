@@ -478,7 +478,7 @@ public enum CodexExpandedProjectStorage {
         for id in ids {
             let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            let normalized = CodexProjectSummary.normalizedIdentity(trimmed)
             guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
             result.append(normalized)
         }
@@ -512,7 +512,7 @@ public enum CodexProjectOrderStorage {
         return paths.compactMap { path in
             let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            let normalized = CodexProjectSummary.normalizedIdentity(trimmed)
             guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
             return normalized
         }
@@ -545,7 +545,7 @@ public enum CodexPinnedProjectStorage {
         return paths.compactMap { path in
             let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            let normalized = CodexProjectSummary.normalizedPath(trimmed)
+            let normalized = CodexProjectSummary.normalizedIdentity(trimmed)
             guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
             return normalized
         }
@@ -571,7 +571,7 @@ public enum CodexHiddenProjectStorage {
     private static func normalizedPath(_ path: String) -> String? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return CodexProjectSummary.normalizedPath(trimmed)
+        return CodexProjectSummary.normalizedIdentity(trimmed)
     }
 }
 
@@ -608,7 +608,7 @@ public enum CodexProjectAliasStorage {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty, !trimmedAlias.isEmpty else { return nil }
-            return (CodexProjectSummary.normalizedPath(trimmedPath), trimmedAlias)
+            return (CodexProjectSummary.normalizedIdentity(trimmedPath), trimmedAlias)
         })
     }
 }

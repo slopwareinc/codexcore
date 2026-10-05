@@ -108,6 +108,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     @Environment(\.codexClipboardService) private var clipboardService
     @Environment(\.codexTranscriptFileNavigationService) private var fileNavigationService
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.codexMCPAppHostContext) private var mcpAppHostContext
+    @Environment(\.codexTranscriptFocusRequest) private var focusRequest
 
     var presentation: CodexThreadUIPresentation
     var renderUpdate: CodexCanonicalTranscriptRenderUpdate?
@@ -160,6 +162,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: clipboardService,
             fileNavigationService: fileNavigationService,
             productToolRenderer: productToolRenderer,
+            mcpAppHostContext: mcpAppHostContext,
+            focusRequest: focusRequest,
             onOpenSubagent: onOpenSubagent,
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
@@ -210,6 +214,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var fileNavigationService: any CodexTranscriptFileNavigationService =
             CodexNoopTranscriptFileNavigationService()
         private var productToolRenderer: CodexProductToolRendererV2?
+        private var mcpAppHostContext: CodexMCPAppHostContext?
+        private var pendingFocusRequest: CodexTranscriptFocusRequest?
+        private var handledFocusRequestID: UUID?
+        private var lastFocusedItemID: CodexTranscriptRenderItemID?
         private var responseAnnotations: [CodexResponseTextAnnotation] = []
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
@@ -328,6 +336,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             fileNavigationService: any CodexTranscriptFileNavigationService =
                 CodexNoopTranscriptFileNavigationService(),
             productToolRenderer: CodexProductToolRendererV2?,
+            mcpAppHostContext: CodexMCPAppHostContext? = nil,
+            focusRequest: CodexTranscriptFocusRequest? = nil,
             onOpenSubagent: @escaping (String) -> Void,
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
@@ -355,12 +365,26 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 presentation.selectedDiffFileIndexByRowID =
                     currentPresentation.selectedDiffFileIndexByRowID
             }
+            if focusRequest == nil { pendingFocusRequest = nil }
+            else if focusRequest?.id != handledFocusRequestID { pendingFocusRequest = focusRequest }
+            let focusExpansion = pendingFocusRequest.flatMap { CodexTranscriptFocusProjection.expansion($0, presentation: presentation) }
+            if let request = pendingFocusRequest, let focusExpansion {
+                if focusExpansion.workExpanded, !presentation.expandedWorkTurnIDs.contains(request.turnID) {
+                    presentation.expandedWorkTurnIDs.insert(request.turnID)
+                    presentationStore?.setWorkExpanded(true, turnID: request.turnID, threadID: ThreadID(request.threadID))
+                }
+                for rowID in focusExpansion.rowIDs where !presentation.expandedRowIDs.contains(rowID) {
+                    presentation.expandedRowIDs.insert(rowID)
+                    presentationStore?.setRowExpanded(true, rowID: rowID, threadID: ThreadID(request.threadID))
+                }
+            }
             let standaloneInputChanged = presentationStore == nil
                 && (previousPresentation.map { $0 != presentation } ?? true)
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme, colorScheme: colorScheme)
             let annotationsChanged = self.responseAnnotations != responseAnnotations
             if appKitTheme?.fingerprint != nextTheme.fingerprint
-                || self.contentHorizontalOffset != contentHorizontalOffset {
+                || self.contentHorizontalOffset != contentHorizontalOffset
+                || self.mcpAppHostContext?.appResources != mcpAppHostContext?.appResources {
                 forceReconfigureAll = true
             }
             self.currentPresentation = presentation
@@ -370,6 +394,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.clipboardService = clipboardService
             self.fileNavigationService = fileNavigationService
             self.productToolRenderer = productToolRenderer
+            self.mcpAppHostContext = mcpAppHostContext
             self.responseAnnotations = responseAnnotations
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
@@ -450,6 +475,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     dirtyTurnIDs: incrementalDirtyTurnIDs,
                     canonicalIdentity: identity
                 )
+            } else {
+                applyPendingFocus()
             }
         }
 
@@ -466,6 +493,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             ticker?.invalidate()
             ticker = nil
             activeTickerItemID = nil
+            pendingFocusRequest = nil
+            handledFocusRequestID = nil
+            lastFocusedItemID = nil
         }
 
         func waitForProjectionForTesting() async {
@@ -498,6 +528,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         var shortTranscriptTopInsetForTesting: CGFloat { shortTranscriptTopInset }
         var findMatchesForTesting: [CodexTranscriptFindMatch] { findMatches }
         var activeFindMatchIndexForTesting: Int? { activeFindMatchIndex }
+        var focusedItemIDForTesting: CodexTranscriptRenderItemID? { lastFocusedItemID }
+        var pendingFocusRequestForTesting: CodexTranscriptFocusRequest? { pendingFocusRequest }
 
         func updateFindQueryForTesting(_ query: String) { updateFindQuery(query) }
         func advanceFindForTesting(backwards: Bool = false) { advanceFind(backwards: backwards) }
@@ -571,13 +603,15 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             projectionGeneration &+= 1
             let generation = projectionGeneration
             lastProjectedWidth = width
+            let mcpAppResources = mcpAppHostContext?.appResources ?? []
             projectionTask = Task { [weak self, projector] in
                 do {
                     let snapshot = try await projector.project(
                         presentation: presentation,
                         availableWidth: width,
                         theme: theme,
-                        dirtyTurnIDs: dirtyTurnIDs
+                        dirtyTurnIDs: dirtyTurnIDs,
+                        mcpAppResources: mcpAppResources
                     )
                     guard !Task.isCancelled else { return }
                     guard self?.projectionGeneration == generation else { return }
@@ -611,6 +645,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 swiftUITheme: swiftUITheme,
                 contentHorizontalOffset: contentHorizontalOffset,
                 productToolRenderer: productToolRenderer,
+                mcpAppHostContext: mcpAppHostContext,
                 canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
@@ -976,6 +1011,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             rebuildTurnMinimap()
             updateTicker(projected)
             if !findQuery.isEmpty { navigateToActiveFindMatch() }
+            applyPendingFocus()
             let elapsed = startedAt.duration(to: .now)
             let milliseconds = Double(elapsed.components.seconds) * 1_000
                 + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
@@ -1097,6 +1133,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             case .openReview(let request):
                 onOpenReview?(request)
                 return
+            case .openMCPApp(let descriptor):
+                mcpAppHostContext?.onOpenFullscreen(descriptor)
+                return
             case .openURL(let value):
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }
                 NSWorkspace.shared.open(url)
@@ -1208,10 +1247,27 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         private func jumpToTurn(_ entry: CodexTranscriptTurnMinimapEntry) {
+            scrollToRenderedItem(entry.targetItemID)
+        }
+
+        private func applyPendingFocus() {
+            guard let request = pendingFocusRequest, let snapshot = currentSnapshot,
+                  let itemID = CodexTranscriptFocusProjection.itemID(request, snapshot: snapshot) else { return }
+            scrollRestorationTask?.cancel()
+            scrollRestorationTask = nil
+            pendingScrollAnchor = nil
+            isRestoringScroll = false
+            scrollToRenderedItem(itemID)
+            lastFocusedItemID = itemID
+            handledFocusRequestID = request.id
+            pendingFocusRequest = nil
+        }
+
+        private func scrollToRenderedItem(_ itemID: CodexTranscriptRenderItemID) {
             guard let container,
                   let snapshot = currentSnapshot,
                   var presentation = currentPresentation,
-                  let targetMinY = projectedMinY(for: entry.targetItemID, in: snapshot) else { return }
+                  let targetMinY = projectedMinY(for: itemID, in: snapshot) else { return }
             let targetY = min(
                 max(-container.scrollView.contentInsets.top, targetMinY - 24),
                 bottomOffset(contentHeight: projectedContentHeight(snapshot))

@@ -101,6 +101,7 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
     public var hiddenProjectIDs: Set<String>
     public var projectAliases: [String: String]
     public var selectedProjectPath: String
+    public var selectedProjectID: String?
     public var selectedThreadID: String?
     public var isProjectlessSelected: Bool
     public var selectedThreadIDs: Set<String>
@@ -137,6 +138,7 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
         hiddenProjectIDs: Set<String> = [],
         projectAliases: [String: String] = [:],
         selectedProjectPath: String? = nil,
+        selectedProjectID: String? = nil,
         selectedThreadID: String? = nil,
         isProjectlessSelected: Bool = false,
         selectedThreadIDs: Set<String> = [],
@@ -164,14 +166,15 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
         self.currentThreadID = currentThreadID
         self.pinnedThreadIDs = Self.normalizedIDs(pinnedThreadIDs)
         self.projectlessThreadIDs = Set(projectlessThreadIDs)
-        self.expandedProjectIDs = Set(expandedProjectIDs.map(CodexProjectSummary.normalizedPath))
+        self.expandedProjectIDs = Set(expandedProjectIDs.map(CodexProjectSummary.normalizedIdentity))
         self.expandedSectionIDs = Set(expandedSectionIDs.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         self.collapsedSectionIDs = Set(collapsedSectionIDs.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         self.projectOrder = Self.normalizedIDs(projectOrder)
         self.pinnedProjectIDs = Self.normalizedIDs(pinnedProjectIDs)
-        self.hiddenProjectIDs = Set(hiddenProjectIDs.map(CodexProjectSummary.normalizedPath))
+        self.hiddenProjectIDs = Set(hiddenProjectIDs.map(CodexProjectSummary.normalizedIdentity))
         self.projectAliases = Self.normalizedProjectAliases(projectAliases)
         self.selectedProjectPath = CodexProjectSummary.normalizedPath(selectedProjectPath ?? currentWorkspacePath)
+        self.selectedProjectID = selectedProjectID
         self.selectedThreadID = selectedThreadID ?? currentThreadID
         self.isProjectlessSelected = isProjectlessSelected
         self.selectedThreadIDs = selectedThreadIDs
@@ -196,7 +199,7 @@ public struct CodexSidebarProjectionInput: Sendable, Equatable {
         var result: [String: String] = [:]
         for path in aliases.keys.sorted() {
             guard let trimmedPath = path.nilIfBlank, let alias = aliases[path]?.nilIfBlank else { continue }
-            let normalized = CodexProjectSummary.normalizedPath(trimmedPath)
+            let normalized = CodexProjectSummary.normalizedIdentity(trimmedPath)
             // Prefer an explicit canonical key; otherwise use stable lexical order.
             if result[normalized] == nil || path == normalized { result[normalized] = alias }
         }
@@ -225,6 +228,17 @@ public enum CodexSidebarProjection {
         sourceFoldersByPrimaryPath: [String: [String]]
     ) -> [CodexProjectSummary] {
         let projectChats = chats.filter { !projectlessThreadIDs.contains($0.id) }
+        if !serverProjects.isEmpty {
+            return serverProjects.map { project in
+                var project = project
+                let members = projectChats.filter { chat in
+                    if let projectID = chat.projectID { return project.serverID == projectID }
+                    return chat.workspacePath.map(project.contains(workspacePath:)) ?? false
+                }
+                project.chatCount = members.count
+                return project
+            }
+        }
         let inferred = serverProjects.isEmpty
             ? CodexProjectSummary.projects(from: projectChats, currentWorkspacePath: currentWorkspacePath)
             : serverProjects
@@ -250,7 +264,7 @@ public enum CodexSidebarProjection {
         return projects.sorted {
             let name = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
             if name != .orderedSame { return name == .orderedAscending }
-            return $0.workspacePath < $1.workspacePath
+            return $0.id < $1.id
         }
     }
 
@@ -321,10 +335,10 @@ public enum CodexSidebarProjection {
             )
             : input.projects
         let visibleProjects = effectiveProjects
-            .filter { !input.hiddenProjectIDs.contains($0.workspacePath) }
+            .filter { !input.hiddenProjectIDs.contains($0.id) && !input.hiddenProjectIDs.contains($0.workspacePath) }
             .map { project -> CodexProjectSummary in
                 var project = project
-                if let alias = input.projectAliases[project.workspacePath] {
+                if let alias = input.projectAliases[project.id] ?? input.projectAliases[project.workspacePath] {
                     project.customDisplayName = alias
                 }
                 return project
@@ -358,7 +372,13 @@ public enum CodexSidebarProjection {
             !projectlessIDs.contains($0.id) && !sectionChatIDs.contains($0.id)
         }
         var chatsByWorkspacePath: [String: [CodexThreadSummary]] = [:]
+        var chatsByProjectID: [String: [CodexThreadSummary]] = [:]
+        let serverProjectIDs = Set(orderedProjects.compactMap(\.serverID))
         for chat in projectChats {
+            if let projectID = chat.projectID, serverProjectIDs.contains(projectID) {
+                chatsByProjectID[projectID, default: []].append(chat)
+                continue
+            }
             let path = CodexProjectSummary.normalizedPath(chat.workspacePath ?? normalizedCurrent)
             chatsByWorkspacePath[path, default: []].append(chat)
         }
@@ -366,6 +386,9 @@ public enum CodexSidebarProjection {
         let projectGroups = orderedProjects.map { project in
             var seenPaths: Set<String> = []
             var chatsForProject: [CodexThreadSummary] = []
+            if let projectID = project.serverID {
+                chatsForProject.append(contentsOf: chatsByProjectID[projectID] ?? [])
+            }
             for sourceFolder in project.sourceFolders {
                 let path = CodexProjectSummary.normalizedPath(sourceFolder)
                 guard seenPaths.insert(path).inserted else { continue }
@@ -377,17 +400,17 @@ public enum CodexSidebarProjection {
                 project: project,
                 rows: visible.map { row($0, false) },
                 hiddenRowCount: sortedChats.count - visible.count,
-                isExpanded: input.expandedProjectIDs.contains(project.workspacePath),
-                isSelected: project.workspacePath == input.selectedProjectPath,
-                isPinned: pinnedProjectIDs.contains(project.workspacePath)
+                isExpanded: input.expandedProjectIDs.contains(project.id) || input.expandedProjectIDs.contains(project.workspacePath),
+                isSelected: input.selectedProjectID.map { $0 == project.id } ?? (project.workspacePath == input.selectedProjectPath),
+                isPinned: pinnedProjectIDs.contains(project.id) || pinnedProjectIDs.contains(project.workspacePath)
             )
         }
         let pinnedProjectOrder = Dictionary(uniqueKeysWithValues: input.pinnedProjectIDs.enumerated().map { ($0.element, $0.offset) })
         let pinnedGroups = projectGroups
             .filter(\.isPinned)
             .sorted {
-                let left = pinnedProjectOrder[$0.project.workspacePath] ?? Int.max
-                let right = pinnedProjectOrder[$1.project.workspacePath] ?? Int.max
+                let left = pinnedProjectOrder[$0.project.id] ?? pinnedProjectOrder[$0.project.workspacePath] ?? Int.max
+                let right = pinnedProjectOrder[$1.project.id] ?? pinnedProjectOrder[$1.project.workspacePath] ?? Int.max
                 if left != right { return left < right }
                 return $0.project.workspacePath < $1.project.workspacePath
             }
@@ -437,8 +460,8 @@ public enum CodexSidebarProjection {
     ) -> [CodexProjectSummary] {
         let index = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
         return projects.sorted {
-            let left = index[$0.workspacePath]
-            let right = index[$1.workspacePath]
+            let left = index[$0.id] ?? index[$0.workspacePath]
+            let right = index[$1.id] ?? index[$1.workspacePath]
             switch (left, right) {
             case let (left?, right?):
                 if left != right { return left < right }
@@ -455,7 +478,7 @@ public enum CodexSidebarProjection {
             if $1.serverPosition != nil { return false }
             let names = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
             if names != .orderedSame { return names == .orderedAscending }
-            return $0.workspacePath < $1.workspacePath
+            return $0.id < $1.id
         }
     }
 

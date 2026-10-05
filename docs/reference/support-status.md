@@ -1,6 +1,8 @@
 # Support status
 
-This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (development), accepting `codex-cli 0.148.x`–`0.160.x` and generating types from `0.160.0`. “Visible in the app” does not necessarily mean “wired to production behavior.”
+This is the user-facing capability matrix for CodexCore `0.14.0` (development).
+The SDK accepts `codex-cli 0.148.x`–`0.160.x`; the full reference app requires
+`0.160.x`. Types are generated from `0.160.0`.
 
 | Status | Meaning |
 | --- | --- |
@@ -31,7 +33,7 @@ This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (
 | Approvals, user input, MCP elicitation, dynamic-tool requests | Supported | The host must provide policy/UI or resolve pending inbox requests. |
 | Dynamic-tool declaration | Conditional | Public thread-start seam currently accepts a raw generated schema wrapper, not the handwritten typed helper. |
 | Realtime Voice requests and event stream | Supported | `CodexRealtimeEvent` routes ephemeral thread-scoped transcript, item lifecycle, PCM audio, session lifecycle, and SDP notifications. |
-| Product-specific transcript cards | Conditional | Custom renderer supports dynamic-tool calls in `CodexTranscriptViewV2`; MCP uses generic rendering. |
+| Product-specific transcript cards and MCP apps | Supported | Custom dynamic-tool renderers and inline/fullscreen MCP apps support both transcript paths. MCP resource/tool calls retain their original account and thread scope. |
 | `CodexChatWorkspaceView` defaults | Conditional | Several bindings/actions are constants or no-ops until the host wires them. |
 
 ## Reference app
@@ -45,9 +47,12 @@ This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (
 | Model, reasoning, approval, Plan and Goal controls | Supported | Availability still depends on server/model capabilities. |
 | Attachments, mentions, slash commands, durable queued follow-ups, steer, interrupt | Supported | App-server persists FIFO follow-ups and auto-dispatches them while CodexCore provides steer, edit, and remove actions. Steering appends a distinct in-turn user bubble and preserves the original prompt. |
 | Approval and input prompts | Supported | Decisions happen before the requested operation. |
+| Native user verification and gateway OAuth | Supported | Readiness probing gates authenticated startup; verification cancellation uses the original request ID/connection and never retains proofs. |
+| Thread resources, memory, settings, history, goals, and queue ordering | Supported | Chat inspector supplies paginated reads, validated mutations, exact-item search navigation, and confirmed Guardian review. Running-turn settings serialize picker updates. |
 | Transcript, plans, goals, subagents, side chat | Supported | Presentation follows canonical session state. |
 | Global realtime Voice task | Supported | One active top-level V3 Voice task with microphone capture, audio playback, live transcript, orb UI, background mini-control, and list/read/message access to other tasks. |
 | Files and syntax-highlighted previews | Supported | Filesystem authority remains governed by the host/runtime. Packaged archives validate all bundled grammar queries after relocation. |
+| Runtime filesystem, process, command, and external-session import | Supported | Runtime features exposes bounded editors/output and scoped watch/search/process cleanup. Import observation starts before mutation. |
 | Workspace terminal | Supported | Interactive Ghostty terminal in the workspace side panel. |
 | Embedded browser | Supported (manual) | WKWebView navigation only; not agent browser-tool integration. |
 | Plugin, skill, app, and MCP management | Supported | Browse and detail views use app-server inventory; install/uninstall, enable/disable, marketplace add/upgrade, and MCP OAuth actions route through the integration control plane. The public SDK also exposes paginated server-side plugin search. |
@@ -55,9 +60,15 @@ This is the authoritative user-facing capability matrix for CodexCore `0.14.0` (
 | Repository stage/unstage/revert/branch/commit/push/draft PR | Supported | Cancellable operations validate paths and reject stale revisions; tracked revert requires confirmation and untracked deletion is refused. Draft PR creation requires `gh` authentication. |
 | Structured AI code review | Supported | Starts app-server review for uncommitted, base-branch, commit, or custom targets. |
 | Automations | Supported | Local TOML-backed schedules run as independent chats while the app is open; native completion notifications require the packaged app and macOS permission. No first-class app-server automation API exists in the pinned protocol. |
-| Mobile remote control | Deferred | Product UI and pairing flow are removed pending [#190](https://github.com/slopwareinc/CodexCore/issues/190); generated remote-control protocol wrappers remain available for a future reintroduction. |
+| Remote control | Conditional | Explicit enable/disable, expiring pairing-code reveal, client pagination, and revocation. A compatible remote client and server capability are required. |
 | Environment/worktree handoff | Supported | Git-backed chats can create a local branch in a new worktree, transfer tracked and untracked changes without modifying the source checkout, and continue from the corresponding repository-relative directory. Cloud environments are not offered. |
+| Runtime environments, experiments, feedback, and provider notices | Supported | Executor/status/info controls, feature configuration, rollout compression, reviewed feedback submission, and scoped model/auth/moderation diagnostics. |
 | Git settings | Preview | Stored settings remain host-facing preferences; Review mutations use repository state directly. |
 | Demo bottom terminal | Unsupported | Removed from the reference app; use the real workspace terminal. |
 
 When source and this page disagree, treat production source and tests as authoritative and update this matrix in the same change.
+
+The [runtime feature guide](../app/runtime-features.md) describes workflows;
+the [protocol coverage ledger](app-server-feature-coverage.md) maps the complete
+`0.160.0` inventory to production owners and verification. Transport-specific,
+external-credential-host, Windows, and test-only boundaries are explicit there.

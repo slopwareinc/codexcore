@@ -472,14 +472,25 @@ public enum CodexExternalAgentConfigImportEvent: Sendable, Equatable {
     case completed(CodexSchemaExternalAgentConfigImportCompletedNotification)
 }
 
-enum CodexExternalAgentConfigImportObserverError: Error, Sendable, Equatable {
+/// A connection-scoped import observer must reconcile after lost observation.
+public enum CodexExternalAgentConfigImportObserverError: Error, Sendable, Equatable, LocalizedError {
+    case bufferOverflow
     case disconnected(connectionEpoch: UInt64)
+
+    public var errorDescription: String? {
+        switch self {
+        case .bufferOverflow:
+            "The import event buffer filled before observation caught up. Reload import history to reconcile the result."
+        case .disconnected:
+            "The import connection ended. Reconnect and reload import history to reconcile the result."
+        }
+    }
 }
 
 struct CodexExternalAgentConfigImportObserverHub {
     private struct Entry {
         let connectionEpoch: UInt64
-        let importID: String
+        let importID: String?
         let continuation: AsyncThrowingStream<CodexExternalAgentConfigImportEvent, Error>.Continuation
     }
 
@@ -488,7 +499,7 @@ struct CodexExternalAgentConfigImportObserverHub {
 
     mutating func observe(
         connectionEpoch: UInt64,
-        importID: String,
+        importID: String?,
         onTermination: (@Sendable (UInt64) -> Void)? = nil
     ) -> (
         id: UInt64,
@@ -498,7 +509,7 @@ struct CodexExternalAgentConfigImportObserverHub {
         let id = nextID
         nextID += 1
         let pair = AsyncThrowingStream<CodexExternalAgentConfigImportEvent, Error>.makeStream(
-            bufferingPolicy: .bufferingNewest(32)
+            bufferingPolicy: importID == nil ? .bufferingOldest(256) : .bufferingNewest(32)
         )
         pair.continuation.onTermination = { @Sendable _ in onTermination?(id) }
         entries[id] = Entry(
@@ -520,12 +531,17 @@ struct CodexExternalAgentConfigImportObserverHub {
         case .completed(let completed): importID = completed.importID
         }
         let ids = entries.compactMap { id, entry in
-            entry.connectionEpoch == connectionEpoch && entry.importID == importID ? id : nil
+            entry.connectionEpoch == connectionEpoch
+                && (entry.importID == nil || entry.importID == importID) ? id : nil
         }
         for id in ids {
             guard let entry = entries.removeValue(forKey: id) else { continue }
-            _ = entry.continuation.yield(event)
-            if case .completed = event {
+            let result = entry.continuation.yield(event)
+            if entry.importID == nil, case .dropped = result {
+                entry.continuation.finish(throwing: CodexExternalAgentConfigImportObserverError.bufferOverflow)
+                continue
+            }
+            if case .completed = event, entry.importID != nil {
                 entry.continuation.finish()
             } else {
                 entries[id] = entry

@@ -658,6 +658,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         swiftUITheme: CodexAgentTheme,
         contentHorizontalOffset: CGFloat,
         productToolRenderer: CodexProductToolRendererV2?,
+        mcpAppHostContext: CodexMCPAppHostContext? = nil,
         canOpenReview: Bool = false,
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
@@ -673,6 +674,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         preferredHeightChanged: @escaping (CodexTranscriptRenderItemID, Int, CGFloat) -> Void = { _, _, _ in }
     ) {
         let preservesIdentity = self.item?.id == item.id
+        let preservesMCPHost = preservesIdentity && self.item?.mcpApp?.id == item.mcpApp?.id
+            && self.item?.mcpApp?.revision == item.mcpApp?.revision
+            && item.mcpApp != nil && mcpAppHostContext != nil
         let selectionToRestore = preservesIdentity && item.allowsTextSelection && textControlsInstalled
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
@@ -694,8 +698,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.removeResponseAnnotation = removeResponseAnnotation
         self.selectionChanged = selectionChanged
         self.preferredHeightChanged = preferredHeightChanged
-        hostedView?.removeFromSuperview()
-        hostedView = nil
+        if !preservesMCPHost {
+            hostedView?.removeFromSuperview()
+            hostedView = nil
+        }
         clearGlassBackground()
         clearDiffTabs()
         closeAgentPreview()
@@ -897,6 +903,27 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 actionButton.setAccessibilityLabel(item.accessibilityLabel)
             }
             (view as? CodexTranscriptHoverView)?.usesPointingHand = isActionable
+        } else if let descriptor = item.mcpApp {
+            if let context = mcpAppHostContext {
+                let root = AnyView(CodexMCPAppTranscriptCard(descriptor: descriptor, context: context)
+                    .codexAgentTheme(swiftUITheme).id("\(descriptor.id):\(descriptor.revision)"))
+                let hosting: NSHostingView<AnyView>
+                if let existing = hostedView as? NSHostingView<AnyView> {
+                    hosting = existing
+                    hosting.rootView = root
+                } else {
+                    hosting = NSHostingView(rootView: root)
+                    hostedView = hosting
+                    view.addSubview(hosting)
+                }
+                hosting.setAccessibilityLabel(item.accessibilityLabel)
+            } else {
+                ensureActionControl()
+                actionButton.isHidden = false
+                actionButton.isEnabled = false
+                actionButton.title = "\(descriptor.appName) app — host unavailable"
+                actionButton.font = appKitTheme.captionFont
+            }
         } else if let productTool = item.productTool {
             if let rendered = productToolRenderer?.render(productTool) {
                 let hosting = NSHostingView(rootView: AnyView(rendered.codexAgentTheme(swiftUITheme)))

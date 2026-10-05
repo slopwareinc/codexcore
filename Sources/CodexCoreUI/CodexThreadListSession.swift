@@ -46,6 +46,12 @@ public struct CodexThreadListSession: Sendable {
     public private(set) var searchResults: [CodexThreadSearchResult]
     public private(set) var isSearching: Bool
     public private(set) var searchErrorMessage: String?
+    public private(set) var activeNextCursor: String?
+    public private(set) var isLoadingMoreActive = false
+    public private(set) var searchNextCursor: String?
+    public private(set) var searchQuery = ""
+    private var activeSeenCursors: Set<String> = []
+    private var searchSeenCursors: Set<String> = []
 
     public init(currentWorkspacePath: String) {
         self.recentChats = []
@@ -69,6 +75,8 @@ public struct CodexThreadListSession: Sendable {
         self.searchResults = []
         self.isSearching = false
         self.searchErrorMessage = nil
+        self.activeNextCursor = nil
+        self.searchNextCursor = nil
     }
 
     public mutating func reset(currentWorkspacePath: String) {
@@ -83,6 +91,9 @@ public struct CodexThreadListSession: Sendable {
         hasLoadedArchived = false
         activeLoadState = .idle
         activeErrorMessage = nil
+        activeNextCursor = nil
+        activeSeenCursors = []
+        isLoadingMoreActive = false
         recentProjects = CodexSidebarProjection.presentedProjects(
             serverProjects: [],
             chats: [],
@@ -123,7 +134,7 @@ public struct CodexThreadListSession: Sendable {
             recentProjects = []
             return
         }
-        var merged = Dictionary(uniqueKeysWithValues: serverProjects.map { ($0.id, $0) })
+        var merged = Dictionary(serverProjects.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         for project in projects { merged[project.id] = project }
         serverProjects = merged.values.sorted {
             if let left = $0.serverPosition, let right = $1.serverPosition, left != right {
@@ -147,6 +158,9 @@ public struct CodexThreadListSession: Sendable {
         let allChats = Self.mergedThreadSummaries(currentChats + Self.visibleThreadSummaries(from: allRaw))
         recentChats = currentChats
         self.allChats = allChats
+        activeNextCursor = Self.cursor(in: allRaw)
+        activeSeenCursors = []
+        isLoadingMoreActive = false
         activeLoadState = .loaded
         activeErrorMessage = nil
         recentProjects = CodexSidebarProjection.presentedProjects(
@@ -172,6 +186,50 @@ public struct CodexThreadListSession: Sendable {
         activeLoadState = .loading
         activeErrorMessage = nil
         return true
+    }
+
+    /// Reserves a single active-sidebar page. Merge its response into the latest
+    /// session after awaiting; do not replace a copied session over newer state.
+    public mutating func beginActivePageLoad() -> String? {
+        guard !activeLoadState.isLoading, !isLoadingMoreActive, let cursor = activeNextCursor else { return nil }
+        guard activeSeenCursors.insert(cursor).inserted else {
+            activeErrorMessage = "Chat pagination returned a repeated cursor."
+            activeNextCursor = nil
+            return nil
+        }
+        isLoadingMoreActive = true
+        activeErrorMessage = nil
+        return cursor
+    }
+
+    public mutating func cancelActivePageLoad(cursor: String, message: String? = nil) {
+        activeSeenCursors.remove(cursor)
+        isLoadingMoreActive = false
+        activeErrorMessage = message
+    }
+
+    @discardableResult
+    public mutating func applyActivePage(_ response: CodexSchemaThreadListResponse, currentWorkspacePath: String) -> Bool {
+        isLoadingMoreActive = false
+        if let next = response.nextCursor, activeSeenCursors.contains(next) {
+            activeNextCursor = nil
+            activeErrorMessage = "Chat pagination returned a repeated cursor."
+            return false
+        }
+        let page = response.data.map(CodexThreadSummary.init(schema:)).filter { !$0.isEphemeral && $0.parentThreadID == nil }
+        var merged = Dictionary(allChats.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        for chat in page { merged[chat.id] = chat }
+        allChats = merged.values.sorted(by: Self.compareByRecency)
+        let path = CodexProjectSummary.normalizedPath(currentWorkspacePath)
+        recentChats = allChats.filter { $0.workspacePath.map(CodexProjectSummary.normalizedPath) == path }
+        activeNextCursor = response.nextCursor
+        activeErrorMessage = nil
+        refreshProjects(currentWorkspacePath: currentWorkspacePath)
+        return true
+    }
+
+    public static func fetchActivePage(using codex: Codex, cursor: String) async throws -> CodexSchemaThreadListResponse {
+        try await codex.perform(CodexRequest.threadList(.init(archived: false, cursor: cursor, limit: 100, sortDirection: .desc, sortKey: .recencyAt)))
     }
 
     /// Replaces the archived page while retaining previously fetched pages.
@@ -412,6 +470,16 @@ public struct CodexThreadListSession: Sendable {
         searchErrorMessage = nil
     }
 
+    public mutating func beginSearch(query: String) -> String? {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { clearSearch(); return nil }
+        beginSearch()
+        searchQuery = query
+        searchNextCursor = nil
+        searchSeenCursors = []
+        return query
+    }
+
     @discardableResult
     public mutating func applyLocalSearch(
         query: String,
@@ -432,6 +500,8 @@ public struct CodexThreadListSession: Sendable {
 
     public mutating func applySearchResults(from raw: CodexJSONValue) -> Int {
         searchResults = CodexThreadSearchResult.results(from: raw)
+        searchNextCursor = Self.cursor(in: raw)
+        searchSeenCursors = []
         isSearching = false
         return searchResults.count
     }
@@ -446,6 +516,53 @@ public struct CodexThreadListSession: Sendable {
         searchResults = []
         searchErrorMessage = nil
         isSearching = false
+        searchNextCursor = nil
+        searchQuery = ""
+        searchSeenCursors = []
+    }
+
+    public mutating func beginSearchPageLoad() -> (query: String, cursor: String)? {
+        guard !isSearching, !searchQuery.isEmpty, let cursor = searchNextCursor else { return nil }
+        guard searchSeenCursors.insert(cursor).inserted else {
+            searchNextCursor = nil
+            searchErrorMessage = "Search pagination returned a repeated cursor."
+            return nil
+        }
+        beginSearch()
+        return (searchQuery, cursor)
+    }
+
+    public mutating func cancelSearchPageLoad(cursor: String, message: String? = nil) {
+        searchSeenCursors.remove(cursor)
+        isSearching = false
+        searchErrorMessage = message
+    }
+
+    @discardableResult
+    public mutating func applySearchPage(_ response: CodexSchemaThreadSearchResponse, query: String, reset: Bool = false) -> Bool {
+        guard searchQuery == query else { return false }
+        isSearching = false
+        if reset { searchResults = []; searchSeenCursors = [] }
+        if let next = response.nextCursor, searchSeenCursors.contains(next) {
+            searchNextCursor = nil
+            searchErrorMessage = "Search pagination returned a repeated cursor."
+            return false
+        }
+        let page = response.data.map { CodexThreadSearchResult(thread: .init(schema: $0.thread), snippet: $0.snippet) }
+        var byID = Dictionary(searchResults.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var order = searchResults.map(\.id)
+        for result in page {
+            if byID[result.id] == nil { order.append(result.id) }
+            byID[result.id] = result
+        }
+        searchResults = order.compactMap { byID[$0] }
+        searchNextCursor = response.nextCursor
+        searchErrorMessage = nil
+        return true
+    }
+
+    public static func fetchSearchPage(using codex: Codex, query: String, cursor: String? = nil) async throws -> CodexSchemaThreadSearchResponse {
+        try await codex.perform(CodexRequest.threadSearch(.init(archived: false, cursor: cursor, limit: 25, searchTerm: query, sortDirection: .desc, sortKey: .recencyAt)))
     }
 
     @discardableResult
@@ -470,6 +587,9 @@ public struct CodexThreadListSession: Sendable {
         }
 
         beginSearch()
+        searchQuery = searchTerm
+        searchNextCursor = nil
+        searchSeenCursors = []
         let localCount = applyLocalSearch(query: searchTerm)
         do {
             let response = try await codex.perform(CodexRequest.threadSearch(.init(
@@ -497,6 +617,11 @@ public struct CodexThreadListSession: Sendable {
     public static func visibleThreadSummaries(from raw: CodexJSONValue) -> [CodexThreadSummary] {
         CodexThreadSummary.summaries(from: raw)
             .filter { $0.parentThreadID == nil && !$0.isEphemeral }
+    }
+
+    private static func cursor(in raw: CodexJSONValue) -> String? {
+        guard case .string(let value)? = raw.objectValue?["nextCursor"] else { return nil }
+        return value
     }
 
     public static func mergedThreadSummaries(_ summaries: [CodexThreadSummary]) -> [CodexThreadSummary] {

@@ -56,6 +56,7 @@ struct CodexAppSettingsContent: View {
             onRefreshHooks: {
                 Task { await model.refreshHooks() }
             },
+            runtimeFeatures: AnyView(CodexAppRuntimeFeaturesView(model: model)),
             onBackToApp: onBackToApp
         )
         .codexAgentTheme(model.theme)

@@ -187,12 +187,16 @@ public struct CodexAuthSession: Equatable, Sendable {
         return CodexActivity(kind: .login, title: "Signed in with ChatGPT", detail: "Authentication updated")
     }
 
-    public func deviceCodeEnded(message: String) -> CodexActivity {
-        CodexActivity(kind: .login, title: "Device login ended", detail: message)
+    public mutating func deviceCodeEnded(message: String) -> CodexActivity {
+        deviceCode = nil
+        deviceCodeURL = nil
+        return CodexActivity(kind: .login, title: "Device login ended", detail: message)
     }
 
-    public func deviceCodeFailed(message: String) -> CodexActivity {
-        CodexActivity(kind: .login, title: "Device login failed", detail: message)
+    public mutating func deviceCodeFailed(message: String) -> CodexActivity {
+        deviceCode = nil
+        deviceCodeURL = nil
+        return CodexActivity(kind: .login, title: "Device login failed", detail: message)
     }
 
     private static func bool(from value: CodexJSONValue?) -> Bool? {

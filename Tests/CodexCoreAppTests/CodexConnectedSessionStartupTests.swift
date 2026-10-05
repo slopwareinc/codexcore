@@ -20,6 +20,7 @@ struct CodexConnectedSessionStartupTests {
         let model = CodexCoreAppModel()
         model.codex = codex
 
+        await model.accountFeatures.connect(to: CodexAppAccountRuntime(codex: codex))
         await model.refreshConnectedSession(using: codex)
         let inventoryStarted = await withTaskGroup(of: Bool.self) { group in
             group.addTask { await transport.waitUntilInventoryStarts() }
@@ -38,7 +39,7 @@ struct CodexConnectedSessionStartupTests {
         let startedInventoryMethod = await transport.startedInventoryMethod
         #expect(model.threadListSession.allChats.map(\.id) == ["thread-1"])
         #expect(model.threadListSession.recentProjects.contains { $0.workspacePath == "/tmp/project" })
-        #expect(Array(methods.prefix(2)) == ["thread/list", "thread/list"])
+        #expect(Array(methods.prefix(3)) == ["account/gatewayOAuth/read", "thread/list", "thread/list"])
         #expect(inventoryStarted)
         #expect(startedInventoryMethod.map(methods.contains) == true)
 
@@ -150,6 +151,10 @@ private actor StartupOrderingTransport: CodexFrameTransport {
                 "platformOs": .string("macos"),
                 "userAgent": .string("codex/test"),
             ])
+        case "account/gatewayOAuth/read":
+            result = try CodexJSONValue(encoding: CodexSchemaGatewayOAuthReadResponse(
+                providerID: "openai", providerName: "OpenAI", required: false
+            ))
         case "thread/list":
             result = .dictionary([
                 "data": .array([.dictionary([

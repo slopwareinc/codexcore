@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 
 enum CodexPluginRoutePage: Equatable {
     case plugins
@@ -39,6 +40,10 @@ public struct CodexPluginRouteView: View {
     public let onAction: (CodexPluginRouteAction) -> Void
     public let onReadPlugin: (CodexPluginSummary) -> Void
     public let onOpenMCPDetails: () -> Void
+    public let provider: (any CodexIntegrationControlPlaneProvider)?
+    public let threadID: String?
+    public let workingDirectories: [String]
+    public let appsNeedingAuthentication: [CodexSchemaAppSummary]
 
     @State private var page: CodexPluginRoutePage
     @State private var browsePage: CodexPluginRoutePage
@@ -51,6 +56,15 @@ public struct CodexPluginRouteView: View {
     @State private var expandedMarketplaceSections: Set<String> = []
     @State private var expandedSkillSections: Set<String> = []
     @State private var marketplaceSource = ""
+    @State private var selectedApp: CodexAppSummary?
+    @State private var showsSharing = false
+    @State private var showsSkillRoots = false
+    @State private var confirmsReconcile = false
+    @State private var confirmsCatalogMutation: CodexPluginRouteAction?
+    @State private var remotePlugins: [CodexPluginSummary] = []
+    @State private var remoteDetails: [String: CodexPluginReadDetail] = [:]
+    @State private var featureError: String?
+    @State private var isReconciling = false
     @FocusState private var isSearchFocused: Bool
 
     public init(
@@ -84,7 +98,11 @@ public struct CodexPluginRouteView: View {
         onRefresh: @escaping () -> Void,
         onAction: @escaping (CodexPluginRouteAction) -> Void,
         onReadPlugin: @escaping (CodexPluginSummary) -> Void = { _ in },
-        onOpenMCPDetails: @escaping () -> Void = {}
+        onOpenMCPDetails: @escaping () -> Void = {},
+        provider: (any CodexIntegrationControlPlaneProvider)? = nil,
+        threadID: String? = nil,
+        workingDirectories: [String] = [],
+        appsNeedingAuthentication: [CodexSchemaAppSummary] = []
     ) {
         self.plugins = plugins
         self.marketplaces = marketplaces
@@ -123,6 +141,10 @@ public struct CodexPluginRouteView: View {
         self.onAction = onAction
         self.onReadPlugin = onReadPlugin
         self.onOpenMCPDetails = onOpenMCPDetails
+        self.provider = provider
+        self.threadID = threadID
+        self.workingDirectories = workingDirectories
+        self.appsNeedingAuthentication = appsNeedingAuthentication
     }
 
     private var isLoading: Bool {
@@ -179,7 +201,7 @@ public struct CodexPluginRouteView: View {
             }
         }
         .onChange(of: selectedPluginID) { _, id in
-            guard let id, let plugin = plugins.first(where: { $0.id == id }) else { return }
+            guard let id, let plugin = allPlugins.first(where: { $0.id == id }) else { return }
             pluginDetailReturnPage = page == .manage ? .manage : .plugins
             page = .pluginDetail(id)
             onReadPlugin(plugin)
@@ -197,16 +219,45 @@ public struct CodexPluginRouteView: View {
             set: { if !$0 { skillDetailID = nil } }
         )) {
             if let skill = selectedSkill {
-                OfficialSkillDetailSheet(
+                CodexSkillDetailSheet(
                     skill: skill,
                     icon: pluginIcon(for: skill),
                     isPending: isPending(skill),
+                    provider: provider,
                     onClose: { skillDetailID = nil },
-                    onAction: onAction
+                    onRefresh: onRefresh,
+                    onAction: handleAction
                 )
                 .codexAgentTheme(theme)
             }
         }
+        .sheet(item: $selectedApp) { app in
+            CodexAppDetailSheet(app: app, threadID: threadID, provider: provider,
+                                onClose: { selectedApp = nil }, onRefresh: onRefresh)
+                .codexAgentTheme(theme)
+        }
+        .sheet(isPresented: $showsSharing) {
+            if let provider {
+                CodexPluginSharingSheet(provider: provider, onClose: { showsSharing = false }, onRefresh: onRefresh)
+                    .codexAgentTheme(theme)
+            }
+        }
+        .sheet(isPresented: $showsSkillRoots) {
+            if let provider {
+                CodexSkillRootsSheet(provider: provider, onClose: { showsSkillRoots = false }, onRefresh: onRefresh)
+                    .codexAgentTheme(theme)
+            }
+        }
+        .confirmationDialog("Synchronize installed plugins?", isPresented: $confirmsReconcile) {
+            Button("Synchronize") { reconcile() }
+        } message: { Text("Codex will reconcile shared plugin updates and refresh their skills, hooks, apps, and MCP servers.") }
+        .confirmationDialog("Confirm integration change", isPresented: Binding(
+            get: { confirmsCatalogMutation != nil }, set: { if !$0 { confirmsCatalogMutation = nil } }
+        )) {
+            Button("Continue") {
+                if let action = confirmsCatalogMutation { confirmsCatalogMutation = nil; onAction(action) }
+            }
+        } message: { Text("This changes the installed integrations. Review the plugin's capabilities before continuing.") }
     }
 
     private var toolbar: some View {
@@ -314,6 +365,10 @@ public struct CodexPluginRouteView: View {
             Button("Create plugin") { onAction(.tryInChat(prompt: "Help me create a new Codex plugin.")) }
             Button("Create skill") { onAction(.tryInChat(prompt: "Help me create a new Codex skill.")) }
             Button("Add plugin marketplace") { onAction(.tryInChat(prompt: "Help me add a Codex plugin marketplace.")) }
+            Divider()
+            Button("Shared plugins") { showsSharing = true }.disabled(provider == nil)
+            Button("Extra skill roots") { showsSkillRoots = true }.disabled(provider == nil)
+            Button("Synchronize installed plugins") { confirmsReconcile = true }.disabled(provider == nil || isReconciling)
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "plus")
@@ -337,15 +392,16 @@ public struct CodexPluginRouteView: View {
         case .skills: skillsPage
         case .manage: managePage
         case .pluginDetail(let id):
-            if let plugin = plugins.first(where: { $0.id == id }) {
+            if let plugin = allPlugins.first(where: { $0.id == id }) {
                 OfficialPluginDetailPage(
                     plugin: plugin,
-                    readDetail: pluginReadDetails[plugin.id],
+                    readDetail: pluginReadDetails[plugin.id] ?? remoteDetails[plugin.id],
                     isLoadingReadDetail: loadingPluginReadIDs.contains(plugin.id),
                     readError: pluginReadErrors[plugin.id],
                     isPending: isPending(plugin),
-                    onAction: onAction
+                    onAction: handleAction
                 )
+                .task(id: id) { await readRemotePluginIfNeeded(plugin) }
             } else {
                 emptyState(title: "Plugin unavailable", detail: "Refresh the marketplace and try again.")
             }
@@ -502,7 +558,7 @@ public struct CodexPluginRouteView: View {
                         showsToggle: false,
                         isPending: isPending(plugin),
                         onOpen: { selectedPluginID = plugin.id },
-                        onAction: onAction
+                        onAction: handleAction
                     )
                 }
             }
@@ -526,7 +582,22 @@ public struct CodexPluginRouteView: View {
         }
     }
 
-    private var searchResults: some View {
+    @ViewBuilder private var searchResults: some View {
+        if let provider {
+            CodexPluginServerSearchResults(
+                query: normalizedSearch, workingDirectories: workingDirectories, provider: provider,
+                pendingIDs: pendingPluginIDs,
+                onSelect: { plugin in
+                    if !plugins.contains(where: { $0.id == plugin.id }) { remotePlugins = [plugin] }
+                    selectedPluginID = plugin.id
+                }, onAction: handleAction
+            )
+        } else {
+            localSearchResults
+        }
+    }
+
+    private var localSearchResults: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search results").font(theme.fonts.chat.weight(.semibold))
             if visiblePlugins.isEmpty {
@@ -539,7 +610,7 @@ public struct CodexPluginRouteView: View {
                             showsToggle: false,
                             isPending: isPending(plugin),
                             onOpen: { selectedPluginID = plugin.id },
-                            onAction: onAction
+                            onAction: handleAction
                         )
                     }
                 }
@@ -614,7 +685,7 @@ public struct CodexPluginRouteView: View {
                                 showsToggle: true,
                                 isPending: isPending(plugin),
                                 onOpen: { selectedPluginID = plugin.id },
-                                onAction: onAction
+                                onAction: handleAction
                             )
                             if plugin.id != visible.last?.id {
                                 Divider().overlay(theme.colors.border)
@@ -694,7 +765,7 @@ public struct CodexPluginRouteView: View {
             } else {
                 Button("Upgrade") { onAction(.upgradeMarketplace(.init(marketplace: marketplace))) }
                     .buttonStyle(.bordered)
-                Button("Remove", role: .destructive) { onAction(.removeMarketplace(.init(marketplace: marketplace))) }
+                Button("Remove", role: .destructive) { handleAction(.removeMarketplace(.init(marketplace: marketplace))) }
                     .buttonStyle(.bordered)
             }
         }
@@ -727,7 +798,7 @@ public struct CodexPluginRouteView: View {
                             showsToggle: false,
                             isPending: isPending(skill),
                             onOpen: { skillDetailID = skill.id },
-                            onAction: onAction
+                            onAction: handleAction
                         )
                     }
                 }
@@ -764,7 +835,7 @@ public struct CodexPluginRouteView: View {
                     showsToggle: true,
                     isPending: isPending(skill),
                     onOpen: { skillDetailID = skill.id },
-                    onAction: onAction
+                    onAction: handleAction
                 )
             }
         }
@@ -788,7 +859,8 @@ public struct CodexPluginRouteView: View {
                         fallbackSystemName: "app.dashed"
                     )
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(app.name).font(theme.fonts.label).lineLimit(1)
+                        Button(app.name) { selectedApp = app }.buttonStyle(.plain)
+                            .font(theme.fonts.label).lineLimit(1)
                         Text(appDetail(app)).font(theme.fonts.caption).foregroundStyle(theme.colors.textSecondary).lineLimit(1)
                     }
                     Spacer()
@@ -860,6 +932,16 @@ public struct CodexPluginRouteView: View {
     }
 
     @ViewBuilder private var statusMessages: some View {
+        if let featureError { statusBanner(featureError, color: theme.colors.danger) }
+        ForEach(appsNeedingAuthentication, id: \.id) { app in
+            HStack {
+                Label("Connect \(app.name) to finish plugin setup", systemImage: "link")
+                Spacer()
+                if let raw = app.installUrl, let url = URL(string: raw), url.scheme == "https" {
+                    Link("Connect", destination: url).buttonStyle(.bordered)
+                }
+            }.font(theme.fonts.caption).foregroundStyle(theme.colors.warning)
+        }
         if page == .skills || (page == .manage && manageTab == .skills) {
             if let skillErrorMessage { statusBanner(skillErrorMessage, color: theme.colors.danger) }
             ForEach(skillLoadErrors, id: \.self) { statusBanner($0, color: theme.colors.warning) }
@@ -920,6 +1002,46 @@ public struct CodexPluginRouteView: View {
     private var selectedSkill: CodexSkillSummary? {
         guard let skillDetailID else { return nil }
         return skills.first { $0.id == skillDetailID }
+    }
+
+    private var allPlugins: [CodexPluginSummary] {
+        let ids = Set(plugins.map(\.id))
+        return plugins + remotePlugins.filter { !ids.contains($0.id) }
+    }
+
+    private func handleAction(_ action: CodexPluginRouteAction) {
+        switch action {
+        case .installPlugin(let target) where allPlugins.first(where: { $0.protocolID == target.id })?.requiresInstallationConfirmation == true:
+            confirmsCatalogMutation = action
+        case .uninstallPlugin, .removeMarketplace:
+            confirmsCatalogMutation = action
+        default: onAction(action)
+        }
+    }
+
+    private func reconcile() {
+        guard let provider, !isReconciling else { return }
+        isReconciling = true
+        Task {
+            defer { isReconciling = false }
+            do {
+                let result = try await provider.perform(.pluginReconcile(.init(reason: "user_requested")))
+                    .decode(CodexSchemaPluginReconcileResponse.self)
+                let failures = result.failedRemotePluginIDs + result.failedMaterializationRemotePluginIDs
+                featureError = failures.isEmpty ? nil : "Some plugins could not synchronize: \(failures.joined(separator: ", "))"
+                onRefresh()
+            } catch { featureError = error.localizedDescription }
+        }
+    }
+
+    private func readRemotePluginIfNeeded(_ plugin: CodexPluginSummary) async {
+        guard !plugins.contains(where: { $0.id == plugin.id }), remoteDetails[plugin.id] == nil, let provider else { return }
+        do {
+            let result = try await provider.perform(.pluginRead(CodexPluginProtocolMutation.readParams(for: plugin)))
+                .decode(CodexSchemaPluginReadResponse.self)
+            try Task.checkCancellation()
+            remoteDetails = [plugin.id: .init(id: plugin.id, detail: result.plugin)]
+        } catch is CancellationError { } catch { featureError = error.localizedDescription }
     }
 
     private var groupedSkills: [(title: String, skills: [CodexSkillSummary])] {
@@ -1096,7 +1218,7 @@ public struct CodexPluginRouteView: View {
     }
 }
 
-private struct OfficialPluginRow: View {
+struct OfficialPluginRow: View {
     @Environment(\.codexAgentTheme) private var theme
     let plugin: CodexPluginSummary
     let showsToggle: Bool
@@ -1229,106 +1351,6 @@ struct OfficialSkillRow: View {
         }
         .padding(.horizontal, 10)
         .frame(height: CodexPluginLayoutMetrics.rowHeight)
-    }
-}
-
-struct OfficialSkillDetailSheet: View {
-    @Environment(\.codexAgentTheme) private var theme
-    let skill: CodexSkillSummary
-    let icon: CodexPluginIconReference
-    let isPending: Bool
-    let onClose: () -> Void
-    let onAction: (CodexPluginRouteAction) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .topTrailing) {
-                VStack(alignment: .leading, spacing: 18) {
-                    CodexPluginIconView(reference: icon, size: 46, fallbackSystemName: "hammer")
-                        .frame(width: 56, height: 56)
-                        .background(theme.colors.surfaceSunken, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                    HStack(alignment: .center, spacing: 12) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(skill.displayName).font(.system(size: 24, weight: .semibold))
-                            Text("Skill").font(.system(size: 21)).foregroundStyle(theme.colors.textSecondary)
-                        }
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { skill.enabled },
-                            set: { onAction(.setSkillEnabled(.init(skill: skill), enabled: $0)) }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(isPending)
-                        .accessibilityLabel("Toggle skill enabled state")
-                        Menu {
-                            Button(skill.enabled ? "Disable skill" : "Enable skill") {
-                                onAction(.setSkillEnabled(.init(skill: skill), enabled: !skill.enabled))
-                            }
-                            if let prompt = skill.defaultPrompt {
-                                Button("Try in chat") { onAction(.tryInChat(prompt: prompt)) }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis").frame(width: 28, height: 28)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .disabled(isPending)
-                    }
-
-                    Text(skill.detail)
-                        .font(theme.fonts.chat)
-                        .foregroundStyle(theme.colors.textSecondary)
-                        .lineLimit(4)
-                }
-
-                Button(action: onClose) {
-                    Image(systemName: "xmark").frame(width: 32, height: 32)
-                }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close skill details")
-            }
-            .padding(28)
-
-            ScrollView {
-                Text(skill.description.nilIfBlank ?? skill.detail)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(22)
-                    .background(theme.colors.surfaceSunken.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 20)
-            }
-
-            HStack {
-                Text("Skill removal is managed outside CodexCore")
-                    .font(theme.fonts.caption)
-                    .foregroundStyle(theme.colors.textSecondary)
-                Spacer()
-                if let prompt = skill.defaultPrompt {
-                    Button { onAction(.tryInChat(prompt: prompt)) } label: {
-                        Label("Try in chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 22)
-            .background(theme.colors.surface)
-        }
-        .frame(
-            minWidth: 560,
-            idealWidth: 760,
-            maxWidth: 900,
-            minHeight: 420,
-            idealHeight: 620,
-            maxHeight: 780
-        )
-        .background(theme.colors.surface)
     }
 }
 

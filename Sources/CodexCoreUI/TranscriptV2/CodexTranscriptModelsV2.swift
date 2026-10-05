@@ -307,6 +307,8 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var status: CodexWorkItemStatusV2; public var durationMs: Int?; public var errorFirstLine: String?
     public var arguments: CodexJSONValue?; public var result: CodexJSONValue?
     public var readOnlyHint: Bool?
+    public var appDescriptor: CodexMCPAppDescriptor? = nil
+    public var appContext: CodexJSONValue? = nil
 }
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2

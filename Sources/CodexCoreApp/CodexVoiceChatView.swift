@@ -1,4 +1,5 @@
 import SwiftUI
+import CodexCore
 import CodexCoreUI
 
 /// Compact native-panel content. The panel itself owns z-order, display
@@ -246,14 +247,24 @@ private struct CodexVoiceComposer: View {
                 .onSubmit(submit)
 
             HStack(spacing: 12) {
-                Button(action: {}) {
-                    Image(systemName: "plus")
+                Menu {
+                    Picker("Voice for next session", selection: $session.selectedVoice) {
+                        ForEach(session.availableVoices, id: \.self) { voice in
+                            Text(voice.rawValue.capitalized).tag(voice)
+                        }
+                    }
+                    Picker("Output for next session", selection: $session.outputModality) {
+                        Text("Audio").tag(CodexSchemaRealtimeOutputModality.audio)
+                        Text("Text").tag(CodexSchemaRealtimeOutputModality.text)
+                    }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
                         .font(theme.fonts.actionIcon)
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.colors.textSecondary)
-                .accessibilityLabel("Add to voice chat")
+                .accessibilityLabel("Voice options for next session")
 
                 Label("Approve for me", systemImage: "shield.lefthalf.filled")
                     .font(theme.fonts.chipLabel)

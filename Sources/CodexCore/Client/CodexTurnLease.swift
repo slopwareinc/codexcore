@@ -130,6 +130,78 @@ public final class CodexThreadLease: @unchecked Sendable {
         return try await session.perform(CodexRequest.threadSettingsUpdate(params))
     }
 
+    /// Injects protocol response items into this thread without starting a turn.
+    /// App-server validates the item shapes and image URLs. Intended for host
+    /// conversation setup, such as a side-conversation boundary after a fork.
+    @discardableResult
+    public func injectItems(
+        _ params: CodexSchemaThreadInjectItemsParams
+    ) async throws -> CodexSchemaThreadInjectItemsResponse {
+        try requireThread(params.threadID)
+        let state = await session.lifecycle
+        try requireOpen()
+        guard case .ready(let epoch) = state else { throw CodexSessionError.notReady(state) }
+        return try await CodexOutOfBandElicitation.perform(
+            CodexRequest.threadInjectItems(params), session: session, epoch: epoch
+        )
+    }
+
+    @discardableResult
+    public func injectItems(
+        _ items: [CodexSchemaResponseItem]
+    ) async throws -> CodexSchemaThreadInjectItemsResponse {
+        try await injectItems(.init(items: items.map(\.rawValue), threadID: id.rawValue))
+    }
+
+    /// Pauses model continuation while an external host interaction is pending.
+    /// Ordinary app-server approval/input requests already own their lifecycle
+    /// and do not need this counter. The accepted increment is paired with one
+    /// decrement on the original connection, including cancellation and errors.
+    public func withOutOfBandElicitation<Output: Sendable>(
+        _ operation: @Sendable () async throws -> Output
+    ) async throws -> Output {
+        try requireOpen()
+        try Task.checkCancellation()
+        let state = await session.lifecycle
+        try requireOpen()
+        try Task.checkCancellation()
+        guard case .ready(let epoch) = state else { throw CodexSessionError.notReady(state) }
+        let session = session, threadID = id
+        // A cancellation between the increment's write and response must not
+        // discard its acknowledgment and leave the server paused indefinitely.
+        _ = try await Task.detached {
+            try await CodexOutOfBandElicitation.perform(
+                CodexRequest.threadIncrementElicitation(.init(threadID: threadID.rawValue)),
+                session: session, epoch: epoch
+            )
+        }.value
+        let outcome: Result<Output, Error>
+        do {
+            try requireOpen()
+            try Task.checkCancellation()
+            let output = try await operation()
+            try Task.checkCancellation()
+            outcome = .success(output)
+        } catch { outcome = .failure(error) }
+        do {
+            _ = try await Task.detached {
+                try await CodexOutOfBandElicitation.perform(
+                    CodexRequest.threadDecrementElicitation(.init(threadID: threadID.rawValue)),
+                    session: session, epoch: epoch
+                )
+            }.value
+        } catch {
+            let operationFailure: String?
+            if case .failure(let failure) = outcome { operationFailure = String(describing: failure) }
+            else { operationFailure = nil }
+            throw CodexOutOfBandElicitationReleaseError(
+                threadID: threadID, connectionEpoch: epoch,
+                operationFailure: operationFailure, releaseFailure: String(describing: error)
+            )
+        }
+        return try outcome.get()
+    }
+
     /// Reads one attachment page. Notifications carry identities only; fetch
     /// again after an attachment invalidation or a fork. Requires Codex 0.160.0.
     public func listAttachments(

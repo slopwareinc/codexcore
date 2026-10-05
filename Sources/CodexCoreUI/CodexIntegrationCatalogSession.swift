@@ -292,9 +292,24 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
     @discardableResult
     public mutating func applyPluginResponse(
         _ raw: CodexJSONValue,
-        configuredEnabled: [String: Bool] = [:]
+        configuredEnabled: [String: Bool] = [:],
+        installedResponse: CodexJSONValue? = nil
     ) -> CodexIntegrationCatalogActivity {
         plugins = CodexPluginSummary.plugins(from: raw)
+        if let installedResponse {
+            let installed = CodexPluginSummary.plugins(from: installedResponse)
+            let byID = Dictionary(installed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+            let catalogIDs = Set(plugins.map(\.id))
+            for index in plugins.indices {
+                if let current = byID[plugins[index].id] {
+                    plugins[index].installed = current.installed
+                    plugins[index].enabled = current.enabled
+                    plugins[index].remotePluginID = current.remotePluginID
+                    plugins[index].shareContext = current.shareContext
+                }
+            }
+            plugins += installed.filter { !catalogIDs.contains($0.id) }
+        }
         var availableIDs: Set<String> = []
         availableIDs.reserveCapacity(plugins.count)
         for index in plugins.indices {
@@ -326,10 +341,12 @@ public struct CodexIntegrationCatalogSession: Equatable, Sendable {
                 cwds: cwds.isEmpty ? nil : cwds.map { CodexAppServerSchemaValue(.string($0)) }
             )))
             async let config = try? codex.configRead(.init(includeLayers: true))
-            let (pluginResponse, configResponse) = try await (response, config)
+            async let installed = codex.pluginInstalled(.init(cwds: cwds.isEmpty ? nil : cwds.map { .init(.string($0)) }))
+            let (pluginResponse, configResponse, installedResponse) = try await (response, config, installed)
             return applyPluginResponse(
                 try CodexJSONValue(encoding: pluginResponse),
-                configuredEnabled: configResponse.map(CodexPluginProtocolMutation.configuredPluginEnabled) ?? [:]
+                configuredEnabled: configResponse.map(CodexPluginProtocolMutation.configuredPluginEnabled) ?? [:],
+                installedResponse: try CodexJSONValue(encoding: installedResponse)
             )
         } catch {
             return failPluginRefresh(message: errorMessage(error))

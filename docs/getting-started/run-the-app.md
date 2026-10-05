@@ -1,6 +1,8 @@
 # Run the reference app
 
-The reference app demonstrates the SDK and reusable UI. It is not required by library consumers, and some visible routes are previews rather than wired workflows; see [support status](../reference/support-status.md).
+The reference app demonstrates the SDK and reusable UI and requires Codex
+`0.160.x` for the complete runtime feature stack. Library consumers can use the
+SDK's older core lifecycle floor; see [support status](../reference/support-status.md).
 
 ![CodexCore workspace with model and reasoning controls](../assets/screenshots/composer-controls.png)
 

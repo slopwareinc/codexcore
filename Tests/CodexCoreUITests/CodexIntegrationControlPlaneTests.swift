@@ -71,6 +71,12 @@ final class CodexIntegrationControlPlaneTests: XCTestCase {
         let recorder = IntegrationRequestRecorder()
         let provider = MockIntegrationControlPlaneProvider { request in
             await recorder.record(request)
+            if case .configRead = request {
+                return try CodexJSONValue(encoding: CodexSchemaConfigReadResponse(config: .init(), origins: [:]))
+            }
+            if case .pluginInstall = request {
+                return try CodexJSONValue(encoding: CodexSchemaPluginInstallResponse(appsNeedingAuth: [], authPolicy: .oNUSE))
+            }
             return .dictionary([:])
         }
         let actions = CodexIntegrationControlPlanePluginCatalogActionProvider(provider: provider)
@@ -90,8 +96,8 @@ final class CodexIntegrationControlPlaneTests: XCTestCase {
         XCTAssertTrue(install.shouldRefresh)
         XCTAssertTrue(toggle.shouldRefresh)
         let requests = await recorder.requests
-        XCTAssertEqual(requests.map(\.operationID), ["plugin/install", "config/value/write"])
-        XCTAssertEqual(requests.map(\.permissionBoundary), [.pluginMutation, .configurationWrite])
+        XCTAssertEqual(requests.map(\.operationID), ["plugin/install", "config/read", "config/batchWrite"])
+        XCTAssertEqual(requests.map(\.permissionBoundary), [.pluginMutation, nil, .configurationWrite])
     }
 }
 

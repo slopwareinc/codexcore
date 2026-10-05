@@ -103,7 +103,12 @@ extension CodexCoreAppModel {
     }
 
     var workspaceRoots: [String] {
-        projectSourceFoldersByPrimaryPath[
+        if let id = sidebarNavigationSession.selectedProjectID,
+           let project = recentProjects.first(where: { $0.serverID == id }) { return project.sourceFolders }
+        if let project = recentProjects.first(where: { $0.serverID != nil && $0.workspacePath == CodexProjectSummary.normalizedPath(workspacePath) }) {
+            return project.sourceFolders
+        }
+        return projectSourceFoldersByPrimaryPath[
             CodexProjectSummary.normalizedPath(workspacePath)
         ] ?? [CodexProjectSummary.normalizedPath(workspacePath)]
     }
@@ -315,8 +320,10 @@ extension CodexCoreAppModel {
     var modelSelection: CodexModelSelection {
         get { configurationSession.modelSelection }
         set {
+            guard configurationSession.modelSelection != newValue else { return }
             configurationSession.selectModel(newValue)
             rememberManualModelSelection(newValue)
+            submitLiveTurnSettings()
         }
     }
 
@@ -332,12 +339,17 @@ extension CodexCoreAppModel {
                 configurationSession.modelSelection,
                 tierExplicit: true
             )
+            submitLiveTurnSettings()
         }
     }
 
     var reasoningSelection: CodexReasoningSelection {
         get { configurationSession.reasoningSelection }
-        set { configurationSession.reasoningSelection = newValue }
+        set {
+            guard configurationSession.reasoningSelection != newValue else { return }
+            configurationSession.reasoningSelection = newValue
+            submitLiveTurnSettings()
+        }
     }
 
     var slashCommands: [CodexSlashCommand] {
@@ -389,6 +401,7 @@ extension CodexCoreAppModel {
     var canSend: Bool {
         if case .connected = connectionState,
            isAuthenticated,
+           accountFeatures.canUseAuthenticatedRequests,
            (
                !composerSession.trimmedDraft(for: currentThreadID).isEmpty
                    || !referencedFiles.isEmpty
@@ -415,6 +428,7 @@ extension CodexCoreAppModel {
     var canSendSideChatMessage: Bool {
         if case .connected = connectionState,
            isAuthenticated,
+           accountFeatures.canUseAuthenticatedRequests,
            isThreadReady,
            sideChat != nil,
            !composerSession.trimmedSideChatDraft.isEmpty,

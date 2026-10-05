@@ -57,3 +57,11 @@ Keep scroll position, drafts, selection, expansion, and other UI choices in Main
 ## Ordered operation streams
 
 Realtime audio and transcript events are ordered data rather than snapshot invalidations. Each realtime observation buffers up to 2,048 events. If a consumer falls behind that bound, the stream throws and ends; restart the operation instead of continuing with missing deltas. Command output and filesystem change streams likewise report overflow rather than silently losing ordered data.
+
+External-agent imports receive their ID from the server. Register
+`observeExternalAgentConfigImport(importID: nil)` before the import request,
+retain early events, then match the response's import ID. This connection-wide
+stream remains open across completed imports and buffers 256 events. Overflow
+throws `CodexExternalAgentConfigImportObserverError.bufferOverflow`; reconcile
+with import history instead of assuming success. Disconnect seals the original
+epoch. An observer for a known import ID finishes after that import completes.

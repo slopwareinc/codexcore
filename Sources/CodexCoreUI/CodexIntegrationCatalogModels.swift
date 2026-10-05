@@ -13,6 +13,10 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         public var destructiveHint: Bool?
         public var openWorldHint: Bool?
         public var approvalMode: CodexMCPToolApprovalMode?
+        public var uri: String?
+        public var uriTemplate: String?
+        public var mcpAppResourceURI: String?
+        public var mcpAppDisplayMode: CodexMCPAppDescriptor.DisplayMode?
 
         public var id: String { name }
         public var displayName: String { title?.nilIfBlank ?? name }
@@ -27,7 +31,11 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             idempotentHint: Bool? = nil,
             destructiveHint: Bool? = nil,
             openWorldHint: Bool? = nil,
-            approvalMode: CodexMCPToolApprovalMode? = nil
+            approvalMode: CodexMCPToolApprovalMode? = nil,
+            uri: String? = nil,
+            uriTemplate: String? = nil,
+            mcpAppResourceURI: String? = nil,
+            mcpAppDisplayMode: CodexMCPAppDescriptor.DisplayMode? = nil
         ) {
             self.name = name
             self.title = title
@@ -39,6 +47,10 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             self.destructiveHint = destructiveHint
             self.openWorldHint = openWorldHint
             self.approvalMode = approvalMode
+            self.uri = uri
+            self.uriTemplate = uriTemplate
+            self.mcpAppResourceURI = mcpAppResourceURI
+            self.mcpAppDisplayMode = mcpAppDisplayMode
         }
     }
 
@@ -229,6 +241,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         let inputSchema = object["inputSchema"] ?? object["input_schema"]
         let annotations = dictionary(from: object["annotations"])
         let toolConfig = dictionary(from: object["config"])
+        let metadata = dictionary(from: object["_meta"])
+        let ui = dictionary(from: metadata["ui"])
         return Entry(
             name: name,
             title: title,
@@ -240,7 +254,11 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             destructiveHint: bool(in: annotations, keys: ["destructiveHint", "destructive_hint"]),
             openWorldHint: bool(in: annotations, keys: ["openWorldHint", "open_world_hint"]),
             approvalMode: string(in: toolConfig, keys: ["approval_mode", "approvalMode"])
-                .flatMap(CodexMCPToolApprovalMode.init(rawValue:))
+                .flatMap(CodexMCPToolApprovalMode.init(rawValue:)),
+            uri: string(in: object, keys: ["uri"]),
+            uriTemplate: string(in: object, keys: ["uriTemplate"]),
+            mcpAppResourceURI: string(in: ui, keys: ["resourceUri"]) ?? string(in: metadata, keys: ["ui/resourceUri"]),
+            mcpAppDisplayMode: string(in: ui, keys: ["preferredModelDisplayMode"]).flatMap(CodexMCPAppDescriptor.DisplayMode.init(rawValue:))
         )
     }
 
@@ -308,6 +326,8 @@ public struct CodexMCPServerConfiguration: Equatable, Sendable {
     public var disabledTools: [String]
     public var defaultToolsApprovalMode: CodexMCPToolApprovalMode?
     public var toolApprovalModes: [String: CodexMCPToolApprovalMode]
+    // Preserve fields introduced by newer runtimes when an existing server is edited.
+    var preservedFields: [String: CodexJSONValue] = [:]
 
     public init(
         name: String,
@@ -350,7 +370,9 @@ public struct CodexMCPServerConfiguration: Equatable, Sendable {
     }
 
     public var configValue: CodexJSONValue {
-        var object: [String: CodexJSONValue] = ["enabled": .bool(enabled)]
+        var object = preservedFields
+        for key in Self.editableKeys { object.removeValue(forKey: key) }
+        object["enabled"] = .bool(enabled)
         switch transport {
         case .stdio:
             object["command"] = .string(command)
@@ -376,14 +398,32 @@ public struct CodexMCPServerConfiguration: Equatable, Sendable {
         if !disabledTools.isEmpty { object["disabled_tools"] = .array(disabledTools.map(CodexJSONValue.string)) }
         if let defaultToolsApprovalMode {
             object["default_tools_approval_mode"] = .string(defaultToolsApprovalMode.rawValue)
+        } else if case .string(let raw) = preservedFields["default_tools_approval_mode"], CodexMCPToolApprovalMode(rawValue: raw) == nil {
+            object["default_tools_approval_mode"] = .string(raw)
         }
-        if !toolApprovalModes.isEmpty {
-            object["tools"] = .dictionary(toolApprovalModes.mapValues {
-                .dictionary(["approval_mode": .string($0.rawValue)])
-            })
+        var tools = preservedFields["tools"]?.objectValue ?? [:]
+        for (name, value) in tools {
+            guard var fields = value.objectValue else { continue }
+            if case .string(let raw) = fields["approval_mode"], CodexMCPToolApprovalMode(rawValue: raw) != nil {
+                fields.removeValue(forKey: "approval_mode")
+            }
+            tools[name] = fields.isEmpty ? nil : .dictionary(fields)
         }
+        for (name, mode) in toolApprovalModes {
+            var fields = tools[name]?.objectValue ?? [:]
+            fields["approval_mode"] = .string(mode.rawValue)
+            tools[name] = .dictionary(fields)
+        }
+        if !tools.isEmpty { object["tools"] = .dictionary(tools) }
+        else { object.removeValue(forKey: "tools") }
         return .dictionary(object)
     }
+
+    static let editableKeys: Set<String> = [
+        "enabled", "command", "args", "cwd", "env", "env_vars", "url",
+        "bearer_token_env_var", "http_headers", "env_http_headers", "startup_timeout_sec",
+        "tool_timeout_sec", "enabled_tools", "disabled_tools", "default_tools_approval_mode",
+    ]
 }
 
 public struct CodexHookSummary: Identifiable, Equatable, Sendable {
@@ -659,6 +699,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
     public var capabilities: [String]
     public var keywords: [String]
     public var isFeatured: Bool
+    public var remotePluginID: String? = nil
+    public var shareContext: CodexSchemaPluginShareContext? = nil
+    public var requiresInstallationConfirmation: Bool = false
 
     public init(
         id: String,
@@ -785,6 +828,9 @@ public struct CodexPluginSummary: Identifiable, Equatable, Sendable {
             capabilities: Self.stringArray(from: interface["capabilities"]),
             keywords: Self.stringArray(from: object["keywords"])
         )
+        remotePluginID = Self.string(in: object, keys: ["remotePluginId"])
+        shareContext = object["shareContext"].flatMap { try? $0.decode(CodexSchemaPluginShareContext.self) }
+        requiresInstallationConfirmation = Self.bool(from: object["mustShowInstallationInterstitial"]) ?? false
     }
 
     public static func plugins(from response: CodexJSONValue) -> [CodexPluginSummary] {
@@ -1576,17 +1622,20 @@ public struct CodexPluginActionOutcome: Equatable, Sendable {
     public var didSucceed: Bool
     public var shouldRefresh: Bool
     public var draftPrompt: String?
+    public var appsNeedingAuthentication: [CodexSchemaAppSummary]
 
     public init(
         activity: CodexIntegrationCatalogActivity,
         didSucceed: Bool = true,
         shouldRefresh: Bool = false,
-        draftPrompt: String? = nil
+        draftPrompt: String? = nil,
+        appsNeedingAuthentication: [CodexSchemaAppSummary] = []
     ) {
         self.activity = activity
         self.didSucceed = didSucceed
         self.shouldRefresh = shouldRefresh
         self.draftPrompt = draftPrompt
+        self.appsNeedingAuthentication = appsNeedingAuthentication
     }
 }
 
@@ -1775,8 +1824,9 @@ public struct CodexAppServerPluginCatalogActionProvider: CodexPluginCatalogActio
 
     public func installPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
         do {
-            _ = try await codex.pluginInstall(CodexPluginProtocolMutation.installParams(for: target))
-            return success("Added \(target.displayName)", detail: target.name)
+            let response = try await codex.pluginInstall(CodexPluginProtocolMutation.installParams(for: target))
+            return .init(activity: .init(title: "Added \(target.displayName)", detail: target.name),
+                         shouldRefresh: true, appsNeedingAuthentication: response.appsNeedingAuth)
         } catch {
             return failure("Couldn’t add \(target.displayName)", error: error)
         }

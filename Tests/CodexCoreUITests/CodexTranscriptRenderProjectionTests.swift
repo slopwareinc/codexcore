@@ -6,6 +6,25 @@ import Testing
 
 @MainActor
 struct CodexTranscriptRenderProjectionTests {
+    @Test func persistedMCPAppsRemainVisibleWithCollapsedDiagnostics() async throws {
+        let descriptor = CodexMCPAppDescriptor(threadID: "thread", originCallID: "call", server: "server", tool: "show", appName: "Example",
+                                               resourceURI: "ui://example/widget", preferredDisplayMode: .fullscreen, revision: 2)
+        let row = CodexMCPToolCallRowV2(id: "call", appName: "Example", server: "server", tool: "show", status: .completed,
+                                      appDescriptor: descriptor)
+        let turn = CodexTurnV2(id: "turn", narrative: [.workGroup(.init(id: "group", rows: [.mcpToolCall(row)]))], status: .done(durationMs: nil))
+        let projector = CodexTranscriptRenderProjector()
+        var presentation = CodexThreadUIPresentation(threadID: "thread", transcript: .init(turns: [turn]))
+        let collapsed = try await projector.project(presentation: presentation, availableWidth: 860, theme: .init(.officialDark, colorScheme: .dark))
+        let card = try #require(collapsed.itemsByID.values.first { $0.mcpApp != nil })
+        #expect(card.mcpApp == descriptor)
+        #expect(card.action == .openMCPApp(descriptor))
+        #expect(card.measuredHeight == 48 + CodexTranscriptColumnMetrics.interactiveBottomSpacing)
+        presentation.expandedWorkTurnIDs = ["turn"]
+        presentation.expandedRowIDs = ["group"]
+        let expanded = try await projector.project(presentation: presentation, availableWidth: 860, theme: .init(.officialDark, colorScheme: .dark))
+        #expect(expanded.itemsByID.values.filter { $0.mcpApp != nil }.count == 1)
+    }
+
     @Test func fableTranscriptGeometryUsesReferenceSpacing() async throws {
         #expect(CodexTranscriptColumnMetrics.horizontalMargin == 24)
         #expect(CodexTranscriptColumnMetrics.turnGap == 16)

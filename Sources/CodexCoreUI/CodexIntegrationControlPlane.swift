@@ -10,6 +10,8 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
     case mcpStatusList(CodexSchemaListMCPServerStatusParams)
     case mcpResourceRead(CodexSchemaMCPResourceReadParams)
     case mcpToolCall(CodexSchemaMCPServerToolCallParams)
+    case mcpEventStreamStart(CodexSchemaMCPServerEventStreamStartParams)
+    case mcpEventStreamStop(CodexSchemaMCPServerEventStreamStopParams)
     case mcpReload
     case configRead(CodexSchemaConfigReadParams)
     case configValueWrite(CodexSchemaConfigValueWriteParams)
@@ -21,6 +23,8 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
     case marketplaceRemove(CodexSchemaMarketplaceRemoveParams)
     case marketplaceUpgrade(CodexSchemaMarketplaceUpgradeParams)
     case pluginList(CodexSchemaPluginListParams)
+    case pluginSearch(CodexSchemaPluginSearchParams)
+    case pluginReconcile(CodexSchemaPluginReconcileParams)
     case pluginInstalled(CodexSchemaPluginInstalledParams)
     case pluginRead(CodexSchemaPluginReadParams)
     case pluginSkillRead(CodexSchemaPluginSkillReadParams)
@@ -35,22 +39,23 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
     case skillsConfigWrite(CodexSchemaSkillsConfigWriteParams)
     case skillsExtraRootsSet(CodexSchemaSkillsExtraRootsSetParams)
     case fsRemove(CodexSchemaFSRemoveParams)
+    case fsReadFile(CodexSchemaFSReadFileParams)
     case hooksList(CodexSchemaHooksListParams)
 
     public var surface: CodexIntegrationControlPlaneSurface {
         switch self {
-        case .mcpOAuthLogin, .mcpStatusList, .mcpResourceRead, .mcpToolCall, .mcpReload:
+        case .mcpOAuthLogin, .mcpStatusList, .mcpResourceRead, .mcpToolCall, .mcpEventStreamStart, .mcpEventStreamStop, .mcpReload:
             .mcp
         case .configRead, .configValueWrite, .configBatchWrite:
             .configuration
         case .appList, .appRead, .appInstalled:
             .apps
         case .marketplaceAdd, .marketplaceRemove, .marketplaceUpgrade,
-             .pluginList, .pluginInstalled, .pluginRead, .pluginSkillRead,
+             .pluginList, .pluginSearch, .pluginReconcile, .pluginInstalled, .pluginRead, .pluginSkillRead,
              .pluginShareSave, .pluginShareUpdateTargets, .pluginShareList,
              .pluginShareCheckout, .pluginShareDelete, .pluginInstall, .pluginUninstall:
             .plugins
-        case .skillsList, .skillsConfigWrite, .skillsExtraRootsSet, .fsRemove:
+        case .skillsList, .skillsConfigWrite, .skillsExtraRootsSet, .fsRemove, .fsReadFile:
             .skills
         case .hooksList:
             .hooks
@@ -63,6 +68,8 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
         case .mcpStatusList: "mcpServerStatus/list"
         case .mcpResourceRead: "mcpServer/resource/read"
         case .mcpToolCall: "mcpServer/tool/call"
+        case .mcpEventStreamStart: "mcpServer/event/stream/start"
+        case .mcpEventStreamStop: "mcpServer/event/stream/stop"
         case .mcpReload: "config/mcpServer/reload"
         case .configRead: "config/read"
         case .configValueWrite: "config/value/write"
@@ -74,6 +81,8 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
         case .marketplaceRemove: "marketplace/remove"
         case .marketplaceUpgrade: "marketplace/upgrade"
         case .pluginList: "plugin/list"
+        case .pluginSearch: "plugin/search"
+        case .pluginReconcile: "plugin/reconcile"
         case .pluginInstalled: "plugin/installed"
         case .pluginRead: "plugin/read"
         case .pluginSkillRead: "plugin/skill/read"
@@ -88,6 +97,7 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
         case .skillsConfigWrite: "skills/config/write"
         case .skillsExtraRootsSet: "skills/extraRoots/set"
         case .fsRemove: "fs/remove"
+        case .fsReadFile: "fs/readFile"
         case .hooksList: "hooks/list"
         }
     }
@@ -98,10 +108,10 @@ public enum CodexIntegrationControlPlaneRequest: Equatable, Sendable {
         switch self {
         case .mcpOAuthLogin: .externalAuthentication
         case .mcpResourceRead: .externalResourceRead
-        case .mcpToolCall: .externalToolExecution
+        case .mcpToolCall, .mcpEventStreamStart: .externalToolExecution
         case .configValueWrite, .configBatchWrite, .mcpReload: .configurationWrite
         case .marketplaceAdd, .marketplaceRemove, .marketplaceUpgrade,
-             .pluginInstall, .pluginUninstall, .pluginShareSave,
+             .pluginInstall, .pluginUninstall, .pluginReconcile, .pluginShareSave,
              .pluginShareUpdateTargets, .pluginShareCheckout, .pluginShareDelete:
             .pluginMutation
         case .skillsConfigWrite, .skillsExtraRootsSet, .fsRemove: .skillConfigurationWrite
@@ -145,9 +155,13 @@ public protocol CodexIntegrationControlPlaneProvider: Sendable {
     func observeMCPServerStartupStatus(
         threadID: String?
     ) async throws -> AsyncStream<CodexSchemaMCPServerStatusUpdatedNotification>
+    func observeMCPServerEvents() async throws -> AsyncThrowingStream<CodexSchemaMCPServerEventStreamNotification, Error>
 }
 
 public extension CodexIntegrationControlPlaneProvider {
+    func observeMCPServerEvents() async throws -> AsyncThrowingStream<CodexSchemaMCPServerEventStreamNotification, Error> {
+        throw CodexIntegrationControlPlaneError("MCP event observation is unavailable.")
+    }
     func observeMCPServerOAuthLogin(
         name: String,
         threadID: String?
@@ -175,6 +189,8 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         case .mcpStatusList(let params): try await encode(codex.mcpServerStatusList(params))
         case .mcpResourceRead(let params): try await encode(codex.mcpServerResourceRead(params))
         case .mcpToolCall(let params): try await encode(codex.mcpServerToolCall(params))
+        case .mcpEventStreamStart(let params): try await codex.mcpServerEventStreamStart(params)
+        case .mcpEventStreamStop(let params): try await codex.mcpServerEventStreamStop(params)
         case .mcpReload: try await codex.configMCPServerReload()
         case .configRead(let params): try await encode(codex.configRead(params))
         case .configValueWrite(let params): try await codex.configValueWrite(params)
@@ -186,6 +202,8 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         case .marketplaceRemove(let params): try await encode(codex.marketplaceRemove(params))
         case .marketplaceUpgrade(let params): try await encode(codex.marketplaceUpgrade(params))
         case .pluginList(let params): try await encode(codex.pluginList(params))
+        case .pluginSearch(let params): try await encode(codex.pluginSearch(params))
+        case .pluginReconcile(let params): try await encode(codex.perform(CodexRequest.pluginReconcile(params)))
         case .pluginInstalled(let params): try await encode(codex.pluginInstalled(params))
         case .pluginRead(let params): try await encode(codex.pluginRead(params))
         case .pluginSkillRead(let params): try await encode(codex.pluginSkillRead(params))
@@ -200,6 +218,7 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         case .skillsConfigWrite(let params): try await encode(codex.skillsConfigWrite(params))
         case .skillsExtraRootsSet(let params): try await codex.skillsExtraRootsSet(params)
         case .fsRemove(let params): try await encode(codex.remove(params))
+        case .fsReadFile(let params): try await encode(codex.readFile(params))
         case .hooksList(let params): try await encode(codex.hooksList(params))
         }
     }
@@ -209,6 +228,10 @@ public struct CodexAppServerIntegrationControlPlaneProvider: CodexIntegrationCon
         threadID: String?
     ) async throws -> AsyncThrowingStream<CodexSchemaMCPServerOAuthLoginCompletedNotification, Error> {
         try await codex.observeMCPServerOAuthLogin(name: name, threadID: threadID)
+    }
+
+    public func observeMCPServerEvents() async throws -> AsyncThrowingStream<CodexSchemaMCPServerEventStreamNotification, Error> {
+        try await codex.observeMCPServerEventStreamNotifications()
     }
 
     public func observeMCPServerStartupStatus(
@@ -457,14 +480,12 @@ public struct CodexIntegrationControlPlanePluginCatalogActionProvider: CodexPlug
     }
 
     public func installPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
-        await mutation(
-            .pluginInstall(.init(
-                marketplacePath: target.marketplacePath.map(Self.path),
-                pluginName: target.name,
-                remoteMarketplaceName: target.marketplacePath == nil ? target.marketplaceName : nil
-            )),
-            successTitle: "Installed \(target.displayName)"
-        )
+        do {
+            let raw = try await provider.perform(.pluginInstall(CodexPluginProtocolMutation.installParams(for: target)))
+            let response = try raw.decode(CodexSchemaPluginInstallResponse.self)
+            return .init(activity: .init(title: "Installed \(target.displayName)", detail: "App-server request completed"),
+                         shouldRefresh: true, appsNeedingAuthentication: response.appsNeedingAuth)
+        } catch { return .init(activity: .init(title: "Plugin action failed", detail: error.localizedDescription), didSucceed: false) }
     }
 
     public func uninstallPlugin(_ target: CodexPluginActionTarget) async -> CodexPluginActionOutcome {
@@ -472,19 +493,17 @@ public struct CodexIntegrationControlPlanePluginCatalogActionProvider: CodexPlug
     }
 
     public func setPluginEnabled(_ target: CodexPluginActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
-        await mutation(
-            .configValueWrite(.init(
-                keyPath: "plugins.\(target.name).enabled",
-                mergeStrategy: .replace,
-                value: .bool(enabled)
-            )),
-            successTitle: "Updated \(target.displayName)"
-        )
+        do {
+            let config = try await provider.perform(.configRead(.init(includeLayers: true))).decode(CodexSchemaConfigReadResponse.self)
+            return await mutation(.configBatchWrite(CodexPluginProtocolMutation.pluginEnabledParams(
+                for: target, enabled: enabled, configTarget: CodexPluginProtocolMutation.userConfigTarget(from: config)
+            )), successTitle: "Updated \(target.displayName)")
+        } catch { return .init(activity: .init(title: "Plugin action failed", detail: error.localizedDescription), didSucceed: false) }
     }
 
     public func setSkillEnabled(_ target: CodexSkillActionTarget, enabled: Bool) async -> CodexPluginActionOutcome {
         await mutation(
-            .skillsConfigWrite(.init(enabled: enabled, name: target.name, path: Self.path(target.path))),
+            .skillsConfigWrite(CodexPluginProtocolMutation.skillEnabledParams(for: target, enabled: enabled)),
             successTitle: "Updated \(target.displayName)"
         )
     }
@@ -519,7 +538,7 @@ public struct CodexIntegrationControlPlanePluginCatalogActionProvider: CodexPlug
             return .init(activity: .init(
                 title: "Plugin action failed",
                 detail: error.localizedDescription
-            ))
+            ), didSucceed: false)
         }
     }
 

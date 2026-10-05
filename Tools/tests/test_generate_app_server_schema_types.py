@@ -118,6 +118,20 @@ class StringEnumPolicyTests(unittest.TestCase):
 
 
 class TristateFieldTests(unittest.TestCase):
+    def test_required_nullable_keys_encode_null_and_decode_older_responses(self) -> None:
+        output, _ = emit_struct(
+            "CodexSchemaMCPResourceReadTarget",
+            {"type": "object", "required": ["connectorId", "linkId"], "properties": {
+                "connectorId": {"type": "string"},
+                "linkId": {"type": ["string", "null"]},
+                "cursor": {"type": "string"},
+            }},
+            {},
+        )
+        self.assertIn("try container.encode(linkID, forKey: .linkID)", output)
+        self.assertIn("try container.decodeIfPresent(String.self, forKey: .linkID)", output)
+        self.assertIn("try container.encodeIfPresent(cursor, forKey: .cursor)", output)
+
     def test_section_appearance_preserves_omitted_null_and_value(self) -> None:
         output, _ = emit_struct(
             "CodexSchemaThreadSectionUpdateParams",

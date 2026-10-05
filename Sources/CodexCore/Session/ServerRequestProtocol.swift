@@ -137,11 +137,18 @@ public enum CodexServerRequestBody: Sendable, Equatable {
             }
             return .userInput(answers)
 
-        case .mcpElicitation:
+        case .mcpElicitation(let request):
             let object = try ServerRequestJSON.object(result, context: method)
             let rawAction = try ServerRequestJSON.string(object, "action", context: method)
             guard let action = CodexMCPElicitationAction(rawValue: rawAction) else {
                 throw CodexServerRequestValidationError.invalidField(method: method, field: "action")
+            }
+            if case .userVerification = request.mode, action == .accept {
+                guard let content = object["content"],
+                      let proof = try? content.decode(CodexSchemaUserVerificationProof.self),
+                      !proof.credentialID.isEmpty, !proof.signature.isEmpty else {
+                    throw CodexServerRequestValidationError.invalidField(method: method, field: "content")
+                }
             }
             return .mcpElicitation(
                 action: action,
@@ -253,6 +260,7 @@ public enum CodexMCPElicitationMode: Sendable, Equatable {
     case form(requestedSchema: CodexJSONValue)
     case openAIForm(requestedSchema: CodexJSONValue)
     case url(elicitationID: String, url: String)
+    case userVerification(CodexSchemaUserVerificationVerifyParams)
 
     /// Unknown upstream modes are represented as an inert URL-shaped mode so
     /// existing presentation code can decline them without attempting to
@@ -563,11 +571,17 @@ public enum CodexServerRequestParser {
                     "requestedSchema",
                     context: method
                 ))
-            case "openai/form":
+            case "openai/form", "openaiForm":
                 mode = .openAIForm(requestedSchema: try ServerRequestJSON.required(
                     params,
                     "requestedSchema",
                     context: method
+                ))
+            case "openai/userVerification":
+                mode = .userVerification(.init(
+                    challenge: try ServerRequestJSON.string(params, "challenge", context: method),
+                    description: try ServerRequestJSON.string(params, "description", context: method),
+                    title: try ServerRequestJSON.string(params, "title", context: method)
                 ))
             case "url":
                 mode = .url(
@@ -580,7 +594,9 @@ public enum CodexServerRequestParser {
             body = .mcpElicitation(.init(
                 scope: .init(threadID: threadID, turnID: turnID),
                 serverName: try ServerRequestJSON.string(params, "serverName", context: method),
-                message: try ServerRequestJSON.string(params, "message", context: method),
+                message: modeName == "openai/userVerification"
+                    ? try ServerRequestJSON.string(params, "description", context: method)
+                    : try ServerRequestJSON.string(params, "message", context: method),
                 mode: mode,
                 metadata: ServerRequestJSON.optionalValue(params["_meta"])
             ))
@@ -711,7 +727,7 @@ public enum CodexServerRequestParser {
             ["autoResolutionMs", "itemId", "questions", "threadId", "turnId"]
         case .mcpElicitation:
             [
-                "_meta", "elicitationId", "message", "mode", "requestedSchema", "serverName",
+                "_meta", "challenge", "description", "title", "elicitationId", "message", "mode", "requestedSchema", "serverName",
                 "threadId", "turnId", "url"
             ]
         case .permissionsApproval:

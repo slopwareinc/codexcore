@@ -18,8 +18,8 @@ not call `Codex.perform` or construct JSON-RPC methods directly.
   uninstall, plugin-enable, skill-enable, and personal-skill removal controls
   directly to `Codex`. `CodexIntegrationControlPlanePluginCatalogActionProvider`
   exposes the same catalog action seam through a host-supplied control-plane
-  provider. The richer plugin UI can use the general app-model entry point for
-  marketplace and sharing flows.
+  provider. Both adapters report failed mutations as failures and retain
+  installation responses' `appsNeedingAuth` for the host's connection UI.
 
 Catalog refresh also hydrates `app/list`, `app/installed`, `plugin/installed`,
 `hooks/list`, and layered `config/read` state. The existing plugin, skill, and
@@ -32,6 +32,17 @@ owners.
 skill-read, MCP mutation, and MCP authentication controls. Omitting it leaves
 mutation controls disabled while previews and disconnected gallery fixtures
 remain usable.
+
+The Plugins route receives the selected thread ID, workspace directories, and
+apps requiring authentication from its host. Search uses cancellable, paginated
+`plugin/search`; the route's menu exposes installed-plugin reconciliation,
+shared-plugin management, and session skill roots. The shared-plugin sheet lists,
+publishes, changes recipients, checks out, and deletes remote plugins with
+explicit mutation confirmation. Skill detail reads local bodies through
+`fs/readFile` and remote bodies through `plugin/skill/read`. App detail uses
+`app/read` with tool metadata and version-guarded configuration writes for tool
+availability and approval policy. Installation surfaces the returned connection
+links when authentication is required.
 
 ## Permission and loading boundaries
 
@@ -51,7 +62,7 @@ later refresh failed.
 
 Hooks configuration and other control-plane settings use generated
 `config/read`, `config/value/write`, and `config/batchWrite` parameters. Plugin
-enabled state is written at `plugins.<plugin-name>.enabled`; skill enabled state
+enabled state is written using the plugin's exact protocol ID; skill enabled state
 uses `skills/config/write`, while removal of a personal skill uses `fs/remove`
 behind the skill-configuration permission boundary. MCP configuration changes
 should be followed by `config/mcpServer/reload` only after the write succeeds.
@@ -89,6 +100,44 @@ The generated `CodexSchemaConfig` currently omits `mcp_servers`, even though the
 runtime accepts these keys. Therefore the host must retain the
 `CodexMCPServerConfiguration` values it supplies to the sheet (including values
 written during the current session); generated files are not patched locally.
+Before editing, the sheet hydrates active configuration layers from `config/read`
+and preserves unknown server and per-tool fields. It refuses an unavailable full
+configuration instead of replacing it with a summary-derived stub. Writes retain
+the config file and version guard and reload MCP only after a successful write.
+
+The MCP inspector reads resource URIs, executes tools, and streams events using
+the selected thread and server. Hosted resource targets retain connector/account
+scope, including explicit `linkId: null` for authorized no-auth targets. Event
+observation starts before the stream RPC; cancellation and completion stop the
+subscription even when stream startup has an ambiguous outcome.
+
+## MCP app rendering
+
+Canonical MCP rows retain the persisted `mcpAppUi` descriptor, fallback resource
+URI, tool input/result, and original thread/call/account scope. Add
+`.codexMCPAppHost(provider:onOpenFullscreen:onSendMessage:onUpdateModelContext:)`
+to the transcript's host. Inline descriptors render in the transcript even when
+diagnostics are collapsed; fullscreen descriptors expose an open action. Present
+`CodexMCPAppView(descriptor:provider:displayMode: .fullscreen, ...)` in the host's
+sheet. Message and context callbacks include the descriptor so the host can
+target its exact thread and reject stale account sessions.
+
+The MCP Apps 2026-01-26 bridge uses a nonpersistent WebKit view containing an
+opaque-origin sandboxed iframe. It accepts a matching `ui://` resource with
+`text/html;profile=mcp-app` content, limits HTML to 2 MiB, and constructs a
+restrictive CSP from validated explicit HTTPS/WSS origins. The native handler
+accepts only the trusted wrapper frame; remote HTML cannot directly call it.
+Handshake completion precedes tool input/result delivery. Tool calls validate
+app visibility on the original server, and tool/resource/link/message operations
+require user confirmation. Requests cannot replace the original server, thread,
+connector, account, or originating call. Closing a view cancels pending work and
+resolves pending confirmations; unchanged cells retain their mounted host.
+
+`ui/update-model-context` accepts standard content blocks and structured content
+up to 16 KiB. Each update replaces that widget's prior context; the reference
+host stores it per exact thread and includes it as explicitly untrusted app
+context on a later user turn. Capability negotiation advertises implemented
+operations only; unsupported bridge requests return a JSON-RPC method error.
 
 ## Marketplace, skill, and hook projections
 
@@ -97,8 +146,7 @@ Marketplace management calls `marketplace/add`, `marketplace/remove`, and
 separate so the UI can label known updates while still allowing an explicit
 update check when version metadata is absent.
 
-Skill detail registers a `plugin/skill/read` request on presentation and renders
-the returned body. `allowed-tools` and `disable-model-invocation` are security
+Skill detail reads its body on presentation. `allowed-tools` and `disable-model-invocation` are security
 metadata, not decoration: they are shown alongside the body, and skill icons use
 the schema-provided small/large URLs. Personal-skill removal stays behind an
 explicit destructive confirmation.

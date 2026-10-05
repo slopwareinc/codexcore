@@ -8,6 +8,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var workspacePath: String?
     public var status: String?
     public var modelProvider: String?
+    public var projectID: String?
     public var threadSource: String?
     public var parentThreadID: String?
     public var isEphemeral: Bool
@@ -27,6 +28,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         workspacePath: String? = nil,
         status: String? = nil,
         modelProvider: String? = nil,
+        projectID: String? = nil,
         threadSource: String? = nil,
         parentThreadID: String? = nil,
         isEphemeral: Bool = false,
@@ -45,6 +47,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.workspacePath = workspacePath
         self.status = status
         self.modelProvider = modelProvider
+        self.projectID = projectID
         self.threadSource = threadSource
         self.parentThreadID = parentThreadID
         self.isEphemeral = isEphemeral
@@ -88,6 +91,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             workspacePath: cwd,
             status: status,
             modelProvider: schema.modelProvider,
+            projectID: schema.projectID,
             threadSource: threadSource,
             parentThreadID: schema.parentThreadID,
             isEphemeral: schema.ephemeral,
@@ -119,6 +123,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             workspacePath: Self.string(in: object, keys: ["cwd"]),
             status: Self.status(from: object["status"]),
             modelProvider: Self.string(in: object, keys: ["modelProvider"]),
+            projectID: Self.string(in: object, keys: ["projectId"]),
             threadSource: Self.string(in: object, keys: ["threadSource"]),
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
             isEphemeral: CodexJSONCoercion.bool(in: object, key: "ephemeral") ?? false,
@@ -226,7 +231,13 @@ public struct CodexProjectSummary: Identifiable, Equatable, Sendable {
     public var serverName: String?
     public var serverPosition: Int?
 
-    public var id: String { workspacePath }
+    /// Durable server identity when available; folder paths remain navigation facts.
+    public var id: String { serverID ?? workspacePath }
+
+    public static func normalizedIdentity(_ value: String) -> String {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.hasPrefix("/") ? normalizedPath(value) : value
+    }
 
     public init(
         workspacePath: String,

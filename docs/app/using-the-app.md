@@ -12,7 +12,11 @@ The reference app is a native Codex host and living integration example. The [su
 - **Automations:** create, schedule, pause, edit, run, and delete recurring Codex chats.
 - **Settings:** appearance, history, sidebar, integrations, and application information.
 
-Settings → About reads the 0.148 app-server process snapshot on demand. It
+Settings → Runtime features exposes the current account, chat, workspace,
+process, import, remote-control, environment, and feedback workflows. See the
+[runtime feature guide](runtime-features.md) for controls and lifecycle.
+
+Settings → About reads the app-server process snapshot on demand. It
 shows PID, resident memory, macOS physical footprint, and registered diagnostic
 gauges. Opening other routes performs no diagnostics work, and About never
 polls in the background; use **Refresh** for another point-in-time sample.
@@ -80,17 +84,16 @@ installed app with reported runtime enablement and writes only
 the account-owned app.
 
 Skills are shown as `(working directory, path)` occurrences with their reported
-scope, enabled state, dependencies, and list errors. Codex currently has no
-generated skill-uninstall operation, so CodexCore does not substitute recursive
-filesystem deletion; removal remains with the skill's owning package or filesystem
-workflow.
+scope, enabled state, dependencies, and list errors. Skill detail reads its body
+and metadata; supported removal uses the runtime's `skills/remove` operation.
+Extra roots are configured separately from the skill's owning package.
 
 MCP runtime health is shown separately from configuration ownership. Adding a new
 server supports the current config schema, including stdio environment pass-through,
 working directories, environment-backed HTTP headers, tool allow/deny lists, and
-timeouts. Existing runtime status rows stay configuration-read-only until complete
-config origin/version metadata is available, preventing a status-only row from
-overwriting fields it never loaded.
+timeouts. Editing reads complete config and its origin/version metadata,
+preserves unknown fields, and uses versioned writes. Plugin-owned servers remain
+managed by their owning plugin.
 
 ## Automations
 
