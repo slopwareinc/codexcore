@@ -5573,6 +5573,18 @@ public struct CodexSchemaMCPResourceReadTarget: Codable, Sendable, Equatable {
         self.connectorID = connectorID
         self.linkID = linkID
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.connectorID = try container.decode(String.self, forKey: .connectorID)
+        self.linkID = try container.decode(String?.self, forKey: .linkID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(connectorID, forKey: .connectorID)
+        try container.encode(linkID, forKey: .linkID)
+    }
 }
 public enum CodexSchemaMCPServerConnectionStatus: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case notStarted
@@ -9962,6 +9974,78 @@ public struct CodexSchemaThread: Codable, Sendable, Equatable {
         self.turns = turns
         self.updatedAt = updatedAt
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.agentNickname = try container.decodeIfPresent(String.self, forKey: .agentNickname)
+        self.agentRole = try container.decodeIfPresent(String.self, forKey: .agentRole)
+        self.canAcceptDirectInput = try container.decodeIfPresent(Bool.self, forKey: .canAcceptDirectInput)
+        self.cliVersion = try container.decode(String.self, forKey: .cliVersion)
+        self.createdAt = try container.decode(Int.self, forKey: .createdAt)
+        self.cwd = try container.decode(CodexSchemaAbsolutePathBuf.self, forKey: .cwd)
+        self.daybreakEnabled = try container.decodeIfPresent(Bool.self, forKey: .daybreakEnabled)
+        self.environments = try container.decodeIfPresent([CodexSchemaThreadEnvironment].self, forKey: .environments)
+        self.ephemeral = try container.decode(Bool.self, forKey: .ephemeral)
+        self.extra = try container.decodeIfPresent(CodexSchemaThreadExtra.self, forKey: .extra)
+        self.forkedFromID = try container.decodeIfPresent(String.self, forKey: .forkedFromID)
+        self.gitInfo = try container.decodeIfPresent(CodexSchemaGitInfo.self, forKey: .gitInfo)
+        self.historyMode = try container.decodeIfPresent(CodexSchemaThreadHistoryMode.self, forKey: .historyMode)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        self.modelProvider = try container.decode(String.self, forKey: .modelProvider)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.originator = try container.decodeIfPresent(String.self, forKey: .originator)
+        self.parentThreadID = try container.decodeIfPresent(String.self, forKey: .parentThreadID)
+        self.path = try container.decodeIfPresent(String.self, forKey: .path)
+        self.preview = try container.decode(String.self, forKey: .preview)
+        self.projectID = try container.decode(String?.self, forKey: .projectID)
+        self.reasoningEffort = try container.decodeIfPresent(CodexSchemaReasoningEffort.self, forKey: .reasoningEffort)
+        self.recencyAt = try container.decodeIfPresent(Int.self, forKey: .recencyAt)
+        self.section = try container.decodeIfPresent(CodexSchemaThreadSection.self, forKey: .section)
+        self.sectionEnteredAt = try container.decodeIfPresent(Int.self, forKey: .sectionEnteredAt)
+        self.sessionID = try container.decode(String.self, forKey: .sessionID)
+        self.source = try container.decode(CodexSchemaSessionSource.self, forKey: .source)
+        self.status = try container.decode(CodexSchemaThreadStatus.self, forKey: .status)
+        self.threadSource = try container.decodeIfPresent(CodexSchemaThreadSource.self, forKey: .threadSource)
+        self.turns = try container.decode([CodexSchemaTurn].self, forKey: .turns)
+        self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(agentNickname, forKey: .agentNickname)
+        try container.encodeIfPresent(agentRole, forKey: .agentRole)
+        try container.encodeIfPresent(canAcceptDirectInput, forKey: .canAcceptDirectInput)
+        try container.encode(cliVersion, forKey: .cliVersion)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(cwd, forKey: .cwd)
+        try container.encodeIfPresent(daybreakEnabled, forKey: .daybreakEnabled)
+        try container.encodeIfPresent(environments, forKey: .environments)
+        try container.encode(ephemeral, forKey: .ephemeral)
+        try container.encodeIfPresent(extra, forKey: .extra)
+        try container.encodeIfPresent(forkedFromID, forKey: .forkedFromID)
+        try container.encodeIfPresent(gitInfo, forKey: .gitInfo)
+        try container.encodeIfPresent(historyMode, forKey: .historyMode)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encode(modelProvider, forKey: .modelProvider)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(originator, forKey: .originator)
+        try container.encodeIfPresent(parentThreadID, forKey: .parentThreadID)
+        try container.encodeIfPresent(path, forKey: .path)
+        try container.encode(preview, forKey: .preview)
+        try container.encode(projectID, forKey: .projectID)
+        try container.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
+        try container.encodeIfPresent(recencyAt, forKey: .recencyAt)
+        try container.encodeIfPresent(section, forKey: .section)
+        try container.encodeIfPresent(sectionEnteredAt, forKey: .sectionEnteredAt)
+        try container.encode(sessionID, forKey: .sessionID)
+        try container.encode(source, forKey: .source)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(threadSource, forKey: .threadSource)
+        try container.encode(turns, forKey: .turns)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
 }
 public enum CodexSchemaThreadActiveFlag: Codable, Sendable, Equatable, Hashable, CaseIterable, RawRepresentable {
     case waitingOnApproval
@@ -12216,6 +12300,18 @@ public struct CodexSchemaThreadProjectUpdatedNotification: Codable, Sendable, Eq
         self.projectID = projectID
         self.threadID = threadID
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.projectID = try container.decode(String?.self, forKey: .projectID)
+        self.threadID = try container.decode(String.self, forKey: .threadID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(projectID, forKey: .projectID)
+        try container.encode(threadID, forKey: .threadID)
+    }
 }
 public struct CodexSchemaThreadQueueAddParams: Codable, Sendable, Equatable {
     public var clientUserMessageID: String
@@ -13182,6 +13278,20 @@ public struct CodexSchemaThreadSectionMoveParams: Codable, Sendable, Equatable {
         self.beforeThreadID = beforeThreadID
         self.sectionID = sectionID
         self.threadID = threadID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.beforeThreadID = try container.decodeIfPresent(String.self, forKey: .beforeThreadID)
+        self.sectionID = try container.decode(String?.self, forKey: .sectionID)
+        self.threadID = try container.decode(String.self, forKey: .threadID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(beforeThreadID, forKey: .beforeThreadID)
+        try container.encode(sectionID, forKey: .sectionID)
+        try container.encode(threadID, forKey: .threadID)
     }
 }
 public typealias CodexSchemaThreadSectionMoveResponse = CodexAppServerSchemaValue

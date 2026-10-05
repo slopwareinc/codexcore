@@ -499,7 +499,11 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
         lines.append(f"    public var {prop_name}: {swift_type}")
 
     has_tristate = any(tristate for _, _, _, _, tristate in fields)
-    needs_keys = has_tristate or any(prop.strip("`") != key for prop, key, _, _, _ in fields)
+    # Synthesized Codable omits nil optionals, even when the schema requires
+    # the key. Required nullable fields must encode null and reject absence.
+    has_required_nullable = any(not optional and swift_type.endswith("?") for _, _, swift_type, optional, _ in fields)
+    needs_custom_coding = has_tristate or has_required_nullable
+    needs_keys = needs_custom_coding or any(prop.strip("`") != key for prop, key, _, _, _ in fields)
     if needs_keys:
         lines.append("")
         lines.append("    enum CodingKeys: String, CodingKey {")
@@ -524,7 +528,7 @@ def emit_struct(type_name: str, schema: dict, type_names: dict[str, str]) -> tup
         lines.append("    }")
     else:
         lines.append("    public init() {}")
-    if has_tristate:
+    if needs_custom_coding:
         lines.append("")
         lines.append("    public init(from decoder: Decoder) throws {")
         lines.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")

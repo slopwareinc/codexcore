@@ -34,6 +34,11 @@ does not serve.
 
 Generated output must be reproducible. A clean drift check is required before merge.
 
+Required nullable schema properties use custom `Codable` implementations: nil
+encodes as an explicit JSON null, and decoding rejects an absent required key.
+Optional properties continue to omit nil. This distinction matters for MCP
+resource targets, where `linkId: null` selects a connector without authentication.
+
 Regeneration stages every output before replacing committed bindings and the
 runtime pin. A generator failure must leave the previous outputs intact. Drift
 checks reject an override whose version differs from `Tools/UPSTREAM_VERSION`;
