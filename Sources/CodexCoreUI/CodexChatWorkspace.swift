@@ -552,19 +552,19 @@ public struct CodexChatWorkspaceView: View {
                 )
 
                 Spacer(minLength: 0)
-                if let bottomAccessory {
-                    bottomAccessory
-                        .offset(x: -contentShift)
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: CodexComposerOverlayHeightKey.self,
-                                    value: proxy.size.height
-                                )
-                            }
-                        }
-                } else if showsComposer {
-                    VStack(spacing: 0) {
+                // The accessory (runtime notices, the voice panel) sits *above*
+                // the composer. It replaced the composer outright once the host
+                // began passing an accessory unconditionally, which hid the
+                // composer for every chat.
+                VStack(spacing: 0) {
+                    if let bottomAccessory {
+                        bottomAccessory
+                            .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, showsComposer ? 8 : 22)
+                            .offset(x: -contentShift)
+                    }
+                    if showsComposer {
                     if let rateLimitBannerMessage {
                         CodexRateLimitBanner(message: rateLimitBannerMessage)
                             .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
@@ -636,13 +636,13 @@ public struct CodexChatWorkspaceView: View {
                         transaction.animation = nil
                     }
                     }
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: CodexComposerOverlayHeightKey.self,
-                                value: proxy.size.height
-                            )
-                        }
+                }
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: CodexComposerOverlayHeightKey.self,
+                            value: proxy.size.height
+                        )
                     }
                 }
             }
