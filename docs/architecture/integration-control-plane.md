@@ -111,6 +111,34 @@ scope, including explicit `linkId: null` for authorized no-auth targets. Event
 observation starts before the stream RPC; cancellation and completion stop the
 subscription even when stream startup has an ambiguous outcome.
 
+## MCP app rendering
+
+Canonical MCP rows retain the persisted `mcpAppUi` descriptor, fallback resource
+URI, tool input/result, and original thread/call/account scope. Add
+`.codexMCPAppHost(provider:onOpenFullscreen:onSendMessage:onUpdateModelContext:)`
+to the transcript's host. Inline descriptors render in the transcript even when
+diagnostics are collapsed; fullscreen descriptors expose an open action. Present
+`CodexMCPAppView(descriptor:provider:displayMode: .fullscreen, ...)` in the host's
+sheet. Message and context callbacks include the descriptor so the host can
+target its exact thread and reject stale account sessions.
+
+The MCP Apps 2026-01-26 bridge uses a nonpersistent WebKit view containing an
+opaque-origin sandboxed iframe. It accepts a matching `ui://` resource with
+`text/html;profile=mcp-app` content, limits HTML to 2 MiB, and constructs a
+restrictive CSP from validated explicit HTTPS/WSS origins. The native handler
+accepts only the trusted wrapper frame; remote HTML cannot directly call it.
+Handshake completion precedes tool input/result delivery. Tool calls validate
+app visibility on the original server, and tool/resource/link/message operations
+require user confirmation. Requests cannot replace the original server, thread,
+connector, account, or originating call. Closing a view cancels pending work and
+resolves pending confirmations; unchanged cells retain their mounted host.
+
+`ui/update-model-context` accepts standard content blocks and structured content
+up to 16 KiB. Each update replaces that widget's prior context; the reference
+host stores it per exact thread and includes it as explicitly untrusted app
+context on a later user turn. Capability negotiation advertises implemented
+operations only; unsupported bridge requests return a JSON-RPC method error.
+
 ## Marketplace, skill, and hook projections
 
 Marketplace management calls `marketplace/add`, `marketplace/remove`, and

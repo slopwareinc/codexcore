@@ -171,6 +171,7 @@ enum CodexTranscriptRenderAction: Sendable, Equatable {
     case openURL(String)
     case openFile(path: String, line: Int?)
     case openReview(CodexTranscriptReviewRequest)
+    case openMCPApp(CodexMCPAppDescriptor)
     case resolveApproval(requestID: CodexServerRequestKey, approve: Bool)
 }
 
@@ -298,6 +299,7 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
+    var mcpApp: CodexMCPAppDescriptor? = nil
     var directive: CodexTranscriptDirectiveRender?
     var approval: CodexTranscriptApprovalRender?
     var action: CodexTranscriptRenderAction?
@@ -501,6 +503,7 @@ actor CodexTranscriptRenderProjector {
         var threadID: String
         var widthPixels: Int
         var theme: String
+        var mcpAppResources: [CodexMCPAppCatalogResource]
     }
 
     private struct CachedTurnSection {
@@ -529,7 +532,8 @@ actor CodexTranscriptRenderProjector {
         presentation: CodexThreadUIPresentation,
         availableWidth: CGFloat,
         theme: CodexTranscriptAppKitTheme,
-        dirtyTurnIDs: Set<String>? = nil
+        dirtyTurnIDs: Set<String>? = nil,
+        mcpAppResources: [CodexMCPAppCatalogResource] = []
     ) throws -> CodexTranscriptRenderSnapshot {
         try Task.checkCancellation()
         let startedAt = ContinuousClock.now
@@ -547,7 +551,8 @@ actor CodexTranscriptRenderProjector {
         let projectionSignature = ProjectionCacheSignature(
             threadID: presentation.threadID,
             widthPixels: Int((availableWidth * 2).rounded()),
-            theme: theme.fingerprint
+            theme: theme.fingerprint,
+            mcpAppResources: mcpAppResources
         )
         let reusesUnchangedTurns = dirtyTurnIDs != nil
             && cachedProjectionSignature == projectionSignature
@@ -627,6 +632,7 @@ actor CodexTranscriptRenderProjector {
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
+                    mcpApp: draft.mcpApp,
                     directive: draft.directive,
                     approval: draft.approval,
                     action: draft.action,
@@ -699,6 +705,27 @@ actor CodexTranscriptRenderProjector {
                             fixedHeight: 74
                         ))
                     }
+                }
+            }
+
+            // App results are product content, independent of diagnostic expansion.
+            var renderedMCPAppIDs: Set<String> = []
+            for entry in turn.conversationSegments.flatMap(\.narrative) {
+                guard case .workGroup(let group) = entry else { continue }
+                for row in group.rows {
+                    guard case .mcpToolCall(let call) = row, call.status == .completed,
+                          let descriptor = call.appDescriptor ?? CodexMCPAppDescriptor.discover(row: call, threadID: presentation.threadID, catalog: mcpAppResources),
+                          renderedMCPAppIDs.insert(call.id).inserted else { continue }
+                    append(ItemDraft(
+                        id: "\(sectionID):row:\(call.id):mcp-app",
+                        fingerprint: "mcp-app:\(descriptor.id):\(descriptor.revision):\(descriptor.preferredDisplayMode.rawValue)",
+                        mcpApp: descriptor,
+                        action: .openMCPApp(descriptor),
+                        accessibilityLabel: "\(descriptor.appName) app",
+                        maxWidthKind: .card,
+                        fixedHeight: descriptor.preferredDisplayMode == .fullscreen ? 48 : 368,
+                        bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
+                    ))
                 }
             }
 
@@ -1229,6 +1256,7 @@ private extension CodexTranscriptRenderProjector {
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
+        var mcpApp: CodexMCPAppDescriptor?
         var directive: CodexTranscriptDirectiveRender?
         var approval: CodexTranscriptApprovalRender?
         var action: CodexTranscriptRenderAction?
@@ -1256,6 +1284,7 @@ private extension CodexTranscriptRenderProjector {
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
+            mcpApp: CodexMCPAppDescriptor? = nil,
             directive: CodexTranscriptDirectiveRender? = nil,
             approval: CodexTranscriptApprovalRender? = nil,
             action: CodexTranscriptRenderAction? = nil,
@@ -1283,6 +1312,7 @@ private extension CodexTranscriptRenderProjector {
             self.code = code
             self.footer = footer
             self.productTool = productTool
+            self.mcpApp = mcpApp
             self.directive = directive
             self.approval = approval
             self.action = action

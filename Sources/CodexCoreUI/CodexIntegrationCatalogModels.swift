@@ -15,6 +15,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         public var approvalMode: CodexMCPToolApprovalMode?
         public var uri: String?
         public var uriTemplate: String?
+        public var mcpAppResourceURI: String?
+        public var mcpAppDisplayMode: CodexMCPAppDescriptor.DisplayMode?
 
         public var id: String { name }
         public var displayName: String { title?.nilIfBlank ?? name }
@@ -31,7 +33,9 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             openWorldHint: Bool? = nil,
             approvalMode: CodexMCPToolApprovalMode? = nil,
             uri: String? = nil,
-            uriTemplate: String? = nil
+            uriTemplate: String? = nil,
+            mcpAppResourceURI: String? = nil,
+            mcpAppDisplayMode: CodexMCPAppDescriptor.DisplayMode? = nil
         ) {
             self.name = name
             self.title = title
@@ -45,6 +49,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             self.approvalMode = approvalMode
             self.uri = uri
             self.uriTemplate = uriTemplate
+            self.mcpAppResourceURI = mcpAppResourceURI
+            self.mcpAppDisplayMode = mcpAppDisplayMode
         }
     }
 
@@ -235,6 +241,8 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
         let inputSchema = object["inputSchema"] ?? object["input_schema"]
         let annotations = dictionary(from: object["annotations"])
         let toolConfig = dictionary(from: object["config"])
+        let metadata = dictionary(from: object["_meta"])
+        let ui = dictionary(from: metadata["ui"])
         return Entry(
             name: name,
             title: title,
@@ -248,7 +256,9 @@ public struct CodexMCPServerStatus: Identifiable, Equatable, Sendable {
             approvalMode: string(in: toolConfig, keys: ["approval_mode", "approvalMode"])
                 .flatMap(CodexMCPToolApprovalMode.init(rawValue:)),
             uri: string(in: object, keys: ["uri"]),
-            uriTemplate: string(in: object, keys: ["uriTemplate"])
+            uriTemplate: string(in: object, keys: ["uriTemplate"]),
+            mcpAppResourceURI: string(in: ui, keys: ["resourceUri"]) ?? string(in: metadata, keys: ["ui/resourceUri"]),
+            mcpAppDisplayMode: string(in: ui, keys: ["preferredModelDisplayMode"]).flatMap(CodexMCPAppDescriptor.DisplayMode.init(rawValue:))
         )
     }
 

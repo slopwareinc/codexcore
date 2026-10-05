@@ -728,7 +728,9 @@ private extension CodexCanonicalTranscriptProjector {
                 errorFirstLine: state == .failed ? mcpError(item.payload) : nil,
                 arguments: item.payload["arguments"],
                 result: item.payload["result"],
-                readOnlyHint: item.payload.bool("readOnlyHint")
+                readOnlyHint: item.payload.bool("readOnlyHint"),
+                appDescriptor: CodexMCPAppDescriptor.project(item: item, appName: app),
+                appContext: item.payload["appContext"]
             ))]
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),

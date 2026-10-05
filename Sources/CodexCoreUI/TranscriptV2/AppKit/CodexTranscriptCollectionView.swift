@@ -108,6 +108,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     @Environment(\.codexClipboardService) private var clipboardService
     @Environment(\.codexTranscriptFileNavigationService) private var fileNavigationService
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.codexMCPAppHostContext) private var mcpAppHostContext
 
     var presentation: CodexThreadUIPresentation
     var renderUpdate: CodexCanonicalTranscriptRenderUpdate?
@@ -160,6 +161,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             clipboardService: clipboardService,
             fileNavigationService: fileNavigationService,
             productToolRenderer: productToolRenderer,
+            mcpAppHostContext: mcpAppHostContext,
             onOpenSubagent: onOpenSubagent,
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
@@ -210,6 +212,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var fileNavigationService: any CodexTranscriptFileNavigationService =
             CodexNoopTranscriptFileNavigationService()
         private var productToolRenderer: CodexProductToolRendererV2?
+        private var mcpAppHostContext: CodexMCPAppHostContext?
         private var responseAnnotations: [CodexResponseTextAnnotation] = []
         private var onUpsertResponseAnnotation: (CodexResponseTextAnnotation) -> Void = { _ in }
         private var onRemoveResponseAnnotation: (String) -> Void = { _ in }
@@ -328,6 +331,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             fileNavigationService: any CodexTranscriptFileNavigationService =
                 CodexNoopTranscriptFileNavigationService(),
             productToolRenderer: CodexProductToolRendererV2?,
+            mcpAppHostContext: CodexMCPAppHostContext? = nil,
             onOpenSubagent: @escaping (String) -> Void,
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
@@ -360,7 +364,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme, colorScheme: colorScheme)
             let annotationsChanged = self.responseAnnotations != responseAnnotations
             if appKitTheme?.fingerprint != nextTheme.fingerprint
-                || self.contentHorizontalOffset != contentHorizontalOffset {
+                || self.contentHorizontalOffset != contentHorizontalOffset
+                || self.mcpAppHostContext?.appResources != mcpAppHostContext?.appResources {
                 forceReconfigureAll = true
             }
             self.currentPresentation = presentation
@@ -370,6 +375,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.clipboardService = clipboardService
             self.fileNavigationService = fileNavigationService
             self.productToolRenderer = productToolRenderer
+            self.mcpAppHostContext = mcpAppHostContext
             self.responseAnnotations = responseAnnotations
             self.onUpsertResponseAnnotation = onUpsertResponseAnnotation
             self.onRemoveResponseAnnotation = onRemoveResponseAnnotation
@@ -571,13 +577,15 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             projectionGeneration &+= 1
             let generation = projectionGeneration
             lastProjectedWidth = width
+            let mcpAppResources = mcpAppHostContext?.appResources ?? []
             projectionTask = Task { [weak self, projector] in
                 do {
                     let snapshot = try await projector.project(
                         presentation: presentation,
                         availableWidth: width,
                         theme: theme,
-                        dirtyTurnIDs: dirtyTurnIDs
+                        dirtyTurnIDs: dirtyTurnIDs,
+                        mcpAppResources: mcpAppResources
                     )
                     guard !Task.isCancelled else { return }
                     guard self?.projectionGeneration == generation else { return }
@@ -611,6 +619,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 swiftUITheme: swiftUITheme,
                 contentHorizontalOffset: contentHorizontalOffset,
                 productToolRenderer: productToolRenderer,
+                mcpAppHostContext: mcpAppHostContext,
                 canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
@@ -1096,6 +1105,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 return
             case .openReview(let request):
                 onOpenReview?(request)
+                return
+            case .openMCPApp(let descriptor):
+                mcpAppHostContext?.onOpenFullscreen(descriptor)
                 return
             case .openURL(let value):
                 guard let url = URL(string: value), url.scheme?.lowercased() == "https" else { return }
