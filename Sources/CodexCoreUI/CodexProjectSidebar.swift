@@ -145,7 +145,7 @@ public struct CodexProjectSidebar: View {
     public var body: some View {
         VStack(spacing: 0) {
             Color.clear
-                .frame(height: CodexWindowChromeMetrics.titlebarHeight - CodexWindowChromeMetrics.floatingSidebarInset)
+                .frame(height: CodexWindowChromeMetrics.titlebarHeight)
 
             ScrollView(showsIndicators: true) {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 16) {
@@ -190,15 +190,15 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        // A floating pane of glass inset from the window edge, so the theme's
-        // atmosphere shows around it and through it. Glass draws its own edge
-        // and shadow; nothing is layered beneath it or stroked over it.
-        .codexGlass(
-            RoundedRectangle(cornerRadius: CodexWindowChromeMetrics.floatingSidebarRadius, style: .continuous),
-            role: .chrome
-        )
+        // Flush, full-height glass (macOS 27 retired Tahoe's inset floating
+        // sidebar). The theme's atmosphere refracts through it.
+        .codexGlass(Rectangle(), role: .chrome)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(theme.colors.border)
+                .frame(width: 1)
+        }
         .overlay(alignment: .trailing) { resizeHandle }
-        .padding(CodexWindowChromeMetrics.floatingSidebarInset)
     }
 
     @ViewBuilder
@@ -1555,11 +1555,6 @@ public enum CodexWindowChromeMetrics {
     public static let titlebarHeight: CGFloat = 54
     public static let sidebarControlTopInset: CGFloat = 7
     public static let sidebarTrafficLightReserveWidth: CGFloat = 104
-    /// Gap between the floating sidebar pane and the window edges.
-    public static let floatingSidebarInset: CGFloat = 8
-    /// Corner radius of the floating sidebar pane: concentric with the window's
-    /// own corners at `floatingSidebarInset`.
-    public static let floatingSidebarRadius: CGFloat = 18
 }
 
 public extension CodexProjectSidebar {

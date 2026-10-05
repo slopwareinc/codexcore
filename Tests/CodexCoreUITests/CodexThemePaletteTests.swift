@@ -244,10 +244,35 @@ struct CodexThemePaletteTests {
     }
 
     @Test
-    func onlyWindowChromeUsesTheAutomaticDarkTint() {
-        for role in CodexGlassRole.allCases {
-            #expect(role.usesDarkAppearanceTint == (role == .chrome))
+    func everyAccentHueOverrideKeepsTextAndAccentContrast() {
+        // A user may re-hue any generated family; the generator must keep
+        // every hue legible, not only the curated ones.
+        for preset in CodexAgentThemePreset.allCases where preset.supportsAccentOverride {
+            for hue in stride(from: 0.0, to: 360.0, by: 15.0) {
+                let palette = preset.palette(accentHue: hue)
+                for scheme in [ColorScheme.light, .dark] {
+                    let canvas = palette.canvas.value(for: scheme)
+                    #expect(contrastRatio(palette.textSecondary.value(for: scheme), canvas) >= 4.5)
+                    #expect(
+                        contrastRatio(palette.accentText.value(for: scheme), canvas) >= 4.5,
+                        "\(preset.displayName) hue \(hue) \(scheme) accentText"
+                    )
+                    #expect(
+                        contrastRatio(palette.onAccent.value(for: scheme), palette.accent.value(for: scheme)) >= 3.0,
+                        "\(preset.displayName) hue \(hue) \(scheme) onAccent"
+                    )
+                }
+            }
         }
+    }
+
+    @Test
+    func accentHueOverrideSurvivesStorageRoundTrip() throws {
+        let settings = CodexAppearanceSettings(preset: .aurora, appearanceMode: .dark, accentHue: 50)
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(CodexAppearanceSettings.self, from: data)
+        #expect(decoded.accentHue == 50)
+        #expect(decoded.palette == CodexAgentThemePreset.aurora.palette(accentHue: 50))
     }
 
     // MARK: - Contrast helpers (WCAG 2.1 relative luminance)

@@ -63,12 +63,6 @@ public enum CodexGlassRole: Sendable, Hashable, CaseIterable {
         }
     }
 
-    /// Dark window chrome needs a controlled tint so desktop wallpaper does
-    /// not wash a sidebar back into a mid-tone material.
-    var usesDarkAppearanceTint: Bool {
-        self == .chrome
-    }
-
     /// Elevation the opaque fallback simulates, as a fraction of the theme's
     /// surface opacity. Chrome sits lowest, sheets highest.
     var fallbackElevation: Double {
@@ -116,8 +110,6 @@ public extension View {
 private struct CodexGlassModifier<S: Shape>: ViewModifier {
     @Environment(\.codexAgentTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorScheme) private var colorScheme
-
     let shape: S
     let role: CodexGlassRole
     let tint: Color?
@@ -144,11 +136,10 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
         }
     }
 
-    private var effectiveTint: Color? {
-        if let tint { return tint }
-        guard role.usesDarkAppearanceTint, colorScheme == .dark else { return nil }
-        return theme.colors.surfaceSunken.opacity(0.32)
-    }
+    /// Only a call-site tint, which carries meaning. How tinted ordinary glass
+    /// looks is the user's system Liquid Glass setting (macOS 27); a tint of
+    /// our own on top would fight it.
+    private var effectiveTint: Color? { tint }
 
     /// An opaque stand-in. A material underlay would be invisible behind this
     /// and is omitted; the point of the fallback is that it is *not* see-through.
