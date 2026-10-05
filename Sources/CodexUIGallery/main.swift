@@ -50,7 +50,9 @@ struct Gallery {
             Scene(name: "plugins-manage-mcps", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .mcps))),
             Scene(name: "plugins-manage-skills", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .skills))),
             Scene(name: "plugins-manage-marketplace", width: 1180, content: AnyView(PluginsRouteScene(tab: .manage, manageTab: .marketplace))),
-            Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen()))
+            Scene(name: "chips", width: 720, content: AnyView(ChipSpecimen())),
+            Scene(name: "appearance", width: 760, content: AnyView(AppearanceScene())),
+            Scene(name: "atmosphere", width: 960, content: AnyView(AtmosphereScene()))
         ]
     }
 
@@ -829,4 +831,30 @@ do {
 } catch {
     FileHandle.standardError.write(Data("codex-ui-gallery: \(error)\n".utf8))
     exit(1)
+}
+
+
+/// The theme picker, with every family previewed in the scene's appearance.
+private struct AppearanceScene: View {
+    @State private var preset: CodexAgentThemePreset = .officialDark
+    @State private var accentHue: Double?
+
+    var body: some View {
+        CodexThemePresetPicker(preset: $preset, accentHue: $accentHue)
+            .padding(24)
+    }
+}
+
+/// The window's atmosphere with the empty-state tiles over it. Glass cannot
+/// render offscreen, so tiles show their opaque fallback; the atmosphere is
+/// forced on because it is a gradient, not glass, and renders faithfully.
+private struct AtmosphereScene: View {
+    var body: some View {
+        ZStack {
+            CodexBackdrop()
+                .transformEnvironment(\.codexAgentTheme) { $0.effects.usesLiquidGlass = true }
+            CodexEmptyTranscriptView { _ in }
+        }
+        .frame(height: 560)
+    }
 }
