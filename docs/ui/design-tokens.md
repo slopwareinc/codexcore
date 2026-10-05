@@ -27,16 +27,19 @@ content.codexGlass(
 
 Rules the roles enforce, and that reviews should check:
 
-- **Never layer anything beneath glass.** It samples what is behind the *window*.
-  A `.background(.regularMaterial)` under a glass surface means the glass samples
-  that material and the effect is lost.
+- **Never layer anything beneath glass.** It refracts what the window draws
+  behind it — the theme's atmosphere (see below). A `.background(.regularMaterial)`
+  under a glass surface means the glass samples that material and the effect is
+  lost.
 - **Never add a stroke or a shadow to a glass surface.** Glass draws its own edge
   highlight and its own shadow. Hand-drawn copies are what make glass read as an
   imitation of itself.
 - **Call-site tint means emphasis, not dimming.** Pass a tint only to carry
-  meaning (selection, a status color). The `.chrome` role centrally applies a
-  dark-appearance tint so wallpaper cannot wash sidebars into a mid-tone panel;
-  callers must not reproduce that treatment themselves.
+  meaning (selection, focus, a status color). How clear or tinted ordinary glass
+  looks is the user's system Liquid Glass setting (macOS 27); no role adds a
+  darkening tint of its own, because it would fight that setting.
+- **Sidebars are flush.** The sidebar is full-height `.chrome` glass against the
+  window edge. macOS 27 retired Tahoe's inset floating sidebar; do not inset it.
 - **Interactivity belongs to controls.** `.control` and `.chip` are interactive;
   `.controlGroup` and other containers are not, or the whole group flexes when
   any child is pressed.
@@ -90,11 +93,35 @@ Radii come from `theme.radii`: `small` 6, `medium` 12, `large` 16, `panel` 28,
 
 ## Themes
 
-A theme is a **hue family**, not an appearance. Each of the eight families
-(`slate`, `midnight`, `warmSand`, `sage`, `rose`, `violet`, `highContrast`, and
-`slate` again as Paper) defines every color role as a `CodexColorPair` with a
-light and a dark value. `CodexAppearanceMode` — system, light, dark — chooses
-which side is used, independently of the family.
+A theme is a **hue family**, not an appearance, and it is *generated*: each
+family is a `CodexThemeSeed` (neutral hue and chroma, accent hue and chroma, and
+atmosphere hues). `CodexThemeGenerator.swift` derives every role for both
+appearances in OKLCH and solves text lightness against the canvas until it
+clears its contrast target, so any accent hue stays legible.
+`CodexAppearanceMode` — system, light, dark — chooses which side is used.
+
+| Family (raw value) | Character |
+| --- | --- |
+| Graphite (`officialDark`; `nativeLight` is a legacy alias) | Neutral, indigo light |
+| Tide (`midnight`) | Deep water, cyan light |
+| Aurora (`aurora`) | Night sky, mint accent, green-violet light |
+| Moss (`sage`) | Forest shade |
+| Ember (`warmMinimal`) | Paper and lamplight |
+| Bloom (`rose`) | Coral dusk |
+| Orchid (`violet`) | Orchid and twilight |
+| High Contrast (`highContrast`) | Hand-specified, flat, no glass |
+
+Raw values are persisted and must not change. Users may re-hue any generated
+family with `CodexAppearanceSettings.accentHue`; the atmosphere follows the
+accent.
+
+### Atmosphere
+
+Each seed also produces a `CodexAtmosphere`: a 3x3 mesh of light per appearance.
+`CodexBackdrop` draws it behind the whole window, so glass refracts designed
+light instead of a flat canvas. Light pools at the chrome corners and falls away
+toward the reading column. It drops to the plain canvas when the theme opts out
+of glass or the system reduces transparency.
 
 Dark canvases stay near black while retaining the family's hue. `surfaceSunken`
 is the recessed chrome level (including the sidebar), `surface` is the content

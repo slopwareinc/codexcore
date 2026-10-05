@@ -264,8 +264,15 @@ public struct CodexComposerBar: View {
                     }
                 }
             }
-            .padding(isCompact ? 6 : 10)
-            .codexGlass(RoundedRectangle(cornerRadius: theme.radii.large, style: .continuous), role: .panel)
+            .padding(isCompact ? 6 : 12)
+            // Focus warms the glass with a breath of the accent instead of
+            // drawing a ring around it; glass owns its own edge.
+            .codexGlass(
+                RoundedRectangle(cornerRadius: isCompact ? theme.radii.large : theme.radii.composer, style: .continuous),
+                role: .panel,
+                tint: focused ? theme.colors.accent.opacity(0.07) : nil
+            )
+            .animation(.easeOut(duration: theme.animations.snappyDuration), value: focused)
             .codexFileDropTarget(
                 isTargeted: $isFileDropTargeted,
                 isEnabled: onFilesDropped != nil,
@@ -955,8 +962,7 @@ private struct ComposerStopButton: View {
                 .font(theme.fonts.label)
                 .foregroundStyle(theme.colors.danger)
                 .frame(width: theme.spacing.iconLarge + 4, height: theme.spacing.iconLarge + 4)
-                .background(theme.colors.surfaceSunken.opacity(theme.effects.textDimOpacity), in: Circle())
-                .overlay(Circle().stroke(theme.colors.border, lineWidth: 1))
+                .background(theme.colors.danger.opacity(0.16), in: Circle())
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
@@ -973,14 +979,16 @@ private struct ComposerVoiceButton: View {
 
     var body: some View {
         Button(action: action) {
+            // Same disc as Send, so the primary action never changes shape or
+            // color when the draft empties — only its glyph does.
             Image(systemName: "waveform")
                 .font(theme.fonts.label.weight(.semibold))
-                .foregroundStyle(theme.colors.canvas)
+                .foregroundStyle(theme.colors.onAccent)
                 .frame(
                     width: theme.spacing.iconLarge + 4,
                     height: theme.spacing.iconLarge + 4
                 )
-                .background(theme.colors.textPrimary, in: Circle())
+                .background(theme.colors.accent, in: Circle())
         }
         .buttonStyle(.plain)
         .help(label)
@@ -1465,7 +1473,7 @@ private struct SendButton: View {
             action()
         } label: {
             Image(systemName: "arrow.up")
-                .font(theme.fonts.chat)
+                .font(theme.fonts.chat.weight(.semibold))
                 .foregroundStyle(enabled ? theme.colors.onAccent : theme.colors.textTertiary)
                 .frame(width: theme.spacing.iconLarge + 4, height: theme.spacing.iconLarge + 4)
         }
@@ -1474,7 +1482,7 @@ private struct SendButton: View {
             if enabled {
                 Circle().fill(theme.colors.accent)
             } else {
-                Circle().fill(theme.colors.surfaceSunken)
+                Circle().fill(theme.colors.hover.opacity(theme.effects.pressedOpacity))
             }
         }
         .keyboardShortcut(.return, modifiers: [.command])

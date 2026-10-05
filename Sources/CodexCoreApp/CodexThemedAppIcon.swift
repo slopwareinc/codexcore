@@ -78,7 +78,7 @@ enum CodexThemedAppIcon {
         case .officialDark, .nativeLight:
             slateTint
         default:
-            settings.preset.palette.accent.value(for: iconColorScheme(settings, fallback: colorScheme))
+            settings.palette.accent.value(for: iconColorScheme(settings, fallback: colorScheme))
         }
     }
 

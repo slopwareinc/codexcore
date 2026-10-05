@@ -375,6 +375,11 @@ private struct CodexAppearanceSettingsPayload: Decodable {
             from: container,
             forKey: .monoFontFamily
         )
+        let accentHue = codexDecodeOptional(
+            Double.self,
+            from: container,
+            forKey: .accentHue
+        )
         settings = CodexAppearanceSettings(
             preset: preset,
             appearanceMode: appearanceMode,
@@ -383,7 +388,8 @@ private struct CodexAppearanceSettingsPayload: Decodable {
             diffMarkerStyle: diffMarkerStyle,
             dockIconVariant: dockIconVariant,
             textFontFamily: textFontFamily,
-            monoFontFamily: monoFontFamily
+            monoFontFamily: monoFontFamily,
+            accentHue: accentHue
         )
     }
 
@@ -397,6 +403,7 @@ private struct CodexAppearanceSettingsPayload: Decodable {
         case dockIconVariant
         case textFontFamily
         case monoFontFamily
+        case accentHue
     }
 }
 
