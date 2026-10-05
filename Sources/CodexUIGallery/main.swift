@@ -36,6 +36,8 @@ struct Gallery {
             Scene(name: "summary-plan-and-changes", width: 420, content: AnyView(SummaryPlanAndChangesScene())),
             Scene(name: "agent-panel-completed", width: 668, content: AnyView(AgentPanelCompletedScene())),
             Scene(name: "transcript-turn-changes", width: 860, content: AnyView(TranscriptTurnChangesScene())),
+            Scene(name: "chat-workspace", width: 1280, content: AnyView(ChatWorkspaceScene())),
+            Scene(name: "assistant-cards", width: 784, content: AnyView(AssistantCardsScene())),
             Scene(name: "review-workbench", width: 900, content: AnyView(ReviewWorkbenchScene())),
             Scene(name: "review-workbench-modified", width: 900, content: AnyView(
                 CodexGitReviewWorkbenchGalleryFixture(
@@ -101,7 +103,6 @@ struct Gallery {
                 // an adaptive color would resolve against the process appearance
                 // and both variants would come out identical.
                 var theme = preset.theme(resolvedFor: scheme)
-                theme.fonts = .official(baseTextSize: 14)
                 // Engages the opaque fallback: real glass would render as
                 // nothing at all offscreen.
                 theme.effects.usesLiquidGlass = false
@@ -135,14 +136,20 @@ struct Gallery {
         to url: URL
     ) throws {
         let root = scene.content
-            .padding(24)
-            .frame(width: scene.width, alignment: .leading)
+            .padding(scene.name == "chat-workspace" ? 0 : 24)
+            .frame(width: scene.width, height: scene.name == "assistant-cards" ? 650 : nil, alignment: .topLeading)
             .background(theme.colors.canvas)
             .codexAgentTheme(theme)
             .environment(\.colorScheme, scheme)
 
-        if scene.name.hasPrefix("plugins-") || scene.name == "agent-panel-completed" {
-            try renderHosted(root, width: scene.width, height: 768, to: url)
+        if scene.name.hasPrefix("plugins-") || scene.name == "agent-panel-completed"
+            || scene.name == "chat-workspace" || scene.name == "assistant-cards" {
+            let height: CGFloat = switch scene.name {
+            case "chat-workspace": 800
+            case "assistant-cards": 650
+            default: 768
+            }
+            try renderHosted(root, width: scene.width, height: height, to: url)
             return
         }
 
@@ -639,6 +646,120 @@ private struct TranscriptTurnChangesScene: View {
         VStack(alignment: .leading, spacing: 20) {
             CodexTranscriptTurnDiffGalleryFixture()
             Text("The Review workbench now keeps turn edits beside the final response.")
+        }
+    }
+}
+
+/// Production view composition with fixed local facts for reviewing the full
+/// sidebar, breadcrumb, work transcript, response and composer together.
+private struct ChatWorkspaceScene: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var draft = ""
+
+    private let project = CodexProjectSummary(
+        workspacePath: "/workspace/codexcore", customDisplayName: "CodexCore", serverID: "gallery-project"
+    )
+
+    private var snapshot: CodexSidebarSnapshot {
+        let rows = [
+            CodexSidebarThreadRow(summary: .init(id: "gallery-current", title: "Polish the chat workspace"), isSelected: true),
+            CodexSidebarThreadRow(summary: .init(id: "gallery-sdk", title: "Audit SDK compatibility"), hasUnreadWhileInactive: true),
+            CodexSidebarThreadRow(summary: .init(id: "gallery-files", title: "Improve file navigation")),
+            CodexSidebarThreadRow(summary: .init(id: "gallery-tests", title: "Run protocol regression tests"), liveStatus: .running)
+        ]
+        return CodexSidebarSnapshot(
+            selectedRoute: .chat, lastContentRoute: .chat, isCollapsed: false,
+            isSearchOverlayPresented: false, selectedProjectPath: project.workspacePath,
+            selectedThreadID: "gallery-current",
+            pinnedRows: [.init(summary: .init(id: "gallery-pinned", title: "Codex feature roadmap"), isPinned: true)],
+            projects: [
+                .init(project: project, rows: rows, isExpanded: true, isSelected: true),
+                .init(project: .init(workspacePath: "/workspace/website", customDisplayName: "Website"))
+            ],
+            showsNoChats: false
+        )
+    }
+
+    private var turn: CodexTurnV2 {
+        CodexTurnV2(
+            id: "gallery-turn",
+            userMessage: .init(id: "gallery-user", text: "Polish the chat workspace and keep the SDK behavior intact.", sentAt: Date(timeIntervalSince1970: 1_791_180_000)),
+            narrative: [
+                .prose(.init(id: "gallery-commentary", text: "I’ll inspect the layout, tighten the spacing, and verify the existing actions.", isStreaming: false)),
+                .workGroup(.init(id: "gallery-work", rows: [
+                    .command(.init(id: "gallery-read", command: "rg --files Sources/CodexCoreUI", label: "Read UI components", action: .read, status: .completed, exitCode: 0, durationMs: 184)),
+                    .command(.init(id: "gallery-test", command: "swift test --filter CodexWorkspaceBreadcrumbTests", label: "Verify workspace behavior", action: .run, status: .completed, exitCode: 0, durationMs: 1_200))
+                ], isLive: false))
+            ],
+            finalAnswer: .init(id: "gallery-answer", text: "The workspace now uses a compact project breadcrumb, a quieter sidebar, and a clear conversation column.\n\n- Kept project and thread identity stable.\n- Preserved keyboard shortcuts and native actions.\n- Verified the sidebar and workspace regressions.", isStreaming: false, sentAt: Date(timeIntervalSince1970: 1_791_180_015)),
+            status: .done(durationMs: 14_800)
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            CodexProjectSidebar(
+                serverName: nil,
+                accountSummary: .init(displayName: "Alex", detail: "Connected"),
+                isThreadReady: true, snapshot: snapshot,
+                onNewChat: {}, onOpenSearch: {}, onSelectRoute: { _ in },
+                onToggleProject: { _ in }, onStartProjectChat: { _ in }, onSelectProject: { _ in },
+                onOpenFolder: {}, onSelectChat: { _ in }, onTogglePinChat: { _ in }, onArchiveChat: { _ in }
+            )
+            VStack(spacing: 0) {
+                CodexChatHeader(
+                    title: "Polish the chat workspace", workspacePath: project.workspacePath,
+                    workspaceTitle: project.displayName, showsSidebarToggle: true,
+                    isSummaryPanelOpen: false, hasPanelTabs: true,
+                    chatActions: .init(pinChat: {}, renameChat: {}, archiveChat: {}, forkChat: {}), onDisconnect: {}
+                )
+                ScrollView {
+                    CodexTurnViewV2(turn: turn)
+                        .frame(maxWidth: theme.spacing.transcriptMaxWidth, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                        .padding(.bottom, 32)
+                        .frame(maxWidth: .infinity)
+                }
+                CodexComposerBar(draft: $draft, placeholder: "Follow up…", isSending: false,
+                                 canSend: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                 onSend: {}, onInterrupt: {})
+                    .frame(maxWidth: theme.spacing.composerMaxWidth, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 16)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 800)
+    }
+}
+
+private struct AssistantCardsScene: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            CodexTurnViewV2(turn: .init(
+                id: "gallery-plan-turn",
+                narrative: [.proposedPlan(.init(id: "gallery-plan", markdown: """
+                    # Strengthen Codex compatibility
+
+                    ## Summary
+                    Keep the native SDK authoritative while making the chat easier to read.
+
+                    1. Enable checklist updates consistently across thread lifecycles.
+                    2. Preserve command output when a turn is interrupted.
+                    3. Show asynchronous questions as ordinary message replies.
+                    4. Verify streaming, virtualized cards, and draft preservation.
+                    """))],
+                status: .done(durationMs: 2_400)
+            ))
+            CodexAsyncQuestionCardV2(
+                model: .init(id: "gallery-question", prompt: "One choice before I implement this.", questions: [
+                    .init(id: "gallery-question-choice", title: "Which appearance should new installations use?", options: [
+                        "T3 Code — compact neutral surfaces", "Follow the saved appearance preference"
+                    ])
+                ]),
+                onStageUserMessage: { _ in }
+            )
         }
     }
 }

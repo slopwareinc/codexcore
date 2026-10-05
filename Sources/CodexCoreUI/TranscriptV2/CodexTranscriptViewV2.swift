@@ -66,6 +66,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
     private let onOpenReview: (() -> Void)?
     private let onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)?
     private let onEditUserMessage: (String) -> Void
+    private let onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)?
+    private let onReadingHistoryChanged: (Bool) -> Void
     private let onRetryTurn: ((CodexUserMessageV2) -> Void)?
     private let onForkChat: (() -> Void)?
     private let pendingApprovals: [CodexApprovalPrompt]
@@ -91,6 +93,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenReview: (() -> Void)? = nil,
         onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil,
+        onReadingHistoryChanged: @escaping (Bool) -> Void = { _ in },
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
@@ -114,6 +118,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenReview = onOpenReview
         self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
+        self.onSubmitUserMessage = onSubmitUserMessage
+        self.onReadingHistoryChanged = onReadingHistoryChanged
         self.onRetryTurn = onRetryTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
@@ -142,6 +148,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         onOpenReview: (() -> Void)? = nil,
         onOpenReviewRequest: ((CodexTranscriptReviewRequest) -> Void)? = nil,
         onEditUserMessage: @escaping (String) -> Void = { _ in },
+        onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil,
+        onReadingHistoryChanged: @escaping (Bool) -> Void = { _ in },
         onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         onForkChat: (() -> Void)? = nil,
         agentDisplayNameByThreadID: [String: String] = [:],
@@ -165,6 +173,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
         self.onOpenReview = onOpenReview
         self.onOpenReviewRequest = onOpenReviewRequest
         self.onEditUserMessage = onEditUserMessage
+        self.onSubmitUserMessage = onSubmitUserMessage
+        self.onReadingHistoryChanged = onReadingHistoryChanged
         self.onRetryTurn = onRetryTurn
         self.onForkChat = onForkChat
         self.agentDisplayNameByThreadID = agentDisplayNameByThreadID
@@ -199,6 +209,8 @@ public struct CodexTranscriptViewV2<EmptyState: View>: View {
                 onOpenThread: onOpenThread,
                 onOpenReview: resolvedOpenReview,
                 onEditUserMessage: onEditUserMessage,
+                onSubmitUserMessage: onSubmitUserMessage,
+                onReadingHistoryChanged: onReadingHistoryChanged,
                 onRetryTurn: onRetryTurn,
                 onForkChat: onForkChat,
                 onResolveApproval: onResolveApproval,

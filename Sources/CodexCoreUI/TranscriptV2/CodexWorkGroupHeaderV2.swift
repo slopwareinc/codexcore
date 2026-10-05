@@ -92,11 +92,18 @@ public enum CodexWorkGroupHeaderV2 {
 }
 
 enum CodexWorkGroupPresentationV2 {
-    static func header(_ group: CodexWorkGroupV2, rows: [CodexWorkRowV2]? = nil) -> String {
+    static func header(
+        _ group: CodexWorkGroupV2,
+        rows: [CodexWorkRowV2]? = nil,
+        interfaceStyle: CodexInterfaceStyle = .native
+    ) -> String {
         let visibleRows = rows ?? group.rows
         if group.isLive,
            let active = visibleRows.last(where: \.isInProgress) {
             return activeLabel(active)
+        }
+        if interfaceStyle == .t3Code {
+            return CodexT3WorkGroupSummary.synthesize(rows: visibleRows)
         }
         if rows == nil, !group.header.isEmpty { return group.header }
         return CodexWorkGroupHeaderV2.synthesize(rows: visibleRows)
@@ -145,6 +152,7 @@ enum CodexWorkGroupPresentationV2 {
         case .fileChange:
             return "Editing files"
         case .mcpToolCall(let value):
+            if let presentation = value.presentation { return presentation.title }
             let app = value.appName.isEmpty ? value.server : value.appName
             return "Using \(app)"
         case .webSearch:

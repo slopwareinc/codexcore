@@ -8,7 +8,6 @@ public struct CodexTurnViewV2: View {
     private let productToolRenderer: CodexProductToolRendererV2?
     private let onOpenSubagent: (String) -> Void
     private let onOpenThread: (CodexThreadReferenceV2) -> Void
-    @State private var presentedAt = Date()
 
     public init(turn: CodexTurnV2, productToolRenderer: CodexProductToolRendererV2? = nil, onOpenSubagent: @escaping (String) -> Void = { _ in }, onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in }) {
         self.turn = turn
@@ -20,7 +19,7 @@ public struct CodexTurnViewV2: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let user = turn.userMessage {
-                CodexUserMessageBubbleV2(message: user, presentedAt: presentedAt, onOpenThread: onOpenThread)
+                CodexUserMessageBubbleV2(message: user, onOpenThread: onOpenThread)
             }
 
             CodexWorkBlockViewV2(
@@ -59,8 +58,8 @@ public struct CodexTurnViewV2: View {
                             )
                             .accessibilityLabel(failure.message)
                     }
-                    if turn.finalAnswer?.text.isEmpty == false {
-                        timestamp(alignment: .leading)
+                    if let answer = turn.finalAnswer, !answer.text.isEmpty, let sentAt = answer.sentAt {
+                        timestamp(sentAt, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
@@ -69,8 +68,8 @@ public struct CodexTurnViewV2: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func timestamp(alignment: Alignment) -> some View {
-        Text(presentedAt.formatted(date: .omitted, time: .shortened))
+    private func timestamp(_ date: Date, alignment: Alignment) -> some View {
+        Text(date.formatted(date: .omitted, time: .shortened))
             .font(theme.fonts.micro)
             .foregroundStyle(theme.colors.textTertiary)
             .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: alignment)
@@ -112,7 +111,6 @@ struct CodexUserMessageBubbleV2: View {
     @Environment(\.codexAgentTheme) private var theme
 
     let message: CodexUserMessageV2
-    let presentedAt: Date
     let onOpenThread: (CodexThreadReferenceV2) -> Void
 
     var body: some View {
@@ -131,18 +129,21 @@ struct CodexUserMessageBubbleV2: View {
                 .font(theme.fonts.chat)
                 .foregroundStyle(theme.colors.textPrimary)
                 .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, theme.interfaceStyle == .t3Code ? 12 : 14)
+                .padding(.vertical, theme.interfaceStyle == .t3Code ? 12 : 10)
                 .background(theme.colors.userBubble)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radii.bubble, style: .continuous)
-                        .stroke(theme.colors.userBubbleStroke, lineWidth: 1)
+                        .stroke(theme.colors.userBubbleStroke, lineWidth: theme.interfaceStyle == .t3Code ? 0 : 1)
                 }
-            Text(presentedAt.formatted(date: .omitted, time: .shortened))
-                .font(theme.fonts.micro)
-                .foregroundStyle(theme.colors.textTertiary)
                 .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
+            if let sentAt = message.sentAt {
+                Text(sentAt.formatted(date: .omitted, time: .shortened))
+                    .font(theme.fonts.micro)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(maxWidth: theme.spacing.userBubbleMaxWidth, alignment: .trailing)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

@@ -38,10 +38,16 @@ CodexChatWorkspaceView(
     },
     onDisconnect: disconnect
 )
-.codexAgentTheme(.officialDark)
+.codexAgentTheme(.t3Code)
 ```
 
 This is intentionally only the minimal initializer path. Add model selection, permissions, panels, MCP state, side chat, subagents, and host actions as your product supports them.
+
+The reference app uses [T3 Code presentation](t3-code-presentation.md), with a
+compact sidebar, shared chat/composer lane, typed plan cards, and nonblocking
+questions. Existing native theme families remain available. Pass
+`workspaceTitle` for the selected project's display name without changing its
+server identity.
 
 `onOpenThread` is for independent task references produced by `create_thread`,
 `read_thread`, `send_message_to_thread`, and received delegation messages. It

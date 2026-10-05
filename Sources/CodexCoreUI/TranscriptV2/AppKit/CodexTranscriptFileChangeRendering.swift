@@ -40,6 +40,7 @@ struct CodexTranscriptTurnDiffRender: Sendable, Equatable {
     var reviewSession: CodexGitReviewSession
     var omittedFileCount: Int
     var isExpanded: Bool
+    var treeRows: [CodexChangedFilesTreeRowV2] = []
 
     var visibleFiles: [CodexPreparedFileChangeSummaryV2] {
         isExpanded ? files : Array(files.prefix(3))
@@ -86,8 +87,12 @@ struct CodexTranscriptTurnDiffCard: View {
     let render: CodexTranscriptTurnDiffRender
     let onReview: ((CodexTranscriptReviewRequest) -> Void)?
     let onToggleExpanded: () -> Void
+    var onToggleDirectory: ((String) -> Void)? = nil
 
     var body: some View {
+        if theme.interfaceStyle == .t3Code {
+            t3ChangedFiles
+        } else {
         VStack(spacing: 0) {
             HStack(spacing: Self.iconGap) {
                 Image(systemName: "doc.badge.plus")
@@ -176,6 +181,92 @@ struct CodexTranscriptTurnDiffCard: View {
             RoundedRectangle(cornerRadius: theme.radii.medium, style: .continuous)
                 .stroke(theme.colors.border, lineWidth: 1)
         )
+        }
+    }
+
+    private var t3ChangedFiles: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: theme.spacing.md) {
+                Text("\(render.files.count + render.omittedFileCount) changed file\(render.files.count + render.omittedFileCount == 1 ? "" : "s")")
+                    .font(theme.fonts.caption.weight(.medium))
+                diffStats(added: render.totalAdded, removed: render.totalRemoved)
+                Spacer(minLength: theme.spacing.sm)
+                if render.treeRows.contains(where: \.isDirectory) {
+                    Button(action: onToggleExpanded) {
+                        Image(systemName: render.isExpanded ? "arrow.up.and.down.righttriangle.up.righttriangle.down" : "arrow.down.right.and.arrow.up.left")
+                    }
+                    .buttonStyle(.plain)
+                    .help(render.isExpanded ? "Collapse all folders" : "Expand all folders")
+                    .accessibilityLabel(render.isExpanded ? "Collapse all folders" : "Expand all folders")
+                }
+                if let onReview {
+                    Button {
+                        onReview(render.reviewRequest(selectedFilePath: render.files.first?.path))
+                    } label: {
+                        Label("Open diff", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open the full diff")
+                }
+            }
+            .foregroundStyle(theme.colors.textSecondary)
+            .padding(.horizontal, theme.spacing.md)
+            .frame(height: 36)
+
+            ForEach(render.treeRows) { row in
+                Button {
+                    if row.isDirectory { onToggleDirectory?(row.id) }
+                    else { onReview?(render.reviewRequest(selectedFilePath: row.path)) }
+                } label: {
+                    HStack(spacing: theme.spacing.sm) {
+                        if row.isDirectory {
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(row.isExpanded ? 90 : 0))
+                                .font(theme.fonts.micro)
+                                .frame(width: 14)
+                        } else {
+                            Color.clear.frame(width: 14)
+                        }
+                        Image(systemName: row.isDirectory ? (row.isExpanded ? "folder" : "folder.fill") : "doc.text")
+                            .frame(width: 14)
+                        Text(row.name)
+                            .font(theme.fonts.code)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: theme.spacing.sm)
+                        diffStats(added: row.added, removed: row.removed)
+                    }
+                    .foregroundStyle(row.isDirectory ? theme.colors.textTertiary : theme.colors.textPrimary)
+                    .padding(.leading, theme.spacing.sm + CGFloat(row.depth) * 14)
+                    .padding(.trailing, theme.spacing.sm)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(row.isDirectory ? onToggleDirectory == nil : onReview == nil)
+                .accessibilityLabel("\(row.path), \(row.added) additions, \(row.removed) removals")
+                .accessibilityValue(row.isDirectory ? (row.isExpanded ? "Expanded" : "Collapsed") : "")
+            }
+            if render.omittedFileCount > 0 {
+                Text("\(render.omittedFileCount) more files not shown")
+                    .font(theme.fonts.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(theme.spacing.sm)
+            }
+        }
+        .background(theme.colors.surfaceSunken, in: RoundedRectangle(cornerRadius: theme.radii.small))
+    }
+
+    private func diffStats(added: Int, removed: Int) -> some View {
+        HStack(spacing: theme.spacing.sm) {
+            Text("+\(CodexChangedFilesTreeV2.compactCount(added))").foregroundStyle(theme.colors.success)
+            Text("−\(CodexChangedFilesTreeV2.compactCount(removed))").foregroundStyle(theme.colors.danger)
+        }
+        .font(theme.fonts.code)
+        .monospacedDigit()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(added) additions, \(removed) removals")
     }
 
     /// The directory gives up space first: the filename is what identifies the

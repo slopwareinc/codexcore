@@ -550,6 +550,12 @@ private extension CodexCanonicalTranscriptProjector {
         to turn: inout CodexTurnV2
     ) {
         let id = item.key.itemID.rawValue
+        if let question = CodexAsyncQuestionV2(itemID: id, payload: item.payload, isStreaming: !completed) {
+            closeWorkGroup(&turn)
+            if turn.finalAnswer?.id == id { turn.finalAnswer = nil }
+            upsertNarrative(.questions(question), to: &turn)
+            return
+        }
         let text = completed
             ? (item.payload.string("text") ?? "")
             : (item.payload.string("text") ?? "") + item.liveOverlay.agentMessage.joined()
@@ -579,7 +585,7 @@ private extension CodexCanonicalTranscriptProjector {
         guard !text.isEmpty else { return }
         closeWorkGroup(&turn)
         upsertNarrative(
-            .prose(.init(id: item.key.itemID.rawValue, text: text, isStreaming: !completed)),
+            .proposedPlan(.init(id: item.key.itemID.rawValue, markdown: text, isStreaming: !completed)),
             to: &turn
         )
     }
@@ -649,6 +655,12 @@ private extension CodexCanonicalTranscriptProjector {
             case .prose(var prose):
                 prose.isStreaming = false
                 narrative[index] = .prose(prose)
+            case .proposedPlan(var plan):
+                plan.isStreaming = false
+                narrative[index] = .proposedPlan(plan)
+            case .questions(var question):
+                question.isStreaming = false
+                narrative[index] = .questions(question)
             case .workGroup(var group):
                 group.isLive = false
                 for rowIndex in group.rows.indices {
@@ -689,7 +701,11 @@ private extension CodexCanonicalTranscriptProjector {
         case .commandExecution:
             let parentCommand = item.payload.string("command") ?? "Command"
             let baseOutput = item.payload.string("aggregatedOutput") ?? ""
-            let output = completed ? baseOutput : baseOutput + item.liveOverlay.commandOutput.joined()
+            // A terminal turn settles presentation before an individual command
+            // necessarily completes. Keep its streamed output until a completed
+            // command payload replaces it.
+            let output = item.authority == .completed
+                ? baseOutput : baseOutput + item.liveOverlay.commandOutput.joined()
             let actions = CodexCommandActionPresentation.project(
                 (item.payload.array("commandActions") ?? []).compactMap(\.object),
                 fallbackCommand: parentCommand
@@ -730,7 +746,8 @@ private extension CodexCanonicalTranscriptProjector {
                 result: item.payload["result"],
                 readOnlyHint: item.payload.bool("readOnlyHint"),
                 appDescriptor: CodexMCPAppDescriptor.project(item: item, appName: app),
-                appContext: item.payload["appContext"]
+                appContext: item.payload["appContext"],
+                presentation: CodexMCPToolPresentationV2.project(payload: item.payload)
             ))]
         case .webSearch:
             guard let query = item.payload.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -757,7 +774,10 @@ private extension CodexCanonicalTranscriptProjector {
         }
         switch rawStatus {
         case "inProgress":
-            return .inProgress
+            // Interrupted and failed turns can omit item/completed. The parent
+            // terminal state closes their activity while retaining the saved
+            // payload and explicit tool failures for future reconciliation.
+            return completed ? .completed : .inProgress
         case "completed":
             return .completed
         case "failed":

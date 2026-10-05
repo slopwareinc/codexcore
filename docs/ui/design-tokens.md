@@ -49,7 +49,7 @@ Rules the roles enforce, and that reviews should check:
   unless the surfaces are intentionally joined at rest.
 
 Glass degrades to an opaque themed surface when *either* the theme opts out
-(`Effects.usesLiquidGlass`, only High Contrast) or the system asks for reduced
+(`Effects.usesLiquidGlass`, High Contrast and T3 Code) or the system asks for reduced
 transparency (`accessibilityReduceTransparency`). These are independent; a
 half-transparent middle ground satisfies neither.
 
@@ -102,6 +102,7 @@ clears its contrast target, so any accent hue stays legible.
 
 | Family (raw value) | Character |
 | --- | --- |
+| T3 Code (`t3Code`) | Upstream neutral palette, compact flat presentation; default for new settings |
 | Graphite (`officialDark`; `nativeLight` is a legacy alias) | Neutral, indigo light |
 | Tide (`midnight`) | Deep water, cyan light |
 | Aurora (`aurora`) | Night sky, mint accent, green-violet light |
@@ -114,6 +115,10 @@ clears its contrast target, so any accent hue stays legible.
 Raw values are persisted and must not change. Users may re-hue any generated
 family with `CodexAppearanceSettings.accentHue`; the atmosphere follows the
 accent.
+
+T3 Code preserves its upstream palette instead of using a generated seed.
+Its `interfaceStyle` selects compact work logs and flat chrome, while the other
+families retain native presentation. See [the port guide](t3-code-presentation.md).
 
 ### Atmosphere
 

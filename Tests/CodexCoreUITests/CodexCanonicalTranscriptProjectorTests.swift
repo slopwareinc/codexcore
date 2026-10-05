@@ -4,6 +4,62 @@ import Foundation
 import Testing
 
 struct CodexCanonicalTranscriptProjectorTests {
+    @Test(arguments: [CanonicalTurnStatus.interrupted, .failed, .completed])
+    func terminalTurnSettlesUncompletedCommandAndRetainsStreamedOutput(status: CanonicalTurnStatus) throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        var command = item(threadID, turnID, "command", .commandExecution, [
+            "command": .string("swift test"), "status": .string("inProgress"),
+            "aggregatedOutput": .string("Building\n"),
+        ])
+        command.authority = .started
+        command.consistency = .partial
+        command.liveOverlay.append(.commandOutput("Running tests\n"))
+        let snapshot = state(
+            revision: 8, threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, status: status, itemIDs: [command.key.itemID], revision: 8)],
+            items: [command]
+        )
+        let projected = try #require(CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: snapshot, threadID: threadID
+        ).presentation.transcript.turns.first)
+        let row = try #require(projected.narrative.flatMap(\.workRows).compactMap { row -> CodexCommandRowV2? in
+            guard case .command(let value) = row else { return nil }
+            return value
+        }.first)
+        #expect(row.status == .completed)
+        #expect(row.output == "Building\nRunning tests\n")
+        #expect(projected.liveTail == nil)
+        #expect(snapshot.items[command.key]?.payload["status"] == .string("inProgress"))
+        #expect(snapshot.items[command.key]?.authority == .started)
+    }
+
+    @Test func runningTurnKeepsCommandLiveAndExplicitFailuresRemainFailed() throws {
+        let threadID: ThreadID = "thread"
+        let turnID: TurnID = "turn"
+        var running = item(threadID, turnID, "running", .commandExecution, [
+            "command": .string("swift test"), "status": .string("inProgress"),
+        ])
+        running.authority = .started
+        let failed = item(threadID, turnID, "failed", .commandExecution, [
+            "command": .string("false"), "status": .string("failed"), "exitCode": .int(1),
+        ])
+        let snapshot = state(
+            revision: 8, threadID: threadID,
+            turns: [turn(turnID, threadID: threadID, status: .inProgress, itemIDs: [running.key.itemID, failed.key.itemID], revision: 8)],
+            items: [running, failed]
+        )
+        let projected = try #require(CodexCanonicalTranscriptProjector().rebuild(
+            snapshot: snapshot, threadID: threadID
+        ).presentation.transcript.turns.first)
+        let rows = projected.narrative.flatMap(\.workRows).compactMap { row -> CodexCommandRowV2? in
+            guard case .command(let value) = row else { return nil }
+            return value
+        }
+        #expect(rows.first { $0.id == "running" }?.status == .inProgress)
+        #expect(rows.first { $0.id == "failed" }?.status == .failed)
+    }
+
     @Test func rebuildIsDeterministicAndPreservesTurnGrammar() throws {
         let threadID: ThreadID = "thread"
         let turnID: TurnID = "turn"

@@ -124,6 +124,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
     var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
     var onEditUserMessage: (String) -> Void
+    var onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil
+    var onReadingHistoryChanged: (Bool) -> Void = { _ in }
     var onRetryTurn: ((CodexUserMessageV2) -> Void)?
     var onForkChat: (() -> Void)?
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
@@ -168,6 +170,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenThread: onOpenThread,
             onOpenReview: onOpenReview,
             onEditUserMessage: onEditUserMessage,
+            onSubmitUserMessage: onSubmitUserMessage,
+            onReadingHistoryChanged: onReadingHistoryChanged,
             onRetryTurn: onRetryTurn,
             onForkChat: onForkChat,
             onResolveApproval: onResolveApproval,
@@ -203,6 +207,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
         private let projector = CodexTranscriptRenderProjector()
+        private let asyncQuestionPresentationStore = CodexAsyncQuestionPresentationStore()
         private weak var container: CodexTranscriptCollectionContainerView?
         private var dataSource: NSCollectionViewDiffableDataSource<String, CodexTranscriptRenderItemID>?
         private var currentSnapshot: CodexTranscriptRenderSnapshot?
@@ -225,6 +230,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var onOpenThread: (CodexThreadReferenceV2) -> Void = { _ in }
         private var onOpenReview: ((CodexTranscriptReviewRequest) -> Void)?
         private var onEditUserMessage: (String) -> Void = { _ in }
+        private var onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)?
+        private var onReadingHistoryChanged: (Bool) -> Void = { _ in }
+        private var lastReportedReadingHistory = false
         private var onRetryTurn: ((CodexUserMessageV2) -> Void)?
         private var onForkChat: (() -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
@@ -288,6 +296,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 forItemWithIdentifier: CodexTranscriptCollectionItem.reuseIdentifier
             )
             installDataSource(on: collectionView)
+            container.scrollView.onUserScroll = { [weak self] in self?.userDidScroll() }
+            NotificationCenter.default.addObserver(self, selector: #selector(userDidScroll), name: NSScrollView.didLiveScrollNotification, object: container.scrollView)
             container.onJumpToLatest = { [weak self] in self?.jumpToLatest() }
             container.onWidthChange = { [weak self] width in self?.widthDidChange(width) }
             container.onFindQueryChange = { [weak self] query in self?.updateFindQuery(query) }
@@ -342,6 +352,8 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onOpenThread: @escaping (CodexThreadReferenceV2) -> Void = { _ in },
             onOpenReview: ((CodexTranscriptReviewRequest) -> Void)? = nil,
             onEditUserMessage: @escaping (String) -> Void,
+            onSubmitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil,
+            onReadingHistoryChanged: @escaping (Bool) -> Void = { _ in },
             onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
             onForkChat: (() -> Void)?,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
@@ -349,6 +361,10 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onProjectionError: @escaping (String?) -> Void = { _ in }
         ) {
             guard let container else { return }
+            if self.presentationStore !== presentationStore {
+                asyncQuestionPresentationStore.clear()
+                forceReconfigureAll = true
+            }
             let previousPresentation = currentPresentation
             var presentation = presentation
             if presentationStore == nil,
@@ -402,6 +418,9 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             self.onOpenThread = onOpenThread
             self.onOpenReview = onOpenReview
             self.onEditUserMessage = onEditUserMessage
+            self.onSubmitUserMessage = onSubmitUserMessage
+            self.onReadingHistoryChanged = onReadingHistoryChanged
+            if previousPresentation?.threadID != presentation.threadID { lastReportedReadingHistory = false }
             self.onRetryTurn = onRetryTurn
             self.onForkChat = onForkChat
             self.onResolveApproval = onResolveApproval
@@ -482,6 +501,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
 
         func detach() {
             NotificationCenter.default.removeObserver(self)
+            asyncQuestionPresentationStore.clear()
             projectionTask?.cancel()
             projectionTask = nil
             projectionGeneration &+= 1
@@ -639,6 +659,16 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         ) {
             guard let theme = appKitTheme else { return }
             let item = decorated(item, theme: theme)
+            let renderedThreadID = currentSnapshot?.threadID
+            let itemID = item.id
+            let submitUserMessage = onSubmitUserMessage.map { submit in
+                { [weak self] (text: String) async -> CodexTranscriptUserMessageReceipt in
+                    guard let self, self.isCurrentRenderedItem(itemID, threadID: renderedThreadID) else {
+                        return .rejected(message: "The selected chat changed.")
+                    }
+                    return await submit(text)
+                }
+            }
             collectionItem.configure(
                 item: item,
                 appKitTheme: theme,
@@ -649,7 +679,16 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 canOpenReview: onOpenReview != nil,
                 performAction: { [weak self] action in self?.perform(action) },
                 copy: { [weak self] text in self?.clipboardService.copy(text) },
-                editUserMessage: { [weak self] text in self?.onEditUserMessage(text) },
+                editUserMessage: { [weak self] text in
+                    guard let self, self.isCurrentRenderedItem(itemID, threadID: renderedThreadID) else { return }
+                    self.onEditUserMessage(text)
+                },
+                submitUserMessage: submitUserMessage,
+                questionPresentationState: item.questions.map {
+                    _ in asyncQuestionPresentationStore.state(
+                        threadID: ThreadID(renderedThreadID ?? "unassigned"), questionID: itemID.rawValue
+                    )
+                },
                 retryTurn: onRetryTurn,
                 forkChat: onForkChat,
                 fileNavigationService: fileNavigationService,
@@ -661,6 +700,13 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     self?.preferredHeightChanged(id: id, revision: revision, height: height)
                 }
             )
+        }
+
+        private func isCurrentRenderedItem(_ itemID: CodexTranscriptRenderItemID, threadID: String?) -> Bool {
+            guard let threadID,
+                  currentPresentation?.threadID == threadID,
+                  currentSnapshot?.threadID == threadID else { return false }
+            return currentSnapshot?.itemsByID[itemID] != nil
         }
 
         private func decorated(
@@ -1108,6 +1154,14 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 )
             case .toggleRow(let rowID):
                 captureScrollAnchor()
+                // T3 resets folder overrides when Expand/Collapse all is used.
+                // The per-directory controls still use the same canonical UI
+                // disclosure store, so streamed updates retain their state.
+                let directoryPrefix = rowID + ":directory:"
+                for directoryID in presentation.expandedRowIDs.filter({ $0.hasPrefix(directoryPrefix) }) {
+                    presentation.expandedRowIDs.remove(directoryID)
+                    presentationStore?.setRowExpanded(false, rowID: directoryID, threadID: ThreadID(presentation.threadID))
+                }
                 let expanded = !presentation.expandedRowIDs.contains(rowID)
                 if expanded { presentation.expandedRowIDs.insert(rowID) }
                 else { presentation.expandedRowIDs.remove(rowID) }
@@ -1193,6 +1247,19 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             )
             updateJumpButton()
             updateTurnMinimapVisibleState()
+        }
+
+        /// Geometry/restoration changes update anchoring but do not change the
+        /// composer's reading mode. Only an actual scroll gesture reports it.
+        @objc private func userDidScroll() {
+            guard !isRestoringScroll, currentPresentation != nil else { return }
+            reportReadingHistory(distanceToBottom() > 80)
+        }
+
+        private func reportReadingHistory(_ reading: Bool) {
+            guard lastReportedReadingHistory != reading else { return }
+            lastReportedReadingHistory = reading
+            onReadingHistoryChanged(reading)
         }
 
         private func rebuildTurnMinimap() {
@@ -1322,6 +1389,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         }
 
         private func jumpToLatest() {
+            reportReadingHistory(false)
             hasUnseenOutput = false
             scrollToBottom(markPinned: true)
         }
@@ -1511,6 +1579,17 @@ final class CodexTranscriptFindBar: NSView, NSSearchFieldDelegate {
     @objc private func close() { onClose?() }
 }
 
+/// Scroll-wheel callbacks stay local to the transcript; the workspace does
+/// not install a global event monitor or infer reading mode from focus loss.
+@MainActor
+final class CodexTranscriptScrollView: NSScrollView {
+    var onUserScroll: (() -> Void)?
+    override func scrollWheel(with event: NSEvent) {
+        super.scrollWheel(with: event)
+        if event.scrollingDeltaY != 0 { onUserScroll?() }
+    }
+}
+
 @MainActor
 final class CodexTranscriptCollectionContainerView: NSView {
     private static let jumpButtonImages: [String: NSImage] = [
@@ -1524,7 +1603,7 @@ final class CodexTranscriptCollectionContainerView: NSView {
         ),
     ].compactMapValues { $0 }
 
-    let scrollView = NSScrollView()
+    let scrollView = CodexTranscriptScrollView()
     let collectionView = CodexTranscriptCollectionView()
     let jumpButton = NSButton()
     let turnMinimap = CodexTranscriptTurnMinimapView()

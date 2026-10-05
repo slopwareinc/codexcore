@@ -25,6 +25,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Custom tool cards](ui/custom-tool-cards.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)
 - [Design tokens and Liquid Glass](ui/design-tokens.md)
+- [T3 Code presentation](ui/t3-code-presentation.md)
 
 ## Use the app
 

@@ -45,6 +45,10 @@ enum CodexTranscriptTurnMinimapProjection {
         for segment in turn.conversationSegments.reversed() {
             for entry in segment.narrative.reversed() {
                 switch entry {
+                case .proposedPlan(let plan) where !plan.markdown.isEmpty:
+                    return plan.markdown
+                case .questions(let question) where !question.prompt.isEmpty:
+                    return question.prompt
                 case .prose(let prose) where !prose.text.isEmpty:
                     return prose.text
                 case .notice(let notice) where !notice.message.isEmpty:
@@ -53,7 +57,7 @@ enum CodexTranscriptTurnMinimapProjection {
                     return group.header
                 case .inlineActivity(let activity) where !activity.label.isEmpty:
                     return activity.label
-                case .productToolCall, .inlineActivity, .prose, .notice, .workGroup:
+                case .productToolCall, .inlineActivity, .prose, .notice, .workGroup, .proposedPlan, .questions:
                     continue
                 }
             }

@@ -342,6 +342,10 @@ public struct ComposerModelGridPicker: View {
     public var body: some View {
         Button { isPresented.toggle() } label: {
             HStack(spacing: 7) {
+                if theme.interfaceStyle == .t3Code {
+                    Image(systemName: "sparkle")
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
                 Text("\(model.displayName) \(reasoning.displayName)")
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
@@ -349,6 +353,8 @@ public struct ComposerModelGridPicker: View {
                     .foregroundStyle(.secondary)
             }
             .foregroundStyle(modelTint)
+            .font(theme.fonts.body)
+            .frame(minHeight: 28)
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -411,7 +417,8 @@ public struct ComposerModelGridPicker: View {
     }
 
     private var modelTint: Color {
-        switch CodexModelGridV2.appearance(for: model) {
+        if theme.interfaceStyle == .t3Code { return theme.colors.textSecondary }
+        return switch CodexModelGridV2.appearance(for: model) {
         case .sol: .orange
         case .terra: .green
         case .luna: .indigo

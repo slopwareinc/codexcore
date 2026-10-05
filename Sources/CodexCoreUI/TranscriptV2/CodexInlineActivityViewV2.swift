@@ -38,12 +38,12 @@ struct CodexInlineActivityViewV2: View {
                     }
                     if let detail {
                         Text(detail)
-                            .font(theme.fonts.caption)
+                            .font(theme.interfaceStyle == .t3Code ? theme.fonts.body : theme.fonts.caption)
                             .foregroundStyle(theme.colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.leading, 22)
+                .padding(.leading, theme.interfaceStyle == .t3Code ? 28 : 22)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -60,10 +60,11 @@ struct CodexInlineActivityViewV2: View {
     }
 
     private var activityLabel: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: theme.interfaceStyle == .t3Code ? 6 : 7) {
             if let systemImage = activity.systemImage, !systemImage.isEmpty {
                 Image(systemName: systemImage)
-                    .font(theme.fonts.caption)
+                    .font(theme.interfaceStyle == .t3Code ? theme.fonts.body : theme.fonts.caption)
+                    .frame(width: theme.interfaceStyle == .t3Code ? 24 : nil, height: theme.interfaceStyle == .t3Code ? 24 : nil)
             }
             Text(activity.label)
                 .lineLimit(2)
@@ -72,7 +73,7 @@ struct CodexInlineActivityViewV2: View {
                     .font(theme.fonts.micro)
             }
         }
-        .font(theme.fonts.caption)
+        .font(theme.interfaceStyle == .t3Code ? theme.fonts.body : theme.fonts.caption)
         .foregroundStyle(foregroundStyle)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
