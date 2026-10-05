@@ -49,7 +49,14 @@ final class CodexVoiceChatSession {
         didSet { onPhaseChanged?(phase) }
     }
     private(set) var threadID: String?
-    private(set) var transcript: [CodexVoiceTranscriptEntry] = []
+    private var transcriptAccumulator = CodexVoiceTranscriptAccumulator()
+    var transcript: [CodexVoiceTranscriptEntry] { transcriptAccumulator.entries }
+    var selectedVoice: CodexSchemaRealtimeVoice = .sol
+    var selectedModel = "gpt-live-1-codex"
+    var outputModality: CodexSchemaRealtimeOutputModality = .audio
+    private(set) var availableVoices: [CodexSchemaRealtimeVoice] = [.sol]
+    private(set) var voiceCatalogError: String?
+    private(set) var isLoadingVoices = false
     private(set) var inputLevel: Float = 0
     private(set) var errorMessage: String?
     var isMuted = false {
@@ -66,7 +73,7 @@ final class CodexVoiceChatSession {
     private var codex: Codex?
     private var eventTask: Task<Void, Never>?
     private var webRTC: CodexVoiceWebRTCTransport?
-    private var partialEntryIDByRole: [String: UUID] = [:]
+    private var voiceCatalogGeneration: UInt64 = 0
     private var logSessionID = UUID().uuidString
 
     /// AppKit presentation owners use this seam to move the existing session
@@ -76,14 +83,57 @@ final class CodexVoiceChatSession {
 
     var isActive: Bool { phase.isActive }
 
+    func refreshVoices(codex: Codex) async {
+        await refreshVoices { try await codex.threadRealtimeListVoices().voices }
+    }
+
+    /// Called when the host connection ends. A slow catalog response from that
+    /// runtime must not overwrite choices for its replacement connection.
+    func invalidateVoiceCatalog() {
+        voiceCatalogGeneration &+= 1
+        isLoadingVoices = false
+        voiceCatalogError = nil
+        availableVoices = [selectedVoice]
+    }
+
+    func refreshVoices(_ fetch: @Sendable () async throws -> CodexSchemaRealtimeVoicesList) async {
+        guard !isLoadingVoices else { return }
+        voiceCatalogGeneration &+= 1
+        let generation = voiceCatalogGeneration
+        isLoadingVoices = true
+        voiceCatalogError = nil
+        defer { if generation == voiceCatalogGeneration { isLoadingVoices = false } }
+        do {
+            let catalog = try await fetch()
+            guard generation == voiceCatalogGeneration, !Task.isCancelled else { return }
+            // The pinned runtime validates V3 against the v1 catalog (see
+            // core/src/realtime_conversation.rs::validate_realtime_voice).
+            // Preserve unknown future voice names returned by that catalog.
+            var seen = Set<CodexSchemaRealtimeVoice>()
+            availableVoices = ([catalog.defaultV1] + catalog.v1).filter { seen.insert($0).inserted }
+            if !availableVoices.contains(selectedVoice) { selectedVoice = catalog.defaultV1 }
+        } catch {
+            guard generation == voiceCatalogGeneration else { return }
+            voiceCatalogError = "Voice choices could not be loaded. The selected voice will be validated by the runtime."
+        }
+    }
+
+    func startParameters(threadID: String, offerSDP: String) -> CodexSchemaThreadRealtimeStartParams {
+        let model = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .codexVoiceWebRTC(
+            threadID: threadID, offerSDP: offerSDP,
+            model: model.isEmpty ? "gpt-live-1-codex" : model,
+            voice: selectedVoice, outputModality: outputModality
+        )
+    }
+
     func start(codex: Codex, threadID: String) async throws {
         await stop()
         logSessionID = UUID().uuidString
         self.threadID = threadID
         phase = .starting
         errorMessage = nil
-        transcript = []
-        partialEntryIDByRole = [:]
+        transcriptAccumulator.reset()
         self.codex = codex
         log(
             "session.start.requested",
@@ -147,10 +197,7 @@ final class CodexVoiceChatSession {
         }
 
         log("protocol.start.request.begin", level: .notice)
-        let response = try await codex.threadRealtimeStart(.codexVoiceWebRTC(
-            threadID: threadID,
-            offerSDP: offerSDP
-        ))
+        let response = try await codex.threadRealtimeStart(startParameters(threadID: threadID, offerSDP: offerSDP))
         log(
             "protocol.start.request.complete",
             level: .notice,
@@ -216,15 +263,14 @@ final class CodexVoiceChatSession {
     func resetForNewSession() async {
         await stop()
         threadID = nil
-        transcript = []
-        partialEntryIDByRole = [:]
+        transcriptAccumulator.reset()
         errorMessage = nil
     }
 
     func sendText(_ rawText: String) async {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let codex, let threadID, phase.isActive else { return }
-        transcript.append(.init(role: "user", text: text, isFinal: true))
+        transcriptAccumulator.appendLocalText(text)
         phase = .thinking
         do {
             log(
@@ -250,6 +296,14 @@ final class CodexVoiceChatSession {
         }
     }
 
+    func sendSpeech(_ rawText: String) async {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let codex, let threadID, phase.isActive else { return }
+        do {
+            _ = try await codex.threadRealtimeAppendSpeech(.init(text: text, threadID: threadID))
+        } catch { fail(error) }
+    }
+
     private func receive(_ event: CodexRealtimeEvent) {
         switch event {
         case .started(let value):
@@ -270,7 +324,7 @@ final class CodexVoiceChatSession {
                     "delta": value.delta,
                 ]
             )
-            appendTranscriptDelta(role: value.role, delta: value.delta)
+            transcriptAccumulator.sessionDelta(role: value.role, delta: value.delta)
             if value.role.localizedCaseInsensitiveContains("assistant") {
                 phase = .speaking
             }
@@ -340,12 +394,11 @@ final class CodexVoiceChatSession {
             // Item payloads can contain arbitrary transcript or audio content;
             // keep the telemetry event metadata-only.
             log("protocol.event.item_added")
-        case .itemStarted:
+        case .itemStarted(let value):
+            transcriptAccumulator.itemStarted(value.item)
             log("protocol.event.item.started")
         case .itemTranscriptDelta(let value):
-            // Session-level transcript events remain the presentation source;
-            // recording this event as metadata avoids rendering the same delta
-            // twice while preserving the new item lifecycle in diagnostics.
+            transcriptAccumulator.itemDelta(id: value.itemID, delta: value.delta)
             log(
                 "protocol.event.item.transcript_delta",
                 fields: [
@@ -353,44 +406,14 @@ final class CodexVoiceChatSession {
                     "deltaBytes": String(value.delta.utf8.count),
                 ]
             )
-        case .itemCompleted:
+        case .itemCompleted(let value):
+            transcriptAccumulator.itemCompleted(value.item)
             log("protocol.event.item.completed")
         }
     }
 
-    private func appendTranscriptDelta(role: String, delta: String) {
-        guard !delta.isEmpty else { return }
-        if let id = partialEntryIDByRole[role],
-           let index = transcript.firstIndex(where: { $0.id == id }) {
-            transcript[index].text += delta
-            return
-        }
-        let entry = CodexVoiceTranscriptEntry(
-            role: role,
-            text: delta,
-            isFinal: false
-        )
-        partialEntryIDByRole[role] = entry.id
-        transcript.append(entry)
-    }
-
     private func finishTranscript(role: String, text: String) {
-        if let id = partialEntryIDByRole.removeValue(forKey: role),
-           let index = transcript.firstIndex(where: { $0.id == id }) {
-            transcript[index].text = text
-            transcript[index].isFinal = true
-        } else if !text.isEmpty {
-            let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let index = transcript.lastIndex(where: {
-                $0.role.localizedCaseInsensitiveCompare(role) == .orderedSame
-                    && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalized
-            }) {
-                transcript[index].text = text
-                transcript[index].isFinal = true
-            } else {
-                transcript.append(.init(role: role, text: text, isFinal: true))
-            }
-        }
+        transcriptAccumulator.sessionDone(role: role, text: text)
         if role.localizedCaseInsensitiveContains("assistant") {
             phase = .listening
         } else if role.localizedCaseInsensitiveContains("user") {
