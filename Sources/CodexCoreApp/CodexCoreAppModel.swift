@@ -79,6 +79,7 @@ final class CodexCoreAppModel {
     private(set) var isLoadingThreadSections = false
     private(set) var threadSectionsError: String?
     private(set) var sidebarActionError: String?
+    private(set) var sidebarInboxProjectScopeID: String?
     private(set) var pendingSidebarMutationIDs: Set<String> = []
     private(set) var hooksCatalog = CodexHooksCatalog()
     private(set) var isLoadingHooks = false
@@ -223,6 +224,7 @@ final class CodexCoreAppModel {
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
+        self.sidebarInboxProjectScopeID = CodexSidebarInboxScopeStorage.load(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.unreadState = CodexThreadUnreadState(
             unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
@@ -1610,6 +1612,7 @@ final class CodexCoreAppModel {
             }
             entries[summary.id.rawValue] = .init(
                 status: status,
+                attention: CodexSidebarThreadAttention.resolve(summary.status),
                 hasUnreadWhileInactive: unreadState.isUnread(summary.id),
                 lastEventAt: Date()
             )
@@ -1673,6 +1676,7 @@ final class CodexCoreAppModel {
         }
         canonicalThreadStatusEntries[threadID] = CodexThreadStatusEntry(
             status: liveStatus,
+            attention: thread.flatMap { CodexSidebarThreadAttention.resolve($0.status) },
             hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
         )
@@ -3167,6 +3171,41 @@ final class CodexCoreAppModel {
 
     func clearSidebarThreadSelection() {
         sidebarNavigationSession.clearThreadSelection()
+    }
+
+    func setSidebarInboxProjectScope(_ projectID: String?) {
+        guard sidebarInboxProjectScopeID != projectID else { return }
+        guard CodexSidebarInboxScopeStorage.save(projectID, to: preferenceStore) else {
+            sidebarActionError = "The sidebar project filter could not be saved."
+            return
+        }
+        sidebarInboxProjectScopeID = projectID
+        sidebarNavigationSession.clearThreadSelection()
+        sidebarActionError = nil
+    }
+
+    func renameSidebarChat(_ chat: CodexThreadSummary, to name: String, expectedAccountRevision: Int? = nil) async {
+        guard expectedAccountRevision == nil || expectedAccountRevision == accountContextRevision else { return }
+        guard let codex, isConnected, isAuthenticated, accountFeatures.canUseAuthenticatedRequests,
+              !pendingSidebarMutationIDs.contains(chat.id) else { return }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let accountRevision = accountContextRevision
+        pendingSidebarMutationIDs.insert(chat.id)
+        defer {
+            if self.codex === codex, accountRevision == accountContextRevision {
+                pendingSidebarMutationIDs.remove(chat.id)
+            }
+        }
+        do {
+            _ = try await codex.perform(CodexRequest.threadNameSet(.init(name: name, threadID: chat.id)))
+            guard self.codex === codex, accountRevision == accountContextRevision else { return }
+            renameChatInSidebar(chat.id, title: name)
+            sidebarActionError = nil
+        } catch {
+            guard self.codex === codex, accountRevision == accountContextRevision else { return }
+            sidebarActionError = friendlyError(error)
+        }
     }
 
     func togglePinnedSelectedSidebarChats() {

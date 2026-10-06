@@ -3,7 +3,8 @@
 ## T3 Code
 
 CodexCore's T3 Code presentation adapts styling, layout, work-log summaries,
-proposed-plan presentation, and composer interaction conventions from
+proposed-plan presentation, composer interaction conventions, current inbox
+rows, project monograms, and the provider vector mark from
 [pingdotgg/t3code](https://github.com/pingdotgg/t3code), revision
 `3e6b45028ceec5820dacb37dc3852470ebdc9411`.
 

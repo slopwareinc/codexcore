@@ -661,23 +661,29 @@ private struct ChatWorkspaceScene: View {
     )
 
     private var snapshot: CodexSidebarSnapshot {
-        let rows = [
-            CodexSidebarThreadRow(summary: .init(id: "gallery-current", title: "Polish the chat workspace"), isSelected: true),
-            CodexSidebarThreadRow(summary: .init(id: "gallery-sdk", title: "Audit SDK compatibility"), hasUnreadWhileInactive: true),
-            CodexSidebarThreadRow(summary: .init(id: "gallery-files", title: "Improve file navigation")),
-            CodexSidebarThreadRow(summary: .init(id: "gallery-tests", title: "Run protocol regression tests"), liveStatus: .running)
+        let website = CodexProjectSummary(workspacePath: "/workspace/website", customDisplayName: "Website", serverID: "gallery-website")
+        let now = Date().timeIntervalSince1970
+        let chats: [CodexThreadSummary] = [
+            .init(id: "gallery-current", title: "Polish the chat workspace", workspacePath: project.workspacePath,
+                  modelProvider: "openai", gitBranch: "codex/t3-ui-port", projectID: project.id, createdAt: now - 300, updatedAt: now - 60),
+            .init(id: "gallery-sdk", title: "Audit SDK compatibility", workspacePath: project.workspacePath,
+                  modelProvider: "openai", gitBranch: "main", projectID: project.id, createdAt: now - 600, updatedAt: now - 120),
+            .init(id: "gallery-files", title: "Improve file navigation", workspacePath: website.workspacePath,
+                  modelProvider: "openai", gitBranch: "feat/navigation", projectID: website.id, createdAt: now - 900, updatedAt: now - 240),
+            .init(id: "gallery-tests", title: "Run protocol regression tests", workspacePath: project.workspacePath,
+                  modelProvider: "openai", gitBranch: "main", projectID: project.id, createdAt: now - 1_200, updatedAt: now - 180),
+            .init(id: "gallery-pinned", title: "Codex feature roadmap", workspacePath: project.workspacePath,
+                  modelProvider: "openai", gitBranch: "main", projectID: project.id, createdAt: now - 3_600, updatedAt: now - 3_600)
         ]
-        return CodexSidebarSnapshot(
-            selectedRoute: .chat, lastContentRoute: .chat, isCollapsed: false,
-            isSearchOverlayPresented: false, selectedProjectPath: project.workspacePath,
-            selectedThreadID: "gallery-current",
-            pinnedRows: [.init(summary: .init(id: "gallery-pinned", title: "Codex feature roadmap"), isPinned: true)],
-            projects: [
-                .init(project: project, rows: rows, isExpanded: true, isSelected: true),
-                .init(project: .init(workspacePath: "/workspace/website", customDisplayName: "Website"))
-            ],
-            showsNoChats: false
-        )
+        return CodexSidebarProjection.snapshot(.init(
+            projects: [project, website], chats: chats, currentWorkspacePath: project.workspacePath,
+            currentThreadID: "gallery-current", pinnedThreadIDs: ["gallery-pinned"],
+            expandedProjectIDs: [project.id], threadStatusEntries: [
+                "gallery-sdk": .init(hasUnreadWhileInactive: true),
+                "gallery-files": .init(status: .running, attention: .approval),
+                "gallery-tests": .init(status: .running)
+            ], now: now
+        ))
     }
 
     private var turn: CodexTurnV2 {

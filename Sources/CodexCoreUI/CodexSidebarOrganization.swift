@@ -305,9 +305,11 @@ public enum CodexSidebarProjection {
                 canPin: !archived,
                 canArchive: !archived,
                 liveStatus: live?.status ?? .idle,
+                attention: live?.attention,
                 hasUnreadWhileInactive: live?.hasUnreadWhileInactive ?? false,
                 isBulkSelected: selectedThreadIDs.contains(chat.id),
                 isArchived: archived,
+                isProjectless: projectlessIDs.contains(chat.id),
                 progress: live?.progress,
                 statusText: live?.statusText,
                 isPendingMutation: input.pendingThreadIDs.contains(chat.id)
@@ -428,6 +430,52 @@ public enum CodexSidebarProjection {
             .sorted { compareThreads($0, $1, sortKey: input.sortKey) }
             .map { row($0, true) }
 
+        // The flat inbox consumes the full eligible roster, never the five-row
+        // project previews or the recent-project partition. Identity and local
+        // hidden-project preferences are resolved before its own ordering.
+        var seenInboxIDs: Set<String> = []
+        let eligibleInboxChats = input.chats.filter {
+            !$0.isEphemeral && $0.parentThreadID == nil && seenInboxIDs.insert($0.id).inserted
+        }
+        let inboxCatalogue = input.projects.isEmpty
+            ? presentedProjects(
+                serverProjects: [],
+                chats: eligibleInboxChats,
+                currentWorkspacePath: normalizedCurrent,
+                projectlessThreadIDs: projectlessIDs,
+                sourceFoldersByPrimaryPath: [:]
+            )
+            : input.projects
+        let hiddenInboxProjects = inboxCatalogue.filter {
+            input.hiddenProjectIDs.contains($0.id) || input.hiddenProjectIDs.contains($0.workspacePath)
+        }
+        let knownInboxProjectIDs = Set(inboxCatalogue.compactMap(\.serverID))
+        let hiddenInboxProjectIDs = Set(hiddenInboxProjects.compactMap(\.serverID))
+        let hiddenInboxPaths = Set(hiddenInboxProjects.flatMap(\.sourceFolders))
+        let inboxRows = eligibleInboxChats.filter { chat in
+            // These are independently placed outside the project tree by the
+            // existing navigation model, so hiding a project must not hide them.
+            if pinnedIDs.contains(chat.id) || projectlessIDs.contains(chat.id)
+                || chat.sectionID.map(sectionIDs.contains) == true { return true }
+            if let projectID = chat.projectID, knownInboxProjectIDs.contains(projectID) {
+                return !hiddenInboxProjectIDs.contains(projectID)
+            }
+            let path = CodexProjectSummary.normalizedPath(chat.workspacePath ?? normalizedCurrent)
+            return !hiddenInboxPaths.contains(path)
+        }.map { row($0, false) }
+        let inboxProjects = Self.orderedProjects(
+            inboxCatalogue.filter {
+                !input.hiddenProjectIDs.contains($0.id) && !input.hiddenProjectIDs.contains($0.workspacePath)
+            }.map { project in
+                var project = project
+                if let alias = input.projectAliases[project.id] ?? input.projectAliases[project.workspacePath] {
+                    project.customDisplayName = alias
+                }
+                return project
+            },
+            order: input.projectOrder
+        )
+
         return CodexSidebarSnapshot(
             selectedRoute: input.selectedRoute,
             lastContentRoute: input.lastContentRoute,
@@ -441,6 +489,8 @@ public enum CodexSidebarProjection {
             projects: recentGroups,
             olderProjects: olderGroups,
             sections: sectionGroups,
+            inboxRows: inboxRows,
+            inboxProjects: inboxProjects,
             archivedRows: archivedRows,
             archivedNextCursor: input.archivedNextCursor,
             activeLoadState: input.activeLoadState,

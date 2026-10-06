@@ -248,6 +248,7 @@ struct CodexCoreAppShell: View {
         snapshot: CodexSidebarSnapshot,
         width: CGFloat
     ) -> some View {
+        let sidebarAccountRevision = model.accountContextRevision
         CodexProjectSidebar(
             serverName: model.serverName,
             accountSummary: model.accountMenuSummary,
@@ -298,6 +299,16 @@ struct CodexCoreAppShell: View {
             },
             onMoveChat: { chat, sectionID in
                 Task { await model.moveSidebarChat(chat, toSectionID: sectionID) }
+            },
+            inboxProjectScope: Binding(get: { model.sidebarInboxProjectScopeID }, set: { model.setSidebarInboxProjectScope($0) }),
+            isInboxProjectCatalogReady: model.threadListSession.activeLoadState == .loaded,
+            inboxSearchState: .init(query: model.threadListSession.searchQuery, results: model.threadListSession.searchResults,
+                                   isSearching: model.threadListSession.isSearching, errorMessage: model.threadListSession.searchErrorMessage,
+                                   hasMoreResults: model.threadListSession.searchNextCursor != nil),
+            onSearchInbox: { await model.searchChats(query: $0) },
+            onLoadMoreInboxSearch: { Task { await model.loadMoreSearchResults() } },
+            onRenameChat: { chat, title in
+                Task { await model.renameSidebarChat(chat, to: title, expectedAccountRevision: sidebarAccountRevision) }
             }
         )
     }

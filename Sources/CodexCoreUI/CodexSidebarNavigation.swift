@@ -40,9 +40,11 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
     public var canPin: Bool
     public var canArchive: Bool
     public var liveStatus: CodexThreadLiveStatus
+    public var attention: CodexSidebarThreadAttention?
     public var hasUnreadWhileInactive: Bool
     public var isBulkSelected: Bool
     public var isArchived: Bool
+    public var isProjectless: Bool
     public var progress: Double?
     public var statusText: String?
     public var isPendingMutation: Bool
@@ -56,9 +58,11 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
         canPin: Bool = true,
         canArchive: Bool = true,
         liveStatus: CodexThreadLiveStatus = .idle,
+        attention: CodexSidebarThreadAttention? = nil,
         hasUnreadWhileInactive: Bool = false,
         isBulkSelected: Bool = false,
         isArchived: Bool = false,
+        isProjectless: Bool = false,
         progress: Double? = nil,
         statusText: String? = nil,
         isPendingMutation: Bool = false
@@ -69,9 +73,11 @@ public struct CodexSidebarThreadRow: Identifiable, Equatable, Sendable {
         self.canPin = canPin
         self.canArchive = canArchive
         self.liveStatus = liveStatus
+        self.attention = attention
         self.hasUnreadWhileInactive = hasUnreadWhileInactive
         self.isBulkSelected = isBulkSelected
         self.isArchived = isArchived
+        self.isProjectless = isProjectless
         self.progress = progress.map { min(max($0, 0), 1) }
         self.statusText = statusText?.nilIfBlank
         self.isPendingMutation = isPendingMutation
@@ -158,6 +164,11 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
     public var projects: [CodexSidebarProjectGroup]
     public var olderProjects: [CodexSidebarProjectGroup]
     public var sections: [CodexSidebarSectionGroup]
+    /// Complete loaded roster for an inbox presentation. Project tree previews
+    /// remain bounded independently, so expanding the inbox cannot lose rows.
+    public var inboxRows: [CodexSidebarThreadRow]
+    /// Visible project catalogue before recent/older partitioning.
+    public var inboxProjects: [CodexProjectSummary]
     public var archivedRows: [CodexSidebarThreadRow]
     public var archivedNextCursor: String?
     public var activeLoadState: CodexSidebarLoadState
@@ -182,6 +193,8 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         projects: [CodexSidebarProjectGroup],
         olderProjects: [CodexSidebarProjectGroup] = [],
         sections: [CodexSidebarSectionGroup] = [],
+        inboxRows: [CodexSidebarThreadRow] = [],
+        inboxProjects: [CodexProjectSummary] = [],
         archivedRows: [CodexSidebarThreadRow] = [],
         archivedNextCursor: String? = nil,
         activeLoadState: CodexSidebarLoadState = .loaded,
@@ -205,6 +218,8 @@ public struct CodexSidebarSnapshot: Equatable, Sendable {
         self.projects = projects
         self.olderProjects = olderProjects
         self.sections = sections
+        self.inboxRows = inboxRows
+        self.inboxProjects = inboxProjects
         self.archivedRows = archivedRows
         self.archivedNextCursor = archivedNextCursor
         self.activeLoadState = activeLoadState

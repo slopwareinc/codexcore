@@ -16,6 +16,15 @@ Concrete presentation prerequisites found and implemented:
 
 ## Semantics already present in CodexCore
 
+The current T3 sidebar is the default (`legacySidebarEnabled: false`), distinct
+from `LegacySidebar.tsx`. CodexCore's T3 presentation now uses its flat,
+project-scoped inbox and 78-point active cards. Its full loaded roster is
+independent of native five-row project previews. Creation-based ordering keeps
+activity from moving rows, typed canonical flags supply Approval/Input, and
+branch metadata comes from the server. Pinned order, search scope, inline rename,
+and visible-range selection are presentation state. Turn completion never
+creates T3's separate application-owned settlement or snooze state.
+
 - T3's `message_steering/codex_output.ts` asserts one run/native provider turn with both opening and steering user inputs visible. CodexCore already retains `userMessage`, `steeredMessages`, and canonical `conversationSegments`, reconciles client IDs, serializes steering, retries the reported active turn once, and immediately starts a new turn for the no-active-turn race.
 - T3 advertises native queue, interrupt, session model/runtime switching, file/command approvals, structured blocking input, proposed plans, checklist updates, tool output, and subagents (`CodexProviderCapabilitiesV2`, lines237–329). CodexCore already exposes these through typed APIs, durable queue control, canonical prompts, thread leases, and recursive thread graph state.
 - T3's plan-mode turn parameters use native `collaborationMode` and explicit approval reviewer per turn (`buildCodexTurnStartParams`). CodexCore likewise constructs native collaboration/permission settings, with additional protections for model-specific service tiers and reasoning effort across target threads.

@@ -19,6 +19,7 @@ enum CodexProjectSidebarEnvironmentLabel {
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -63,6 +64,12 @@ public struct CodexProjectSidebar: View {
     let sectionDestinations: [CodexSidebarSectionSummary]
     let onMoveChat: (CodexThreadSummary, String?) -> Void
     let renderCounter: CodexSidebarMountedRenderCounter?
+    let inboxProjectScope: Binding<String?>?
+    let isInboxProjectCatalogReady: Bool
+    let inboxSearchState: CodexSidebarInboxSearchState?
+    let onSearchInbox: ((String) async -> Void)?
+    let onLoadMoreInboxSearch: (() -> Void)?
+    let onRenameChat: ((CodexThreadSummary, String) -> Void)?
 
     public init(
         serverName: String?,
@@ -101,7 +108,13 @@ public struct CodexProjectSidebar: View {
         onUnarchiveChat: @escaping (CodexThreadSummary) -> Void = { _ in },
         sectionDestinations: [CodexSidebarSectionSummary] = [],
         onMoveChat: @escaping (CodexThreadSummary, String?) -> Void = { _, _ in },
-        renderCounter: CodexSidebarMountedRenderCounter? = nil
+        renderCounter: CodexSidebarMountedRenderCounter? = nil,
+        inboxProjectScope: Binding<String?>? = nil,
+        isInboxProjectCatalogReady: Bool = false,
+        inboxSearchState: CodexSidebarInboxSearchState? = nil,
+        onSearchInbox: ((String) async -> Void)? = nil,
+        onLoadMoreInboxSearch: (() -> Void)? = nil,
+        onRenameChat: ((CodexThreadSummary, String) -> Void)? = nil
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -140,15 +153,20 @@ public struct CodexProjectSidebar: View {
         self.sectionDestinations = sectionDestinations
         self.onMoveChat = onMoveChat
         self.renderCounter = renderCounter
+        self.inboxProjectScope = inboxProjectScope
+        self.isInboxProjectCatalogReady = isInboxProjectCatalogReady
+        self.inboxSearchState = inboxSearchState
+        self.onSearchInbox = onSearchInbox
+        self.onLoadMoreInboxSearch = onLoadMoreInboxSearch
+        self.onRenameChat = onRenameChat
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             sidebarTitlebar
             if theme.interfaceStyle == .t3Code {
-                routeRows.padding(.horizontal, 8).padding(.bottom, 8)
-            }
-
+                inboxView
+            } else {
             ScrollView(showsIndicators: true) {
                 VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : (theme.interfaceStyle == .t3Code ? 8 : 16)) {
                     if theme.interfaceStyle != .t3Code { routeRows }
@@ -179,6 +197,7 @@ public struct CodexProjectSidebar: View {
                 .padding(.top, theme.interfaceStyle == .t3Code ? 0 : 8)
                 .padding(.bottom, 16)
             }
+            }
 
             utilitySection
             accountFooter
@@ -192,13 +211,47 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        .codexGlass(Rectangle(), role: .chrome)
+        .modifier(CodexSidebarSurface())
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border)
                 .frame(width: 1)
         }
         .overlay(alignment: .trailing) { resizeHandle }
+        .codexAgentTheme(sidebarTheme)
+    }
+
+    private var sidebarTheme: CodexAgentTheme {
+        guard theme.interfaceStyle == .t3Code else { return theme }
+        var sidebar = theme
+        sidebar.colors.textPrimary = CodexT3SidebarColors.foreground(for: colorScheme)
+        sidebar.colors.textSecondary = CodexT3SidebarColors.secondary(for: colorScheme)
+        sidebar.colors.textTertiary = sidebar.colors.textSecondary.opacity(0.7)
+        return sidebar
+    }
+
+    private var inboxView: some View {
+        CodexT3SidebarInboxView(
+            snapshot: snapshot, projectScope: inboxProjectScope, isProjectCatalogReady: isInboxProjectCatalogReady,
+            searchState: inboxSearchState, hasMoreActive: hasMoreActiveChats, isLoadingMoreActive: isLoadingMoreActiveChats,
+            sectionDestinations: sectionDestinations,
+            actions: .init(
+                newChat: onNewChat, newProject: onOpenFolder, startProjectChat: onStartProjectChat,
+                selectChat: onSelectChat, togglePin: onTogglePinChat, archive: onArchiveChat, unarchive: onUnarchiveChat,
+                rename: onRenameChat, toggleSelection: onToggleThreadSelection, clearSelection: onClearThreadSelection,
+                moveToSection: onMoveChat, loadArchived: onLoadArchivedChats, loadMoreArchived: onLoadMoreArchivedChats,
+                loadMoreActive: onLoadMoreActiveChats, search: onSearchInbox, loadMoreSearch: onLoadMoreInboxSearch
+            ),
+            bulkSelectionToolbar: { snapshot, visibleIDs in
+                AnyView(CodexSidebarBulkSelectionToolbar(
+                    snapshot: snapshot,
+                    onSelectAll: {
+                        visibleIDs.filter { !snapshot.selectedThreadIDs.contains($0) }.forEach(onToggleThreadSelection)
+                    },
+                    onTogglePinned: onTogglePinnedSelectedChats, onArchive: onArchiveSelectedChats, onClear: onClearThreadSelection
+                ))
+            }
+        )
     }
 
     @ViewBuilder
@@ -657,6 +710,19 @@ public struct CodexProjectSidebar: View {
         }
     }
 
+}
+
+private struct CodexSidebarSurface: ViewModifier {
+    @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        if theme.interfaceStyle == .t3Code {
+            content.background(CodexT3SidebarColors.background(for: colorScheme))
+        } else {
+            content.codexGlass(Rectangle(), role: .chrome)
+        }
+    }
 }
 
 private struct SidebarUtilityButton: View {

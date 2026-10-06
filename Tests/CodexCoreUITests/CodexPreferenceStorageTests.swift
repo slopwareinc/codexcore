@@ -4,6 +4,15 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexPreferenceStorageTests: XCTestCase {
+    func testInboxProjectScopeDefaultsToAllAndPreservesOpaqueIdentity() {
+        let store = PreferenceStore()
+        XCTAssertNil(CodexSidebarInboxScopeStorage.load(from: store))
+        XCTAssertTrue(CodexSidebarInboxScopeStorage.save("project:opaque/server-id", to: store))
+        XCTAssertEqual(CodexSidebarInboxScopeStorage.load(from: store), "project:opaque/server-id")
+        XCTAssertTrue(CodexSidebarInboxScopeStorage.save(nil, to: store))
+        XCTAssertNil(CodexSidebarInboxScopeStorage.load(from: store))
+    }
+
     func testAppearanceSettingsMigratesV1PayloadAndPreservesStoredFields() {
         let v1Payload = #"{"preset":"midnight","mode":"light","reduceMotion":true,"uiFontSize":17}"#
         let store = PreferenceStore(values: [

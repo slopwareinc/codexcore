@@ -16,7 +16,7 @@ application's Resources directory.
 | Upstream source | Native ownership |
 | --- | --- |
 | `apps/web/src/index.css` | `CodexT3CodePalette`, `CodexAgentTheme.Spacing.t3Code`, `Radii.t3Code` |
-| `Sidebar.tsx`, `sidebar/SidebarChrome.tsx` | `CodexProjectSidebarView`, sidebar organization views |
+| Current `Sidebar.tsx`, `sidebar/SidebarThreadHeader.tsx`, project identity helpers | `CodexT3SidebarInboxView`, `CodexT3SidebarThreadRow`, `CodexT3ProjectIdentity` |
 | `chat/ChatHeader.tsx` | `CodexChatHeader`, host-supplied project breadcrumb |
 | `chat/ComposerSurface.tsx`, `ChatComposer.tsx`, `ComposerControl.tsx` | `CodexComposerBar`, compact model and permission controls |
 | `composerFooterLayout.ts` | Gesture-driven reading mode and composer reservation |
@@ -71,6 +71,49 @@ the existing native conventions. Hosts can reuse the palette or geometry while
 supplying their own theme. The Swift SDK and canonical state remain the source
 of truth, and the native transcript retains virtualization, exact-item focus,
 selection, and host-owned approvals and navigation.
+
+### Current sidebar inbox
+
+The T3 preset follows the current sidebar, whose upstream default is
+`legacySidebarEnabled: false`. It uses a flat inbox across **All projects**,
+not the older per-project tree. Active and pinned chats use 78-point content
+boxes with project/status, title, and branch/provider lines. Pinned rows keep
+their saved order without a separate Pinned heading. Active rows sort by
+creation time with a stable ID tie-breaker; new activity, unread changes, and
+title changes do not move the row beneath the pointer. A completed turn stays
+an active card. Hover actions occupy the status slot, preserving title width.
+
+`CodexSidebarSnapshot.inboxRows` carries the complete loaded roster independently
+of the native tree's five-chat previews, collapsed groups, or project age.
+`inboxProjects` supplies the project catalogue. For manually constructed
+snapshots, populate both; the fallback can show only rows already present in
+the supplied groups. Server pagination remains available through Load older
+chats. Project scoping uses opaque project IDs, independently of the selected
+chat and workspace; shared directories never guess an identity. The reference
+app persists its filter through `CodexSidebarInboxScopeStorage`.
+
+Hosts can pass `inboxProjectScope` as a binding, `isInboxProjectCatalogReady` to
+allow stale scope cleanup after an authoritative refresh, and
+`CodexSidebarInboxSearchState` with `onSearchInbox`/`onLoadMoreInboxSearch` for
+server search. Without a search provider the inline field filters loaded chats.
+Results replace the local matches only for the exact completed query. Enter and
+arrow keys navigate results. Command-click toggles selection, Shift-click adds
+a visible range, and Select all operates within the current project scope.
+`onRenameChat` enables title double-click editing; Enter or blur commits and
+Escape cancels. The new-chat control chooses the filtered project, opens a
+project picker in All projects, and accepts Shift-click for the current project.
+
+Approval and input labels use `CodexSidebarThreadAttention` from canonical
+active flags. Unknown pending requests never manufacture either label.
+`CodexThreadSummary.gitBranch` preserves the server's branch metadata without
+launching Git from a row. Project monograms and the Codex mark are local vectors;
+rows keep hover/focus state locally, use lazy mounting, and share one bounded
+projection cache.
+
+Codex's **Archived** lifecycle remains explicit and uses 36-point compact
+history rows. It is separate from T3's application-owned Settled/Snoozed
+services. Those services are not invented from turn completion or mapped onto
+an archive operation. Other interface styles retain the grouped native sidebar.
 
 ### Plans and asynchronous questions
 

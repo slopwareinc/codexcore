@@ -8,6 +8,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
     public var workspacePath: String?
     public var status: String?
     public var modelProvider: String?
+    public var gitBranch: String?
     public var projectID: String?
     public var threadSource: String?
     public var parentThreadID: String?
@@ -28,6 +29,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         workspacePath: String? = nil,
         status: String? = nil,
         modelProvider: String? = nil,
+        gitBranch: String? = nil,
         projectID: String? = nil,
         threadSource: String? = nil,
         parentThreadID: String? = nil,
@@ -47,6 +49,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
         self.workspacePath = workspacePath
         self.status = status
         self.modelProvider = modelProvider
+        self.gitBranch = gitBranch?.nilIfBlank
         self.projectID = projectID
         self.threadSource = threadSource
         self.parentThreadID = parentThreadID
@@ -91,6 +94,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             workspacePath: cwd,
             status: status,
             modelProvider: schema.modelProvider,
+            gitBranch: schema.gitInfo?.branch,
             projectID: schema.projectID,
             threadSource: threadSource,
             parentThreadID: schema.parentThreadID,
@@ -123,6 +127,7 @@ public struct CodexThreadSummary: Identifiable, Equatable, Sendable {
             workspacePath: Self.string(in: object, keys: ["cwd"]),
             status: Self.status(from: object["status"]),
             modelProvider: Self.string(in: object, keys: ["modelProvider"]),
+            gitBranch: Self.string(in: Self.dictionary(from: object["gitInfo"]), keys: ["branch"]),
             projectID: Self.string(in: object, keys: ["projectId"]),
             threadSource: Self.string(in: object, keys: ["threadSource"]),
             parentThreadID: Self.string(in: object, keys: ["parentThreadId"]),
