@@ -42,6 +42,10 @@ struct CodexT3SidebarInboxView: View {
     var hasMoreActive = false
     var isLoadingMoreActive = false
     var sectionDestinations: [CodexSidebarSectionSummary] = []
+    var drafts: [CodexComposerDraftSnapshot] = []
+    var activeDraftID: CodexComposerDraftID?
+    var onSelectDraft: ((CodexComposerDraftID) -> Void)?
+    var onDiscardDraft: ((CodexComposerDraftID) -> Void)?
     let actions: CodexT3SidebarInboxActions
     var bulkSelectionToolbar: ((CodexSidebarSnapshot, [String]) -> AnyView)?
 
@@ -178,6 +182,11 @@ struct CodexT3SidebarInboxView: View {
     }
 
     @ViewBuilder private var inbox: some View {
+        CodexSidebarDraftList(
+            items: CodexSidebarDraftProjection(drafts: drafts, projects: projection.projects,
+                projectScopeID: scope.wrappedValue, activeDraftID: activeDraftID).items,
+            onSelect: onSelectDraft, onDiscard: onDiscardDraft
+        )
         ForEach(projection.pinned) { item in chatRow(item) }
         if !projection.pinned.isEmpty && !projection.active.isEmpty {
             Rectangle().fill(secondary.opacity(0.12)).frame(height: 1).padding(.vertical, 6).padding(.horizontal, 10)

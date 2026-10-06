@@ -128,6 +128,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
     var onReadingHistoryChanged: (Bool) -> Void = { _ in }
     var onRetryTurn: ((CodexUserMessageV2) -> Void)?
     var onForkChat: (() -> Void)?
+    var onForkResponse: ((CodexTranscriptForkRequest) -> Void)? = nil
     var onResolveApproval: (CodexServerRequestKey, Bool) -> Void
     var retryRevision: Int
     var onProjectionError: (String?) -> Void
@@ -174,6 +175,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onReadingHistoryChanged: onReadingHistoryChanged,
             onRetryTurn: onRetryTurn,
             onForkChat: onForkChat,
+            onForkResponse: onForkResponse,
             onResolveApproval: onResolveApproval,
             retryRevision: retryRevision,
             onProjectionError: onProjectionError
@@ -235,6 +237,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
         private var lastReportedReadingHistory = false
         private var onRetryTurn: ((CodexUserMessageV2) -> Void)?
         private var onForkChat: (() -> Void)?
+        private var onForkResponse: ((CodexTranscriptForkRequest) -> Void)?
         private var onResolveApproval: (CodexServerRequestKey, Bool) -> Void = { _, _ in }
         private var onProjectionError: (String?) -> Void = { _ in }
         private var retryRevision = 0
@@ -356,6 +359,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             onReadingHistoryChanged: @escaping (Bool) -> Void = { _ in },
             onRetryTurn: ((CodexUserMessageV2) -> Void)? = nil,
             onForkChat: (() -> Void)?,
+            onForkResponse: ((CodexTranscriptForkRequest) -> Void)? = nil,
             onResolveApproval: @escaping (CodexServerRequestKey, Bool) -> Void = { _, _ in },
             retryRevision: Int = 0,
             onProjectionError: @escaping (String?) -> Void = { _ in }
@@ -398,9 +402,12 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                 && (previousPresentation.map { $0 != presentation } ?? true)
             let nextTheme = CodexTranscriptAppKitTheme(swiftUITheme, colorScheme: colorScheme)
             let annotationsChanged = self.responseAnnotations != responseAnnotations
+            let forkAvailabilityChanged = (self.onForkChat != nil || self.onForkResponse != nil)
+                != (onForkChat != nil || onForkResponse != nil)
             if appKitTheme?.fingerprint != nextTheme.fingerprint
                 || self.contentHorizontalOffset != contentHorizontalOffset
-                || self.mcpAppHostContext?.appResources != mcpAppHostContext?.appResources {
+                || self.mcpAppHostContext?.appResources != mcpAppHostContext?.appResources
+                || forkAvailabilityChanged {
                 forceReconfigureAll = true
             }
             self.currentPresentation = presentation
@@ -423,6 +430,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
             if previousPresentation?.threadID != presentation.threadID { lastReportedReadingHistory = false }
             self.onRetryTurn = onRetryTurn
             self.onForkChat = onForkChat
+            self.onForkResponse = onForkResponse
             self.onResolveApproval = onResolveApproval
             self.onProjectionError = onProjectionError
             if annotationsChanged {
@@ -690,7 +698,7 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     )
                 },
                 retryTurn: onRetryTurn,
-                forkChat: onForkChat,
+                forkChat: forkAction(for: item, threadID: renderedThreadID),
                 fileNavigationService: fileNavigationService,
                 responseAnnotations: responseAnnotations,
                 upsertResponseAnnotation: onUpsertResponseAnnotation,
@@ -700,6 +708,20 @@ struct CodexTranscriptListHost: NSViewRepresentable {
                     self?.preferredHeightChanged(id: id, revision: revision, height: height)
                 }
             )
+        }
+
+        private func forkAction(for item: CodexTranscriptRenderItem, threadID: String?) -> (() -> Void)? {
+            guard onForkResponse != nil || onForkChat != nil else { return nil }
+            let itemID = item.id
+            let turnID = item.turnID
+            return { [weak self] in
+                guard let self, self.isCurrentRenderedItem(itemID, threadID: threadID) else { return }
+                if let onForkResponse = self.onForkResponse, let threadID {
+                    onForkResponse(.init(threadID: threadID, lastTurnID: turnID))
+                } else {
+                    self.onForkChat?()
+                }
+            }
         }
 
         private func isCurrentRenderedItem(_ itemID: CodexTranscriptRenderItemID, threadID: String?) -> Bool {

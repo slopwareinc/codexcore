@@ -1,8 +1,8 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// A filesystem path dropped into the composer. CodexCore keeps the path as metadata; image
-/// contents may be sampled by the thumbnail renderer, while model access still happens via tools.
+/// A filesystem path dropped into the composer. Image references also become
+/// native local-image inputs at submission; other files remain path context.
 public struct CodexReferencedFile: Identifiable, Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         case file

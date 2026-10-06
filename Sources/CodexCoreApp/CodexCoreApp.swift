@@ -59,7 +59,8 @@ final class CodexCoreApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let preferenceStore: any CodexStringListPreferenceStore = CodexUserDefaultsStringListPreferenceStore()
     private lazy var model = CodexCoreAppModel(
         clipboardService: clipboardService,
-        preferenceStore: preferenceStore
+        preferenceStore: preferenceStore,
+        draftStorageDirectory: CodexHome.default.directoryURL.appendingPathComponent("codexcore/drafts", isDirectory: true)
     )
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?

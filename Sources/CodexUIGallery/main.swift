@@ -710,7 +710,14 @@ private struct ChatWorkspaceScene: View {
                 isThreadReady: true, snapshot: snapshot,
                 onNewChat: {}, onOpenSearch: {}, onSelectRoute: { _ in },
                 onToggleProject: { _ in }, onStartProjectChat: { _ in }, onSelectProject: { _ in },
-                onOpenFolder: {}, onSelectChat: { _ in }, onTogglePinChat: { _ in }, onArchiveChat: { _ in }
+                onOpenFolder: {}, onSelectChat: { _ in }, onTogglePinChat: { _ in }, onArchiveChat: { _ in },
+                drafts: [
+                    .init(draftID: .init(rawValue: "gallery-draft-a"), workspacePath: project.workspacePath,
+                          projectID: project.id, prompt: "Finish the file search workflow"),
+                    .init(draftID: .init(rawValue: "gallery-draft-b"), isProjectless: true,
+                          prompt: "Explore the next idea"),
+                ],
+                onSelectDraft: { _ in }, onDiscardDraft: { _ in }
             )
             VStack(spacing: 0) {
                 CodexChatHeader(

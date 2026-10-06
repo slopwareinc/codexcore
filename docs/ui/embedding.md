@@ -49,6 +49,21 @@ questions. Existing native theme families remain available. Pass
 `workspaceTitle` for the selected project's display name without changing its
 server identity.
 
+Use [composer draft identities and recovery](composer-drafts.md) to preserve
+independent unsent chats, scoped context and draft storage. Image references in
+`CodexComposerSubmission.turnInput` include native `localImage` inputs alongside
+the display/path context; authoritative queued input is preserved without
+adding those images twice. The local-image path belongs to the runtime's
+filesystem. `CodexModelSelection.inputModalities` preserves the catalog's
+declaration; nil remains unknown.
+
+For response-scoped forks, pass `onForkResponse` to `CodexTranscriptViewV2`, or
+`CodexChatActionHandlers.forkFromResponse` to the workspace. Its
+`CodexTranscriptForkRequest` includes the displayed thread and inclusive native
+`lastTurnID`. Revalidate that source before dispatching `thread/fork`; a
+synthetic/local turn is not a native fork boundary. The parameterless
+`onForkChat`/`forkChat` handlers remain available for head-only hosts.
+
 `onOpenThread` is for independent task references produced by `create_thread`,
 `read_thread`, `send_message_to_thread`, and received delegation messages. It
 must navigate the host's main task workspace. Keep `onOpenSubagent` separate: it

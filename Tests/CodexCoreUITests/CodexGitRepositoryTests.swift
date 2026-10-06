@@ -3,6 +3,66 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexGitRepositoryTests: XCTestCase {
+    func testCancellingCommitHookPreservesCreatedCommitAndRequiresOutcomeCheck() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let hook = fixture.url.appending(path: ".git/hooks/post-commit")
+        try """
+        #!/bin/sh
+        trap '' TERM INT
+        printf '%s' "$$" > .git/hook-started
+        while :; do /bin/sleep 1; done
+        """.write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        try fixture.write("created before cancellation\n", to: "tracked.txt")
+        try fixture.git("add", "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+        let task = Task {
+            try await repository.mutate(.commit(message: "created once", includeUnstaged: false),
+                expectedRevision: snapshot.revision, source: .uncommitted)
+        }
+        for _ in 0..<200 {
+            if FileManager.default.fileExists(atPath: fixture.url.appending(path: ".git/hook-started").path) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.url.appending(path: ".git/hook-started").path))
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected interrupted commit hook")
+        } catch let error as CodexGitRepositoryError {
+            guard case .commandInterrupted(_, let message) = error else { return XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(message.contains("Refresh the repository"))
+            XCTAssertTrue(message.contains("do not repeat a commit"))
+        }
+        XCTAssertEqual(try fixture.git("rev-list", "--count", "HEAD").trimmingCharacters(in: .whitespacesAndNewlines), "2")
+        XCTAssertEqual(try fixture.git("log", "-1", "--format=%s").trimmingCharacters(in: .whitespacesAndNewlines), "created once")
+        XCTAssertEqual(try fixture.git("status", "--porcelain"), "")
+    }
+
+    func testCommitFailureReportsCompletedStagingWithoutReplayingWorkflow() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let hook = fixture.url.appending(path: ".git/hooks/pre-commit")
+        try "#!/bin/sh\nprintf rejected >&2\nexit 7\n".write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        try fixture.write("staged survives rejection\n", to: "tracked.txt")
+        let repository = CodexGitRepository(workspaceURL: fixture.url)
+        let snapshot = try await repository.snapshot(source: .uncommitted)
+        do {
+            _ = try await repository.mutate(.commit(message: "not created", includeUnstaged: true),
+                expectedRevision: snapshot.revision, source: .uncommitted)
+            XCTFail("Expected hook failure")
+        } catch let error as CodexGitRepositoryError {
+            guard case .partialSuccess(let message) = error else { return XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(message.contains("Files were staged"))
+            XCTAssertTrue(message.contains("rejected"))
+        }
+        XCTAssertEqual(try fixture.git("rev-list", "--count", "HEAD").trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        XCTAssertEqual(try fixture.git("diff", "--cached", "--name-only"), "tracked.txt\n")
+    }
+
     @MainActor
     func testCancellingReviewRefreshLeavesNoPermanentLoadingState() throws {
         let fixture = try GitFixture()

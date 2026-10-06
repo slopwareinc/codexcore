@@ -651,6 +651,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
     public let serviceTiers: [CodexModelServiceTier]
     public let defaultServiceTierID: String?
     public var isFastModel: Bool
+    /// Nil means the catalog did not declare input capability.
+    public var inputModalities: [CodexSchemaInputModality]?
     private let serviceTierByID: [String: CodexModelServiceTier]
 
     public init(
@@ -667,7 +669,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         supportedReasoning: [CodexReasoningSelection] = CodexReasoningSelection.defaultOptions,
         serviceTiers: [CodexModelServiceTier] = [],
         defaultServiceTierID: String? = nil,
-        isFastModel: Bool = false
+        isFastModel: Bool = false,
+        inputModalities: [CodexSchemaInputModality]? = nil
     ) {
         var normalizedTiers = serviceTiers
         var tierByID: [String: CodexModelServiceTier] = [:]
@@ -704,6 +707,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
         self.serviceTiers = normalizedTiers
         self.defaultServiceTierID = normalizedDefaultTierID
         self.isFastModel = isFastModel
+        self.inputModalities = inputModalities
         self.serviceTierByID = tierByID
     }
 
@@ -722,6 +726,7 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
             && lhs.serviceTiers == rhs.serviceTiers
             && lhs.defaultServiceTierID == rhs.defaultServiceTierID
             && lhs.isFastModel == rhs.isFastModel
+            && lhs.inputModalities == rhs.inputModalities
     }
 
     func serviceTier(id: String) -> CodexModelServiceTier? {
@@ -790,7 +795,8 @@ public struct CodexModelSelection: Identifiable, Equatable, Sendable {
                     : supportedReasoning,
                 serviceTiers: serviceTiers,
                 defaultServiceTierID: model.defaultServiceTier,
-                isFastModel: model.additionalSpeedTiers?.isEmpty == false
+                isFastModel: model.additionalSpeedTiers?.isEmpty == false,
+                inputModalities: model.inputModalities
             )
         }
     }

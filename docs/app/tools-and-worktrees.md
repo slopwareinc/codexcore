@@ -43,6 +43,23 @@ The unified diff carries a single line-number gutter, matching bundle `26.727.40
 
 Per-file and bulk stage, unstage, and tracked-file revert actions are explicit. Branch create/checkout, commit, commit-and-push, push, and draft-PR actions share the same mutation boundary. Rendering never mutates Git. Each mutation validates paths and rejects a stale repository revision. Mutations refuse index locks and active merge, rebase, cherry-pick, revert, bisect, or sequencer operations. Tracked revert requires confirmation, clears staged and unstaged content together, and refuses untracked deletion. Commit-and-push reports partial success if the commit succeeds but the network step fails, so recovery never suggests duplicating the commit.
 
+Review and Environment run Git through one owned subprocess boundary. Ordinary
+reads have a 30-second deadline, push/PR creation and worktree transfer commands
+have a two-minute deadline, and commits allow ten minutes for hooks. Output is
+capped while the command runs; stdout and stderr drain concurrently with stdin.
+Cancellation prevents pending launches and terminates the command's own process
+group, escalating to forced termination when needed. Children retaining output
+pipes have a separate one-second drain deadline. Capture uses bounded memory
+instead of temporary output files. Concurrent identical Review snapshots share
+one worker; cancelling one consumer leaves other consumers running, while the
+last consumer cancels that worker.
+
+Interrupted mutations report an uncertain outcome. Refresh and check local or
+remote Git state before retrying a commit, push, or PR creation. Staging that
+completed before a failed commit is reported explicitly, and a commit created
+before a hook interruption is preserved. Commands are never replayed
+automatically.
+
 Choose **Create environment** to hand the current chat off to a local Git
 worktree. The confirmation sheet shows the editable branch name and destination
 path, then reports capture, worktree creation, branch creation, tracked-change
@@ -55,6 +72,12 @@ The destination uses a short machine-identifiable bucket and preserves the
 chat's repository-relative working directory. Worktree-backed chats are marked
 in the project sidebar using Git metadata, with a path fallback for unavailable
 checkouts. Cloud environments are not offered.
+
+If handoff is cancelled after creating the destination, bounded cleanup runs
+independently of the cancelled request. It removes the newly created worktree
+and a confirmed new branch, while preserving the source checkout. If branch
+creation did not report completion, the failure asks the user to inspect that
+branch before retrying instead of deleting a branch with uncertain ownership.
 
 Worktree handoff and Review require a Git-backed workspace. Projectless chats
 show the Review empty state instead. Use the workspace side panel for the real

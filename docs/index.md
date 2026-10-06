@@ -21,6 +21,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 ## Embed CodexCoreUI
 
 - [Embedding guide](ui/embedding.md)
+- [Composer drafts and recovery](ui/composer-drafts.md)
 - [Activity presentation](ui/live-activity.md)
 - [Custom tool cards](ui/custom-tool-cards.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)

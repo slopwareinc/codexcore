@@ -309,7 +309,11 @@ struct CodexCoreAppShell: View {
             onLoadMoreInboxSearch: { Task { await model.loadMoreSearchResults() } },
             onRenameChat: { chat, title in
                 Task { await model.renameSidebarChat(chat, to: title, expectedAccountRevision: sidebarAccountRevision) }
-            }
+            },
+            drafts: model.composerDraftRecords,
+            activeDraftID: model.composerSession.activeDraftID,
+            onSelectDraft: { draftID in Task { await model.selectComposerDraft(draftID) } },
+            onDiscardDraft: { model.discardComposerDraft($0) }
         )
     }
 
@@ -446,6 +450,19 @@ struct CodexCoreAppShell: View {
                 CodexAppRuntimeNoticeFeaturesView(features: model.runtimeNotices, threadID: model.currentThreadID,
                                                  turnID: model.activeTurnLease?.key.turnID.rawValue)
                 if let error = model.liveTurnSettings.errorMessage { CodexErrorBanner(message: error) }
+                if let error = model.chatActionError {
+                    HStack(alignment: .top, spacing: 8) {
+                        CodexErrorBanner(message: error)
+                        Button { model.clearChatActionError() } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.plain).accessibilityLabel("Dismiss chat action error")
+                    }
+                }
+                if let error = model.draftPersistenceError {
+                    HStack(alignment: .top, spacing: 8) {
+                        CodexErrorBanner(message: error)
+                        Button("Retry") { model.retryComposerDraftPersistence() }.buttonStyle(.plain)
+                    }
+                }
                 if let message = model.liveTurnSettings.message {
                     Text(message).font(model.theme.fonts.caption).foregroundStyle(model.theme.colors.textSecondary)
                 }
@@ -577,8 +594,8 @@ struct CodexCoreAppShell: View {
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
-                onFilesDropped: { [threadID = model.currentThreadID] urls in
-                    model.addReferencedFileURLs(urls, to: threadID)
+                onFilesDropped: { [origin = model.composerEditOrigin] urls in
+                    model.addReferencedFileURLs(urls, to: origin)
                 },
                 onOpenThread: { reference in
                     Task { await model.openThreadReference(reference) }
@@ -693,6 +710,7 @@ struct CodexCoreAppShell: View {
             openSideChat: { model.openSideChat() },
             copyChat: { model.copyChatTranscript() },
             forkChat: { Task { await model.forkCurrentChat() } },
+            forkFromResponse: { request in Task { await model.forkChat(from: request) } },
             addAutomation: { model.addAutomationForCurrentChat() }
         )
     }

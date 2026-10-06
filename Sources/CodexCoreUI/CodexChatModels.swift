@@ -1,3 +1,14 @@
+/// An inclusive native turn boundary selected from a transcript response.
+public struct CodexTranscriptForkRequest: Equatable, Sendable {
+    public let threadID: String
+    public let lastTurnID: String
+
+    public init(threadID: String, lastTurnID: String) {
+        self.threadID = threadID
+        self.lastTurnID = lastTurnID
+    }
+}
+
 public struct CodexChatActionHandlers {
     public var pinChat: (() -> Void)?
     public var renameChat: (() -> Void)?
@@ -5,6 +16,7 @@ public struct CodexChatActionHandlers {
     public var openSideChat: (() -> Void)?
     public var copyChat: (() -> Void)?
     public var forkChat: (() -> Void)?
+    public var forkFromResponse: ((CodexTranscriptForkRequest) -> Void)?
     public var addAutomation: (() -> Void)?
 
     public init(
@@ -14,10 +26,12 @@ public struct CodexChatActionHandlers {
         openSideChat: (() -> Void)? = nil,
         copyChat: (() -> Void)? = nil,
         forkChat: (() -> Void)? = nil,
+        forkFromResponse: ((CodexTranscriptForkRequest) -> Void)? = nil,
         addAutomation: (() -> Void)? = nil
     ) {
         self.pinChat = pinChat; self.renameChat = renameChat; self.archiveChat = archiveChat
         self.openSideChat = openSideChat; self.copyChat = copyChat; self.forkChat = forkChat
+        self.forkFromResponse = forkFromResponse
         self.addAutomation = addAutomation
     }
 
