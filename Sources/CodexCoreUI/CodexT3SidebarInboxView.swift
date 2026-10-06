@@ -169,6 +169,7 @@ struct CodexT3SidebarInboxView: View {
             .foregroundStyle(secondary)
         }
         .menuStyle(.borderlessButton)
+        .tint(secondary)
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("Filter chats by project")

@@ -115,10 +115,11 @@ struct CodexT3SidebarThreadRow: View {
             }
         }
         .contextMenu { contextActions.disabled(row.isPendingMutation) }
-        .help(tooltip)
         .accessibilityElement(children: isRenaming ? .contain : .combine)
         .accessibilityLabel([row.summary.title, projectTitle].compactMap { $0 }.joined(separator: ", "))
         .accessibilityValue(statusLabel ?? recencyLabel)
+        .help(tooltip)
+        .accessibilityHint(tooltip)
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(row.isSelected ? .isSelected : [])
         .accessibilityAction(.default, activate)
@@ -201,7 +202,13 @@ struct CodexT3SidebarThreadRow: View {
                 .background(CodexT3SidebarColors.background(for: colorScheme), in: RoundedRectangle(cornerRadius: 2))
                 .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(primaryColor, lineWidth: 1))
                 .focused($isRenameFocused)
-                .onAppear { isRenameFocused = true }
+                .task {
+                    // The replacement field must join the responder chain
+                    // before it can take focus from the sidebar search field.
+                    await Task.yield()
+                    guard !Task.isCancelled, isRenaming else { return }
+                    isRenameFocused = true
+                }
                 .onSubmit(commitRename)
                 .onKeyPress(.escape) { cancelRename(); return .handled }
                 .accessibilityLabel("Thread title")
