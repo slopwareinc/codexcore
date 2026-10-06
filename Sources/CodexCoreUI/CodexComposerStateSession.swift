@@ -494,6 +494,42 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         responseAnnotationsByThreadID[draftID.rawValue] = annotations.isEmpty ? nil : annotations
     }
 
+    /// The active draft's content and context without projecting every stored draft.
+    public var activeDraftRecord: CodexComposerDraftSnapshot {
+        makeDraftRecord(key: activeDraftID.rawValue)
+    }
+
+    /// Returns an owned draft, including empty contexts omitted from sidebar records.
+    public func draftRecord(for draftID: CodexComposerDraftID) -> CodexComposerDraftSnapshot? {
+        let key = draftID.rawValue
+        guard draftID == activeDraftID || draftByThreadID[key] != nil || referencedFilesByThreadID[key] != nil
+            || responseAnnotationsByThreadID[key] != nil || skillsByDraftID[key] != nil || mentionsByDraftID[key] != nil
+            || threadIDByDraftID[key] != nil || workspacePathByDraftID[key] != nil || projectIDByDraftID[key] != nil
+            || projectlessDraftIDs.contains(draftID) else { return nil }
+        return makeDraftRecord(key: key)
+    }
+
+    /// Updates host context without selecting the draft or changing its content.
+    public mutating func setDraftContext(
+        workspacePath: String?, projectID: String?, isProjectless: Bool, for draftID: CodexComposerDraftID
+    ) {
+        workspacePathByDraftID[draftID.rawValue] = workspacePath
+        projectIDByDraftID[draftID.rawValue] = projectID
+        if isProjectless { projectlessDraftIDs.insert(draftID) }
+        else { projectlessDraftIDs.remove(draftID) }
+    }
+
+    private func makeDraftRecord(key: String) -> CodexComposerDraftSnapshot {
+        CodexComposerDraftSnapshot(
+            draftID: .init(rawValue: key), threadID: threadIDByDraftID[key],
+            workspacePath: workspacePathByDraftID[key], projectID: projectIDByDraftID[key],
+            isProjectless: projectlessDraftIDs.contains(.init(rawValue: key)),
+            prompt: draftByThreadID[key] ?? "", referencedFiles: referencedFilesByThreadID[key] ?? [],
+            responseAnnotations: responseAnnotationsByThreadID[key] ?? [], attachedSkills: skillsByDraftID[key] ?? [],
+            selectedMentions: (mentionsByDraftID[key] ?? [:]).values.sorted { $0.fileName < $1.fileName }
+        )
+    }
+
     /// Stable records for host restoration and a local draft picker.
     public var draftRecords: [CodexComposerDraftSnapshot] {
         let keys = Set(draftByThreadID.keys)
@@ -501,20 +537,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             .union(skillsByDraftID.keys).union(mentionsByDraftID.keys)
             .union(threadIDByDraftID.keys).union(workspacePathByDraftID.keys).union(projectIDByDraftID.keys)
             .union(projectlessDraftIDs.map(\.rawValue)).union([activeDraftID.rawValue])
-        return keys.sorted().map { key in
-            CodexComposerDraftSnapshot(
-                draftID: .init(rawValue: key),
-                threadID: threadIDByDraftID[key],
-                workspacePath: workspacePathByDraftID[key],
-                projectID: projectIDByDraftID[key],
-                isProjectless: projectlessDraftIDs.contains(.init(rawValue: key)),
-                prompt: draftByThreadID[key] ?? "",
-                referencedFiles: referencedFilesByThreadID[key] ?? [],
-                responseAnnotations: responseAnnotationsByThreadID[key] ?? [],
-                attachedSkills: skillsByDraftID[key] ?? [],
-                selectedMentions: (mentionsByDraftID[key] ?? [:]).values.sorted { $0.fileName < $1.fileName }
-            )
-        }.filter { !$0.isEmpty || $0.draftID == activeDraftID }
+        return keys.sorted().map { makeDraftRecord(key: $0) }
+            .filter { !$0.isEmpty || $0.draftID == activeDraftID }
     }
 
     public func draftSnapshot() throws -> CodexComposerDraftsSnapshot {
@@ -555,7 +579,8 @@ public struct CodexComposerStateSession: Equatable, Sendable {
         from restored: CodexComposerStateSession,
         activateRestoredDraft: Bool = false
     ) {
-        let canActivate = activateRestoredDraft && activeThreadID == nil && draftRecords.allSatisfy(\.isEmpty)
+        let canActivate = activateRestoredDraft && activeDraftID == .unassigned
+            && activeThreadID == nil && draftRecords.allSatisfy(\.isEmpty)
         let liveMentionResults = mentionResults
         var importedIDs: [CodexComposerDraftID: CodexComposerDraftID] = [:]
         for record in restored.draftRecords {
@@ -571,6 +596,9 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             let key = targetID.rawValue
             let currentText = draft(for: targetID)
             let incomingText = record.prompt
+            let replacesBootstrapMetadata = targetID == .unassigned && currentText.isEmpty
+                && referencedFiles(for: targetID).isEmpty && responseAnnotations(for: targetID).isEmpty
+                && (skillsByDraftID[key] ?? []).isEmpty && (mentionsByDraftID[key] ?? [:]).isEmpty
             // Repeated hydration must not prepend a paragraph that was already imported.
             let alreadyContainsText = incomingText.isEmpty || currentText == incomingText
                 || currentText.hasPrefix(incomingText + "\n\n")
@@ -601,9 +629,16 @@ public struct CodexComposerStateSession: Equatable, Sendable {
             }
             let hasHostMetadata = workspacePathByDraftID[key] != nil || projectIDByDraftID[key] != nil
                 || projectlessDraftIDs.contains(targetID)
-            if workspacePathByDraftID[key] == nil { workspacePathByDraftID[key] = record.workspacePath }
-            if projectIDByDraftID[key] == nil { projectIDByDraftID[key] = record.projectID }
-            if !hasHostMetadata, record.isProjectless { projectlessDraftIDs.insert(targetID) }
+            if replacesBootstrapMetadata {
+                workspacePathByDraftID[key] = record.workspacePath
+                projectIDByDraftID[key] = record.projectID
+                if record.isProjectless { projectlessDraftIDs.insert(targetID) }
+                else { projectlessDraftIDs.remove(targetID) }
+            } else {
+                if workspacePathByDraftID[key] == nil { workspacePathByDraftID[key] = record.workspacePath }
+                if projectIDByDraftID[key] == nil { projectIDByDraftID[key] = record.projectID }
+                if !hasHostMetadata, record.isProjectless { projectlessDraftIDs.insert(targetID) }
+            }
         }
         if canActivate {
             setActiveDraftID(importedIDs[restored.activeDraftID] ?? restored.activeDraftID)

@@ -176,6 +176,8 @@ final class CodexCoreAppModel {
     @ObservationIgnored var draftLoadTask: Task<Void, Never>?
     @ObservationIgnored var unsavedDraftsByAccount: [String: CodexComposerStateSession] = [:]
     @ObservationIgnored var unsavedDraftRevisionByAccount: [String: UInt64] = [:]
+    @ObservationIgnored var bootstrapDraftIDsBySelectionGeneration: [Int: CodexComposerDraftID] = [:]
+    @ObservationIgnored var expiredBootstrapSelectionGeneration: Int?
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
@@ -200,7 +202,7 @@ final class CodexCoreAppModel {
     let dictationSession: CodexComposerDictationSession
     var isProjectlessDraft = true
     var projectlessDraftPaths: CodexProjectlessThreadPaths?
-    private var chatSelectionGeneration = 0
+    private(set) var chatSelectionGeneration = 0
     @ObservationIgnored private var mcpModelContexts: [String: [String: (name: String, value: CodexJSONValue)]] = [:]
     @ObservationIgnored private var mcpContextThreadOrder: [String] = []
     private var searchGeneration = 0
@@ -269,6 +271,7 @@ final class CodexCoreAppModel {
             hiddenProjectIDs: hiddenProjectIDs,
             projectAliases: projectAliases
         )
+        syncComposerThreadID()
     }
 
     convenience init() {
@@ -1175,11 +1178,13 @@ final class CodexCoreAppModel {
         guard !references.isEmpty else {
             return
         }
+        if threadID == currentThreadID { prepareComposerEdit() }
         composerSession.addReferencedFiles(references, for: threadID)
     }
 
     private func presentFilePicker() {
-        let destinationThreadID = currentThreadID
+        prepareComposerEdit()
+        let origin = composerEditOrigin
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -1189,7 +1194,7 @@ final class CodexCoreAppModel {
             guard response == .OK else { return }
             let urls = panel.urls
             Task { @MainActor [weak self] in
-                self?.addReferencedFileURLs(urls, to: destinationThreadID)
+                self?.addReferencedFileURLs(urls, to: origin)
             }
         }
     }
@@ -2180,10 +2185,11 @@ final class CodexCoreAppModel {
             sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
             invalidatePendingChatSelection()
             clearThreadState()
+            startIndependentComposerDraft()
         } else {
             sidebarNavigationSession.selectRoute(.chat)
         }
-        composerSession.setDraft(request.prompt, for: currentThreadID)
+        draft = request.prompt
         await refreshRecentChats()
     }
 
@@ -2308,6 +2314,7 @@ final class CodexCoreAppModel {
             return
         }
 
+        syncComposerThreadID()
         projectSourceFoldersByPrimaryPath = CodexProjectSourceFoldersStorage.updating(
             projectSourceFoldersByPrimaryPath,
             oldPrimary: oldPrimary,
@@ -2337,12 +2344,19 @@ final class CodexCoreAppModel {
         )
 
         if project.contains(workspacePath: workspacePath) {
+            let changesDraftWorkspace = currentThreadID == nil
+                && CodexProjectSummary.normalizedPath(workspacePath) != newPrimary
             workspacePath = newPrimary
             refreshGitBranch()
             sidebarNavigationSession.syncCurrentWorkspace(
                 newPrimary,
                 currentThreadID: currentThreadID
             )
+            if changesDraftWorkspace {
+                invalidatePendingChatSelection()
+                clearThreadState()
+                startIndependentComposerDraft()
+            }
         }
         threadListSession.refreshProjects(currentWorkspacePath: workspacePath)
         if let codex {
@@ -2367,32 +2381,45 @@ final class CodexCoreAppModel {
 
     func selectSidebarProject(_ identity: String) async {
         guard let project = resolveSidebarProject(identity) else { return }
+        syncComposerThreadID()
+        let changesProject = isProjectlessDraft || sidebarNavigationSession.selectedProjectID != project.id
+        let changesWorkspace = CodexProjectSummary.normalizedPath(project.workspacePath)
+            != CodexProjectSummary.normalizedPath(workspacePath)
         sidebarNavigationSession.selectProject(project.id, workspacePath: project.workspacePath)
+        isProjectlessDraft = false
+        projectlessDraftPaths = nil
+        if changesProject && !changesWorkspace {
+            invalidatePendingChatSelection()
+            clearThreadState()
+            startIndependentComposerDraft()
+        }
         saveExpandedSidebarProjects()
         await switchWorkspace(to: project.workspacePath)
     }
 
     func startNewChat(inProject identity: String) async {
         guard let project = resolveSidebarProject(identity) else { return }
+        syncComposerThreadID()
         let path = project.workspacePath
         sidebarNavigationSession.selectProject(project.id, workspacePath: path)
+        isProjectlessDraft = false
+        projectlessDraftPaths = nil
         saveExpandedSidebarProjects()
         if CodexProjectSummary.normalizedPath(path) != CodexProjectSummary.normalizedPath(workspacePath) {
             await switchWorkspace(to: path)
         }
-        isProjectlessDraft = false
-        projectlessDraftPaths = nil
         invalidatePendingChatSelection()
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath, projectID: project.serverID)
         saveExpandedSidebarProjects()
         clearThreadState()
-        composerSession.newDraft(workspacePath: workspacePath, projectID: project.serverID)
+        startIndependentComposerDraft()
         applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
     }
 
     func selectSidebarChat(_ chat: CodexThreadSummary) async {
+        syncComposerThreadID()
         markThreadReadIfFocused(ThreadID(chat.id))
         if projectlessThreadIDs.contains(chat.id) {
             isProjectlessDraft = true
@@ -2428,12 +2455,14 @@ final class CodexCoreAppModel {
             return
         }
 
+        syncComposerThreadID()
         workspacePath = normalized
         refreshGitBranch()
         sidebarNavigationSession.syncCurrentWorkspace(workspacePath, currentThreadID: nil)
         saveExpandedSidebarProjects()
         invalidatePendingChatSelection()
         clearThreadState()
+        startIndependentComposerDraft()
 
         guard let codex else {
             threadListSession.refreshProjects(currentWorkspacePath: workspacePath)
@@ -2445,13 +2474,14 @@ final class CodexCoreAppModel {
     }
 
     func startNewChat() async {
+        syncComposerThreadID()
         isProjectlessDraft = true
         projectlessDraftPaths = nil
         invalidatePendingChatSelection()
         sidebarNavigationSession.startNewProjectlessChat()
         saveExpandedSidebarProjects()
         clearThreadState()
-        composerSession.newDraft(workspacePath: workspacePath, isProjectless: true)
+        startIndependentComposerDraft()
         applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
@@ -3089,6 +3119,7 @@ final class CodexCoreAppModel {
                 return
             }
             let generation = connectionGeneration
+            let promptOrigin = composerEditOrigin
             let outcome = await performPluginCatalogAction(action, using: provider)
             guard generation == connectionGeneration else { return }
             if outcome.didSucceed, !outcome.appsNeedingAuthentication.isEmpty {
@@ -3105,11 +3136,14 @@ final class CodexCoreAppModel {
                     "catalog action failed result=\(outcome.activity.title, privacy: .public) detail=\(outcome.activity.detail, privacy: .private)"
                 )
             }
-            if let draftPrompt = outcome.draftPrompt {
+            if let draftPrompt = outcome.draftPrompt,
+               promptOrigin.selectionGeneration == chatSelectionGeneration,
+               composerDraftID(for: promptOrigin) == composerSession.activeDraftID {
                 sidebarNavigationSession.startNewChat(workspacePath: workspacePath)
                 invalidatePendingChatSelection()
                 clearThreadState()
-                composerSession.setDraft(draftPrompt, for: currentThreadID)
+                startIndependentComposerDraft()
+                draft = draftPrompt
             }
             if case .some(.marketplace(let id)) = mutationKey {
                 if outcome.didSucceed {
@@ -3651,6 +3685,7 @@ final class CodexCoreAppModel {
     }
 
     func resumeSearchResult(_ result: CodexThreadSearchResult) async {
+        syncComposerThreadID()
         markThreadReadIfFocused(ThreadID(result.thread.id))
         if projectlessThreadIDs.contains(result.thread.id) {
             isProjectlessDraft = true
@@ -4237,6 +4272,14 @@ final class CodexCoreAppModel {
         presentMCPStatus: (() -> Void)? = nil
     ) {
         syncComposerThreadID()
+        // Preview the pure session mutation only at bootstrap. Host-only menu
+        // actions keep their selection; skill/prompt content gets its own ID.
+        if currentThreadID == nil, composerSession.activeDraftID == .unassigned,
+           composerSession.activeDraftRecord.isEmpty {
+            var preview = composerSession
+            _ = preview.routeSlashCommand(command)
+            if !preview.activeDraftRecord.isEmpty { prepareComposerEdit() }
+        }
         let route = composerSession.routeSlashCommand(command)
         for action in route.hostActions {
             applySlashCommandHostAction(
@@ -4395,7 +4438,7 @@ final class CodexCoreAppModel {
     }
 
     func selectMention(_ result: FuzzyFileSearchResult) {
-        syncComposerThreadID()
+        prepareComposerEdit()
         composerSession.selectMention(result)
     }
 
@@ -4435,8 +4478,14 @@ final class CodexCoreAppModel {
         composerSession.clearThreadState()
     }
 
-    private func syncComposerThreadID() {
+    func syncComposerThreadID() {
         composerSession.setActiveThreadID(currentThreadID)
+        // An existing pre-thread draft owns its context even while navigation
+        // changes the host's globals before creating/selecting the destination.
+        let active = composerSession.activeDraftRecord
+        if currentThreadID == nil, !active.isEmpty, active.workspacePath != nil {
+            return
+        }
         composerSession.setActiveDraftID(composerSession.activeDraftID, threadID: currentThreadID,
                                         workspacePath: workspacePath,
                                         projectID: isProjectlessDraft ? nil : sidebarNavigationSession.selectedProjectID,

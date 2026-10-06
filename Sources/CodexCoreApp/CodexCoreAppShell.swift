@@ -594,8 +594,8 @@ struct CodexCoreAppShell: View {
                 onInterruptSideChatMessage: { Task { await model.interruptSideChat() } },
                 onComposerAddMenuRoute: { model.handleComposerAddMenuRoute($0) },
                 onComposerChipClear: { model.clearComposerChip($0) },
-                onFilesDropped: { [threadID = model.currentThreadID] urls in
-                    model.addReferencedFileURLs(urls, to: threadID)
+                onFilesDropped: { [origin = model.composerEditOrigin] urls in
+                    model.addReferencedFileURLs(urls, to: origin)
                 },
                 onOpenThread: { reference in
                     Task { await model.openThreadReference(reference) }

@@ -349,4 +349,65 @@ final class CodexComposerDraftTests: XCTestCase {
         XCTAssertEqual(typing.activeDraftID, .unassigned)
         XCTAssertEqual(typing.draft, "User typing")
     }
+
+    func testPristineUnassignedMetadataYieldsToRestoredContextButInvestedMetadataDoesNot() throws {
+        var restored = CodexComposerStateSession()
+        restored.setActiveDraftID(.unassigned, workspacePath: "/project-a", projectID: "project-a", isProjectless: false)
+        restored.draft = "Saved project text"
+        var bootstrap = CodexComposerStateSession()
+        bootstrap.setActiveDraftID(.unassigned, workspacePath: "/home", isProjectless: true)
+        bootstrap.mergeDrafts(from: restored)
+        let restoredRecord = try XCTUnwrap(bootstrap.draftRecords.first { $0.draftID == .unassigned })
+        XCTAssertEqual(restoredRecord.workspacePath, "/project-a")
+        XCTAssertEqual(restoredRecord.projectID, "project-a")
+        XCTAssertFalse(restoredRecord.isProjectless)
+
+        var invested = CodexComposerStateSession()
+        invested.setActiveDraftID(.unassigned, workspacePath: "/home", isProjectless: true)
+        invested.draft = "Live typing"
+        invested.mergeDrafts(from: restored)
+        let investedRecord = try XCTUnwrap(invested.draftRecords.first { $0.draftID == .unassigned })
+        XCTAssertEqual(investedRecord.workspacePath, "/home")
+        XCTAssertTrue(investedRecord.isProjectless)
+    }
+
+    func testEmptyExplicitDraftSelectionSurvivesRequestedRestoredActivation() {
+        var restored = CodexComposerStateSession()
+        restored.newDraft(workspacePath: "/repo")
+        restored.draft = "Saved text"
+        var live = CodexComposerStateSession()
+        let explicitlySelectedID = live.newDraft(workspacePath: "/repo")
+        live.mergeDrafts(from: restored, activateRestoredDraft: true)
+        XCTAssertEqual(live.activeDraftID, explicitlySelectedID)
+        XCTAssertTrue(live.draft.isEmpty)
+    }
+
+    func testActiveDraftRecordMatchesItsStoredRecordWithContextAndAttachments() {
+        var composer = CodexComposerStateSession()
+        composer.newDraft(workspacePath: "/inactive")
+        composer.draft = "Inactive text"
+        let activeID = composer.newDraft(workspacePath: "/active", projectID: "opaque-project")
+        composer.draft = "Active text"
+        composer.referencedFiles = [firstFile]
+        composer.attachSkill(skill())
+        composer.selectMention(mention())
+        let active = composer.activeDraftRecord
+        XCTAssertEqual(active.draftID, activeID)
+        XCTAssertEqual(active.workspacePath, "/active")
+        XCTAssertEqual(active.projectID, "opaque-project")
+        XCTAssertEqual(active.referencedFiles, [firstFile])
+        XCTAssertEqual(active.attachedSkills, [skill()])
+        XCTAssertEqual(active, composer.draftRecords.first { $0.draftID == activeID })
+        let emptyID = composer.newDraft(workspacePath: "/empty")
+        composer.setActiveDraftID(activeID)
+        XCTAssertFalse(composer.draftRecords.contains { $0.draftID == emptyID })
+        XCTAssertEqual(composer.draftRecord(for: emptyID)?.workspacePath, "/empty")
+        composer.setDraftContext(workspacePath: "/captured-empty", projectID: nil, isProjectless: true, for: emptyID)
+        XCTAssertEqual(composer.activeDraftID, activeID)
+        XCTAssertEqual(composer.draft, "Active text")
+        XCTAssertEqual(composer.draftRecord(for: emptyID)?.workspacePath, "/captured-empty")
+        XCTAssertTrue(composer.draftRecord(for: emptyID)?.isProjectless == true)
+        composer.discardDraft(emptyID)
+        XCTAssertNil(composer.draftRecord(for: emptyID))
+    }
 }

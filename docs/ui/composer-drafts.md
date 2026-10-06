@@ -12,6 +12,13 @@ annotations, selected skills, and selected file mentions. Repeated
 unsent context. `draftRecords` exposes the active draft and other drafts with
 invested content for host navigation, together with optional workspace, opaque
 project ID, and projectless metadata.
+Use `activeDraftRecord` when handling an edit or checking the selected draft's
+context; it reads only that identity instead of projecting every stored draft.
+`draftRecord(for:)` also finds owned empty drafts omitted from sidebar records;
+it returns nil after a draft is discarded.
+`setDraftContext(workspacePath:projectID:isProjectless:for:)` updates host metadata
+without selecting that draft. Use captured context for delayed attachment
+callbacks, and reject callbacks whose account changed or draft was discarded.
 
 ```swift
 var composer = CodexComposerStateSession(followUpBehavior: .queue)
@@ -61,8 +68,9 @@ bindings determine identity when a restored record used a different local ID.
 Repeated hydration does not duplicate already imported prompt paragraphs or
 context. Selection remains unchanged by default; request
 `activateRestoredDraft: true` only when restoring selection is appropriate.
-Activation requires no invested local draft content and no selected native
-thread.
+Activation requires the pristine compatibility `unassigned` selection, no
+invested local draft content and no selected native thread. An explicitly
+selected empty draft retains its selection while hydration completes.
 For off-main-actor persistence, copy `activeDraftID` and `draftRecords` on the
 owning actor, then create/save the snapshot on the storage actor. Flush the
 latest snapshot when the host closes or changes persistence scope.

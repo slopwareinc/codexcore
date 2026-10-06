@@ -15,7 +15,7 @@ extension CodexCoreAppModel {
     var draft: String {
         get { composerSession.draft(for: currentThreadID) }
         set {
-            composerSession.setActiveThreadID(currentThreadID)
+            if newValue.isEmpty { syncComposerThreadID() } else { prepareComposerEdit() }
             composerSession.setDraft(newValue, for: currentThreadID)
         }
     }
@@ -23,7 +23,7 @@ extension CodexCoreAppModel {
     var referencedFiles: [CodexReferencedFile] {
         get { composerSession.referencedFiles(for: currentThreadID) }
         set {
-            composerSession.setActiveThreadID(currentThreadID)
+            if newValue.isEmpty { syncComposerThreadID() } else { prepareComposerEdit() }
             composerSession.setReferencedFiles(newValue, for: currentThreadID)
         }
     }
@@ -31,7 +31,7 @@ extension CodexCoreAppModel {
     var responseAnnotations: [CodexResponseTextAnnotation] {
         get { composerSession.responseAnnotations(for: currentThreadID) }
         set {
-            composerSession.setActiveThreadID(currentThreadID)
+            if newValue.isEmpty { syncComposerThreadID() } else { prepareComposerEdit() }
             composerSession.setResponseAnnotations(newValue, for: currentThreadID)
         }
     }

@@ -4,8 +4,10 @@ import CodexCoreUI
 extension CodexCoreAppModel {
     func startDictation() {
         guard !voiceSession.isActive else { return }
+        prepareComposerEdit()
+        let origin = composerEditOrigin
         dictationSession.start { [weak self] completion in
-            self?.applyDictationCompletion(completion)
+            self?.applyDictationCompletion(completion, origin: origin)
         }
     }
 
@@ -25,10 +27,14 @@ extension CodexCoreAppModel {
         dictationSession.abort()
     }
 
-    private func applyDictationCompletion(_ completion: CodexDictationCompletion) {
+    func applyDictationCompletion(_ completion: CodexDictationCompletion, origin: CodexComposerEditOrigin) {
+        guard let id = composerDraftID(for: origin), id == composerSession.activeDraftID else { return }
         draft = Self.joinDictationTranscript(completion.text, to: draft)
         guard completion.action == .send else { return }
-        Task { await sendDraft() }
+        Task {
+            guard composerDraftID(for: origin) == composerSession.activeDraftID else { return }
+            await sendDraft()
+        }
     }
 
     static func joinDictationTranscript(_ transcript: String, to existingDraft: String) -> String {

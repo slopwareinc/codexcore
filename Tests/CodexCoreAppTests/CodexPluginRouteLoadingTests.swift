@@ -1,5 +1,6 @@
 import Testing
 import Observation
+import Foundation
 @testable import CodexCoreApp
 @testable import CodexCoreUI
 
@@ -201,6 +202,71 @@ struct CodexPluginRouteLoadingTests {
 
         #expect(model.plugins[0].enabled == true)
         #expect(model.pendingPluginActionIDs.isEmpty)
+    }
+
+    @Test func catalogDraftPromptCreatesIndependentChatWithoutConsumingExistingContext() async throws {
+        let provider = GatedPluginCatalogActionProvider(outcome: .init(
+            activity: .init(title: "Configure", detail: "Synthetic plugin setup"),
+            didSucceed: true, draftPrompt: "Configure this plugin"
+        ))
+        let model = CodexCoreAppModel(clipboardService: CodexNoopClipboardService(),
+                                     preferenceStore: CodexNoopStringListPreferenceStore(),
+                                     pluginCatalogActionProvider: provider)
+        model.draft = "Original text"
+        model.referencedFiles = [.init(path: "/private/tmp/original.md", kind: .file)]
+        let origin = try #require(model.composerDraftRecords.first { $0.draftID == model.composerSession.activeDraftID })
+        let plugin = CodexPluginSummary(id: "local:test", protocolID: "test@local", name: "test",
+                                        marketplaceName: "local", installed: false, enabled: false)
+
+        model.performPluginCatalogAction(.installPlugin(.init(plugin: plugin)))
+        await provider.waitForInvocationCount(1)
+        await provider.completeNext()
+        await drainMainActorTasks()
+
+        #expect(model.composerDraftRecords.first { $0.draftID == origin.draftID } == origin)
+        #expect(model.composerSession.activeDraftID != origin.draftID)
+        #expect(model.draft == "Configure this plugin")
+        #expect(model.referencedFiles.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func delayedCatalogPromptDoesNotStealANewerChatOrAccount(changesAccount: Bool) async {
+        let provider = GatedPluginCatalogActionProvider(outcome: .init(
+            activity: .init(title: "Configure", detail: "Synthetic plugin setup"),
+            didSucceed: true, draftPrompt: "Stale plugin prompt"
+        ))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("codex-plugin-draft-\(UUID())")
+        let model = CodexCoreAppModel(clipboardService: CodexNoopClipboardService(),
+                                     preferenceStore: CodexNoopStringListPreferenceStore(),
+                                     pluginCatalogActionProvider: provider, draftStorageDirectory: root)
+        defer {
+            model.draftSaveTask?.cancel()
+            model.draftLoadTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+        if changesAccount {
+            model.bindComposerDraftAccount(identity: "account-a")
+            await model.draftLoadTask?.value
+        }
+        model.draft = "Original draft"
+        let plugin = CodexPluginSummary(id: "local:delayed", protocolID: "delayed@local", name: "delayed",
+                                        marketplaceName: "local", installed: false, enabled: false)
+        model.performPluginCatalogAction(.installPlugin(.init(plugin: plugin)))
+        await provider.waitForInvocationCount(1)
+        if changesAccount {
+            model.bindComposerDraftAccount(identity: "account-b")
+            await model.draftLoadTask?.value
+        } else { await model.startNewChat() }
+        model.draft = "New selected draft"
+        let selectedID = model.composerSession.activeDraftID
+
+        await provider.completeNext()
+        await drainMainActorTasks()
+
+        #expect(model.composerSession.activeDraftID == selectedID)
+        #expect(model.draft == "New selected draft")
+        #expect(model.pendingPluginActionIDs.isEmpty)
+        #expect(!model.composerDraftRecords.contains { $0.prompt == "Stale plugin prompt" })
     }
 }
 

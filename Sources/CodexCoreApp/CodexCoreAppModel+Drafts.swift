@@ -3,9 +3,92 @@ import Foundation
 import CodexCore
 import CodexCoreUI
 
+struct CodexComposerEditOrigin: Sendable {
+    let draftID: CodexComposerDraftID
+    let accountRevision: Int
+    let scopeGeneration: UInt64
+    let selectionGeneration: Int
+    let workspacePath: String?
+    let projectID: String?
+    let isProjectless: Bool
+}
+
 @MainActor
 extension CodexCoreAppModel {
     var composerDraftRecords: [CodexComposerDraftSnapshot] { composerSession.draftRecords }
+
+    func startIndependentComposerDraft() {
+        composerSession.newDraft(workspacePath: workspacePath,
+                                 projectID: isProjectlessDraft ? nil : sidebarNavigationSession.selectedProjectID,
+                                 isProjectless: isProjectlessDraft)
+    }
+
+    /// Capture ownership before accepting edits, rather than after navigation.
+    func prepareComposerEdit() {
+        syncComposerThreadID()
+        if currentThreadID == nil, composerSession.activeDraftID == .unassigned,
+           composerSession.activeDraftRecord.isEmpty {
+            startIndependentComposerDraft()
+            recordBootstrapPromotion()
+        }
+    }
+
+    private func recordBootstrapPromotion() {
+        bootstrapDraftIDsBySelectionGeneration[chatSelectionGeneration] = composerSession.activeDraftID
+        if bootstrapDraftIDsBySelectionGeneration.count > CodexComposerDraftsSnapshot.maximumDrafts,
+           let oldest = bootstrapDraftIDsBySelectionGeneration.keys.min() {
+            bootstrapDraftIDsBySelectionGeneration.removeValue(forKey: oldest)
+            expiredBootstrapSelectionGeneration = oldest
+        }
+    }
+
+    var composerEditOrigin: CodexComposerEditOrigin {
+        let record = composerSession.activeDraftRecord
+        return .init(draftID: composerSession.activeDraftID, accountRevision: accountContextRevision,
+              scopeGeneration: draftScopeGeneration, selectionGeneration: chatSelectionGeneration,
+              workspacePath: record.workspacePath, projectID: record.projectID, isProjectless: record.isProjectless)
+    }
+
+    func composerDraftID(for origin: CodexComposerEditOrigin) -> CodexComposerDraftID? {
+        guard origin.accountRevision == accountContextRevision, origin.scopeGeneration == draftScopeGeneration else { return nil }
+        if origin.draftID == .unassigned, let expiredBootstrapSelectionGeneration,
+           origin.selectionGeneration <= expiredBootstrapSelectionGeneration { return nil }
+        let id = origin.draftID == .unassigned
+            ? bootstrapDraftIDsBySelectionGeneration[origin.selectionGeneration] ?? origin.draftID : origin.draftID
+        return composerSession.draftRecord(for: id) == nil ? nil : id
+    }
+
+    func addReferencedFileURLs(_ urls: [URL], to origin: CodexComposerEditOrigin) {
+        guard var id = composerDraftID(for: origin) else { return }
+        let references = urls.compactMap(CodexReferencedFile.fromDroppedURL)
+        guard !references.isEmpty else { return }
+        if id == .unassigned, id == composerSession.activeDraftID {
+            prepareComposerEdit()
+            id = composerSession.activeDraftID
+        }
+        if let record = composerSession.draftRecord(for: id), record.threadID == nil, record.isEmpty {
+            composerSession.setDraftContext(workspacePath: origin.workspacePath, projectID: origin.projectID,
+                                            isProjectless: origin.isProjectless, for: id)
+        }
+        composerSession.setReferencedFiles(composerSession.referencedFiles(for: id) + references, for: id)
+    }
+
+    private func mergeRecoveredComposerDrafts(_ restored: CodexComposerStateSession, restoreSelection: Bool = true) {
+        let active = restored.draftRecords.first { $0.draftID == restored.activeDraftID }
+        let sameWorkspace = active?.workspacePath.map(CodexProjectSummary.normalizedPath)
+            == CodexProjectSummary.normalizedPath(workspacePath)
+        let sameContext = active?.threadID == nil && active?.isProjectless == isProjectlessDraft
+            && sameWorkspace && active?.projectID == sidebarNavigationSession.selectedProjectID
+        // Legacy stored unassigned content must remain a card when the current
+        // bootstrap represents another context; sharing its ID would activate it.
+        if currentThreadID == nil, !sameContext, restored.activeDraftID == .unassigned,
+           composerSession.activeDraftID == .unassigned, composerSession.draftRecords.allSatisfy(\.isEmpty) {
+            startIndependentComposerDraft()
+            recordBootstrapPromotion()
+        }
+        composerSession.mergeDrafts(from: restored,
+                                   activateRestoredDraft: restoreSelection && currentThreadID == nil && sameContext)
+    }
 
     func composerDraftsDidChange() {
         draftMutationRevision &+= 1
@@ -67,6 +150,8 @@ extension CodexCoreAppModel {
             SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
         }
         guard scope != draftAccountScope else { return }
+        bootstrapDraftIDsBySelectionGeneration.removeAll(keepingCapacity: true)
+        expiredBootstrapSelectionGeneration = nil
         let previousScope = draftAccountScope
         if let previousScope {
             retainRecoveredDrafts(scope: previousScope, revision: draftMutationRevision, session: composerSession)
@@ -104,7 +189,7 @@ extension CodexCoreAppModel {
     private func loadComposerDrafts(scope: String) {
         guard let persistence = draftPersistence else { return }
         if let recovered = unsavedDraftsByAccount[scope] {
-            composerSession.mergeDrafts(from: recovered, activateRestoredDraft: currentThreadID == nil)
+            mergeRecoveredComposerDrafts(recovered)
         }
         let generation = draftScopeGeneration
         let behavior = composerSession.followUpBehavior
@@ -115,17 +200,11 @@ extension CodexCoreAppModel {
                 guard let self, !Task.isCancelled, draftAccountScope == scope,
                       draftScopeGeneration == generation else { return }
                 if let restored {
-                    let active = restored.draftRecords.first { $0.draftID == restored.activeDraftID }
-                    let sameWorkspace = active?.workspacePath.map(CodexProjectSummary.normalizedPath)
-                        == CodexProjectSummary.normalizedPath(workspacePath)
-                    let sameContext = active?.threadID == nil && active?.isProjectless == isProjectlessDraft
-                        && (sameWorkspace || active?.isProjectless == true)
-                        && (active?.projectID == nil || active?.projectID == sidebarNavigationSession.selectedProjectID)
-                    composerSession.mergeDrafts(from: restored, activateRestoredDraft: currentThreadID == nil && sameContext)
+                    mergeRecoveredComposerDrafts(restored)
                     if currentThreadID != nil { composerSession.setActiveThreadID(currentThreadID) }
                 }
                 if let unsaved = unsavedDraftsByAccount[scope] {
-                    composerSession.mergeDrafts(from: unsaved)
+                    mergeRecoveredComposerDrafts(unsaved, restoreSelection: false)
                 }
                 draftStorageReady = true
                 isRestoringDrafts = false
@@ -164,6 +243,8 @@ extension CodexCoreAppModel {
     }
 
     func discardComposerDraft(_ draftID: CodexComposerDraftID) {
+        let discardingActiveDraft = draftID == composerSession.activeDraftID
         composerSession.discardDraft(draftID)
+        if discardingActiveDraft { startIndependentComposerDraft() }
     }
 }
