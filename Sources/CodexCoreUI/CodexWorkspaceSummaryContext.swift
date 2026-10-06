@@ -83,10 +83,10 @@ public struct CodexWorkspaceSummaryContext: Equatable, Sendable {
 
 /// Best-effort Git probes never block the caller's actor on subprocess I/O.
 enum CodexWorkspaceGitProbe {
-    static func repositoryRoot(at url: URL) async -> URL? {
+    static func repositoryRoot(at url: URL, timeout: Duration = .seconds(3)) async -> URL? {
         guard let result = try? await CodexProcessProbe.runAsync(
             executable: URL(fileURLWithPath: "/usr/bin/git"), arguments: ["rev-parse", "--show-toplevel"],
-            directory: url.standardizedFileURL
+            directory: url.standardizedFileURL, timeout: timeout
         ), result.status == 0,
            let path = result.output.nilIfBlank else { return nil }
         return URL(fileURLWithPath: path).standardizedFileURL

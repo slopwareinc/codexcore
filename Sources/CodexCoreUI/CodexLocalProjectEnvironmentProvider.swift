@@ -57,6 +57,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
     }
 
     public func repositorySnapshot() async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        try Task.checkCancellation()
         let root = try await repositoryRoot()
         let branch = try? await git(["symbolic-ref", "--quiet", "--short", "HEAD"], at: root)
         let branches = try await git(
@@ -77,6 +78,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
     }
 
     public func checkoutBranch(_ branchName: String) async throws -> CodexProjectEnvironmentRepositorySnapshot {
+        try Task.checkCancellation()
         let root = try await repositoryRoot()
         let snapshot = try await repositorySnapshot()
         guard snapshot.dirtyFileCount == 0 else {
@@ -86,8 +88,14 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         guard snapshot.branches.contains(branch) else {
             throw CodexLocalProjectEnvironmentError.invalidBranch
         }
-        _ = try await git(["switch", branch], at: root)
-        return try await repositorySnapshot()
+        do {
+            _ = try await git(["switch", branch], at: root)
+            return try await repositorySnapshot()
+        } catch is CancellationError {
+            throw CodexLocalProjectEnvironmentError.commandFailed(
+                "Branch switching was interrupted. The checkout may already be on \(branch). Refresh and inspect its branch before retrying."
+            )
+        }
     }
 
     public func handOffToWorktree(_ request: CodexWorktreeHandoffRequest) async throws -> CodexWorktreeHandoffResult {
@@ -98,7 +106,9 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         _ request: CodexWorktreeHandoffRequest,
         progress: @escaping @MainActor @Sendable (CodexWorktreeHandoffProgressStage) -> Void
     ) async throws -> CodexWorktreeHandoffResult {
+        try Task.checkCancellation()
         await progress(.preparing)
+        try Task.checkCancellation()
         let source = URL(fileURLWithPath: request.sourcePath).standardizedFileURL
         let root = try await repositoryRoot(at: source)
         let target = URL(fileURLWithPath: request.targetPath).standardizedFileURL
@@ -141,9 +151,11 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         }
 
         var worktreeAttempted = false
+        var branchAttempted = false
         var branchCreated = false
         do {
             await progress(.creatingWorktree)
+            try Task.checkCancellation()
             worktreeAttempted = true
             _ = try await git(
                 ["worktree", "add", "--detach", target.path, startingRef],
@@ -151,10 +163,13 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
             )
 
             await progress(.creatingBranch)
+            try Task.checkCancellation()
+            branchAttempted = true
             _ = try await git(["switch", "-c", branch], at: target)
             branchCreated = true
 
             await progress(.applyingTrackedChanges)
+            try Task.checkCancellation()
             if !patch.isEmpty {
                 do {
                     _ = try await git(
@@ -178,7 +193,9 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
             }
 
             await progress(.copyingUntrackedFiles)
+            try Task.checkCancellation()
             for path in untrackedPaths {
+                try Task.checkCancellation()
                 do {
                     try copyUntrackedPath(path, from: root, to: target)
                     Self.mark(&outcomes, paths: [path], as: .applied)
@@ -201,6 +218,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 isDirectory: true
             ).standardizedFileURL
             await progress(.finalizing)
+            try Task.checkCancellation()
             return CodexWorktreeHandoffResult(
                 title: request.title,
                 branchName: branch,
@@ -209,13 +227,8 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 pathOutcomes: outcomes
             )
         } catch let error as CodexLocalProjectEnvironmentError {
-            let cleanupDetail = await cleanup(
-                root: root,
-                target: target,
-                branch: branch,
-                worktreeAttempted: worktreeAttempted,
-                branchCreated: branchCreated
-            )
+            let cleanupDetail = await finishCleanup(root: root, target: target, branch: branch,
+                worktreeAttempted: worktreeAttempted, branchAttempted: branchAttempted, branchCreated: branchCreated)
             switch error {
             case .handoffFailed(let message, let pathOutcomes):
                 let message = Self.appendingCleanupDetail(message, cleanupDetail)
@@ -227,13 +240,8 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 throw Self.recoveryError(error, cleanupDetail: cleanupDetail)
             }
         } catch {
-            let cleanupDetail = await cleanup(
-                root: root,
-                target: target,
-                branch: branch,
-                worktreeAttempted: worktreeAttempted,
-                branchCreated: branchCreated
-            )
+            let cleanupDetail = await finishCleanup(root: root, target: target, branch: branch,
+                worktreeAttempted: worktreeAttempted, branchAttempted: branchAttempted, branchCreated: branchCreated)
             throw CodexLocalProjectEnvironmentError.recoveryRequired(
                 Self.appendingCleanupDetail(error.localizedDescription, cleanupDetail)
             )
@@ -245,11 +253,16 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
     }
 
     private func repositoryRoot(at directory: URL) async throws -> URL {
-        guard let path = try? await git(["rev-parse", "--show-toplevel"], at: directory)
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
+        let path: String
+        do {
+            path = try await git(["rev-parse", "--show-toplevel"], at: directory)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
             throw CodexLocalProjectEnvironmentError.notRepository
         }
+        guard !path.isEmpty else { throw CodexLocalProjectEnvironmentError.notRepository }
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
@@ -274,7 +287,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         existing: [CodexWorktreeHandoffPathOutcome],
         at directory: URL
     ) async throws -> [CodexWorktreeHandoffPathOutcome] {
-        let conflicted: Set<String>
+        let conflicted: Set<String>?
         if let status = try? await git(
             ["status", "--porcelain", "-z", "--untracked-files=all"],
             at: directory
@@ -283,12 +296,12 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                 Self.nullSeparatedValues(status).compactMap(Self.conflictPath)
             )
         } else {
-            conflicted = Set(paths)
+            conflicted = nil
         }
 
         var outcomes = existing
         for path in paths {
-            if conflicted.contains(path) {
+            if conflicted?.contains(path) == true {
                 Self.mark(
                     &outcomes,
                     paths: [path],
@@ -300,7 +313,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
                     &outcomes,
                     paths: [path],
                     as: .skipped,
-                    detail: "Git did not apply this path."
+                    detail: conflicted == nil ? "Git did not report this path's outcome before interruption." : "Git did not apply this path."
                 )
             }
         }
@@ -333,6 +346,7 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         target: URL,
         branch: String,
         worktreeAttempted: Bool,
+        branchAttempted: Bool,
         branchCreated: Bool
     ) async -> String? {
         var failures: [String] = []
@@ -349,8 +363,27 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
             } catch {
                 failures.append("branch cleanup failed: \(error.localizedDescription)")
             }
+        } else if branchAttempted {
+            failures.append("Branch creation did not report completion. Check \(branch) before retrying; its outcome is unknown.")
         }
         return failures.isEmpty ? nil : failures.joined(separator: " ")
+    }
+
+    private func finishCleanup(
+        root: URL,
+        target: URL,
+        branch: String,
+        worktreeAttempted: Bool,
+        branchAttempted: Bool,
+        branchCreated: Bool
+    ) async -> String? {
+        // The failed request can already be cancelled. Cleanup must have its
+        // own bounded lifetime so cancellation does not prevent every command
+        // from launching and strand the newly created destination.
+        await Task.detached {
+            await self.cleanup(root: root, target: target, branch: branch,
+                worktreeAttempted: worktreeAttempted, branchAttempted: branchAttempted, branchCreated: branchCreated)
+        }.value
     }
 
     private static func recoveryError(
@@ -402,73 +435,32 @@ public actor CodexLocalProjectEnvironmentProvider: CodexProjectEnvironmentProvid
         stdin: Data? = nil,
         maximumOutputBytes: Int = CodexLocalProjectEnvironmentProvider.maximumCommandOutputBytes
     ) async throws -> String {
-        try await Task.detached(priority: .userInitiated) { () async throws -> String in
-            let process = Process()
-            let outputURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("codex-git-output-\(UUID().uuidString)")
-            let errorURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("codex-git-error-\(UUID().uuidString)")
-            guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-                  FileManager.default.createFile(atPath: errorURL.path, contents: nil) else {
+        do {
+            let result = try await CodexOwnedProcess.run(
+                executable: "/usr/bin/git",
+                arguments: arguments,
+                directory: directory,
+                stdin: stdin,
+                limits: .init(
+                    timeout: arguments.first == "worktree" || arguments.first == "apply" ? 120 : 30,
+                    maximumOutputBytes: maximumOutputBytes
+                )
+            )
+            guard result.terminationStatus == 0 else {
                 throw CodexLocalProjectEnvironmentError.commandFailed(
-                    "Unable to create temporary files for git \(arguments.first ?? "command")"
+                    result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+                        ?? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+                        ?? "git \(arguments.first ?? "command") failed (exit \(result.terminationStatus))"
                 )
             }
-            defer {
-                _ = try? FileManager.default.removeItem(at: outputURL)
-                _ = try? FileManager.default.removeItem(at: errorURL)
-            }
-
-            let output = try FileHandle(forWritingTo: outputURL)
-            let error = try FileHandle(forWritingTo: errorURL)
-            let input = stdin.map { _ in Pipe() }
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = arguments
-            process.currentDirectoryURL = directory
-            process.standardOutput = output
-            process.standardError = error
-            if let input {
-                process.standardInput = input
-            }
-
-            do {
-                try process.run()
-                if let stdin, let input {
-                    try input.fileHandleForWriting.write(contentsOf: stdin)
-                    try input.fileHandleForWriting.close()
-                }
-            } catch {
-                throw CodexLocalProjectEnvironmentError.commandFailed(
-                    "Unable to run git \(arguments.first ?? "command"): \(error.localizedDescription)"
-                )
-            }
-            process.waitUntilExit()
-            try output.close()
-            try error.close()
-
-            let fileManager = FileManager.default
-            let outputSize = (try fileManager.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber)
-                .map { Int(truncating: $0) } ?? 0
-            let errorSize = (try fileManager.attributesOfItem(atPath: errorURL.path)[.size] as? NSNumber)
-                .map { Int(truncating: $0) } ?? 0
-            guard outputSize <= maximumOutputBytes,
-                  errorSize <= maximumOutputBytes else {
-                throw CodexLocalProjectEnvironmentError.commandFailed(
-                    "git \(arguments.first ?? "command") produced too much output"
-                )
-            }
-            let stdoutData = try Data(contentsOf: outputURL)
-            let stderrData = try Data(contentsOf: errorURL)
-            let stdout = String(decoding: stdoutData, as: UTF8.self)
-            let stderr = String(decoding: stderrData, as: UTF8.self)
-            guard process.terminationStatus == 0 else {
-                throw CodexLocalProjectEnvironmentError.commandFailed(
-                    stderr.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
-                        ?? stdout.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
-                        ?? "git \(arguments.first ?? "command") failed"
-                )
-            }
-            return stdout
-        }.value
+            return result.stdout
+        } catch let error as CodexOwnedProcessError {
+            let recovery = ["worktree", "apply", "switch", "branch"].contains(arguments.first ?? "")
+                ? " Check the destination and Git state before retrying; the command may have completed some changes."
+                : ""
+            throw CodexLocalProjectEnvironmentError.commandFailed(
+                "git \(arguments.first ?? "command"): \(error.localizedDescription)\(recovery)"
+            )
+        }
     }
 }

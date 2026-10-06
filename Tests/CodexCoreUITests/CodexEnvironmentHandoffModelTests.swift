@@ -240,7 +240,9 @@ final class CodexEnvironmentHandoffModelTests: XCTestCase {
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
 
-        let resolved = await CodexWorkspaceGitProbe.repositoryRoot(at: nested)
+        // Exercise the real asynchronous Git lookup without making cold Git
+        // startup on a hosted runner part of the production fallback deadline.
+        let resolved = await CodexWorkspaceGitProbe.repositoryRoot(at: nested, timeout: .seconds(20))
         XCTAssertEqual(resolved, root.standardizedFileURL)
     }
 

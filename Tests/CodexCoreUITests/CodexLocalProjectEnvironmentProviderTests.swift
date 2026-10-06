@@ -3,6 +3,110 @@ import XCTest
 @testable import CodexCoreUI
 
 final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
+    func testCancelledBranchHookReportsUncertainOutcomeAndPreservesSwitchedBranch() async throws {
+        let fixture = try makeRepository()
+        defer { fixture.remove() }
+        _ = try runGit(["branch", "other"], at: fixture.root)
+        let hook = fixture.root.appendingPathComponent(".git/hooks/post-checkout")
+        try """
+        #!/bin/sh
+        trap '' TERM INT
+        printf '%s' "$$" > .git/checkout-started
+        while :; do /bin/sleep 1; done
+        """.write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let provider = CodexLocalProjectEnvironmentProvider(workspaceURL: fixture.root)
+        let task = Task { try await provider.checkoutBranch("other") }
+        for _ in 0..<200 {
+            if FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(".git/checkout-started").path) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(".git/checkout-started").path))
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected interrupted switch")
+        } catch let error as CodexLocalProjectEnvironmentError {
+            XCTAssertTrue(error.localizedDescription.contains("may already be on other"))
+            XCTAssertTrue(error.localizedDescription.contains("Refresh and inspect"))
+        }
+        XCTAssertEqual(try runGit(["symbolic-ref", "--short", "HEAD"], at: fixture.root), "other\n")
+        XCTAssertEqual(try runGit(["status", "--porcelain"], at: fixture.root), "")
+    }
+
+    @MainActor
+    func testCancelledHandoffCleansOwnedDestinationAndBranchWithSourceIntact() async throws {
+        let fixture = try makeRepository()
+        defer { fixture.remove() }
+        try Data("let value = 2\n".utf8).write(to: fixture.root.appendingPathComponent("packages/web/App.swift"))
+        let target = fixture.root.deletingLastPathComponent().appendingPathComponent("cancelled-\(UUID().uuidString)")
+        defer { fixture.removeWorktree(target: target, branch: "codex/cancelled") }
+        let provider = CodexLocalProjectEnvironmentProvider(workspaceURL: fixture.root)
+        let cancellation = HandoffTestCancellation()
+        let task = Task {
+            try await provider.handOffToWorktree(.init(title: "Cancel", sourcePath: fixture.root.path,
+                targetPath: target.path, branchName: "codex/cancelled"), progress: { stage in
+                    if stage == .applyingTrackedChanges { cancellation.cancel() }
+                })
+        }
+        cancellation.task = task
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected interrupted handoff")
+        } catch let error as CodexLocalProjectEnvironmentError {
+            XCTAssertFalse(error.localizedDescription.contains("cleanup failed"), error.localizedDescription)
+            XCTAssertFalse(error.pathOutcomes.contains { $0.status == .conflicted }, "Cancellation is not evidence of a merge conflict")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+        XCTAssertFalse(try runGit(["branch", "--list", "codex/cancelled"], at: fixture.root).contains("codex/cancelled"))
+        XCTAssertEqual(try String(contentsOf: fixture.root.appendingPathComponent("packages/web/App.swift"), encoding: .utf8), "let value = 2\n")
+        XCTAssertEqual(try runGit(["status", "--porcelain"], at: fixture.root), " M packages/web/App.swift\n")
+    }
+
+    @MainActor
+    func testCleanHandoffCancellationAtFinalProgressStageCleansDestination() async throws {
+        let fixture = try makeRepository()
+        defer { fixture.remove() }
+        let target = fixture.root.deletingLastPathComponent().appendingPathComponent("final-cancel-\(UUID().uuidString)")
+        defer { fixture.removeWorktree(target: target, branch: "codex/final-cancel") }
+        let provider = CodexLocalProjectEnvironmentProvider(workspaceURL: fixture.root)
+        let cancellation = HandoffTestCancellation()
+        let task = Task {
+            try await provider.handOffToWorktree(.init(title: "Cancel", sourcePath: fixture.root.path,
+                targetPath: target.path, branchName: "codex/final-cancel"), progress: { stage in
+                    if stage == .finalizing { cancellation.cancel() }
+                })
+        }
+        cancellation.task = task
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation at finalization")
+        } catch let error as CodexLocalProjectEnvironmentError {
+            XCTAssertFalse(error.localizedDescription.contains("cleanup failed"), error.localizedDescription)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+        XCTAssertEqual(try runGit(["branch", "--list", "codex/final-cancel"], at: fixture.root), "")
+        XCTAssertEqual(try runGit(["status", "--porcelain"], at: fixture.root), "")
+    }
+
+    func testAlreadyCancelledRepositoryReadReturnsCancellation() async throws {
+        let fixture = try makeRepository()
+        defer { fixture.remove() }
+        let provider = CodexLocalProjectEnvironmentProvider(workspaceURL: fixture.root)
+        let gate = HandoffTestGate()
+        let task = Task {
+            await gate.wait()
+            return try await provider.repositorySnapshot()
+        }
+        task.cancel()
+        await gate.open()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {}
+    }
+
     @MainActor
     func testHandoffLeavesSourceUntouchedCopiesChangesAndPreservesRepositoryPrefix() async throws {
         let fixture = try makeRepository()
@@ -219,5 +323,25 @@ final class CodexLocalProjectEnvironmentProviderTests: XCTestCase {
             }
             return stdout
         }
+    }
+}
+
+@MainActor
+private final class HandoffTestCancellation {
+    var task: Task<CodexWorktreeHandoffResult, Error>?
+    func cancel() { task?.cancel() }
+}
+
+private actor HandoffTestGate {
+    private var opened = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func open() {
+        opened = true
+        continuation?.resume()
+        continuation = nil
     }
 }

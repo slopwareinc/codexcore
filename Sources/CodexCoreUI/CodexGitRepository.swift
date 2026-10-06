@@ -78,6 +78,7 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
     case comparisonRequired(String)
     case partialSuccess(String)
     case commandFailed(command: String, message: String)
+    case commandInterrupted(command: String, message: String)
     case outputLimitExceeded(command: String)
 
     public var errorDescription: String? {
@@ -98,6 +99,8 @@ public enum CodexGitRepositoryError: LocalizedError, Equatable {
             detail
         case .commandFailed(let command, let message):
             "\(command) failed: \(message)"
+        case .commandInterrupted(let command, let message):
+            "\(command) was interrupted: \(message)"
         case .outputLimitExceeded(let command):
             "\(command) exceeded the bounded output limit."
         }
@@ -117,7 +120,7 @@ public actor CodexGitRepository {
 
     private let requestedWorkspaceURL: URL
     private var rootURL: URL?
-    private var inFlightSnapshots: [SnapshotRequestKey: Task<CodexGitReviewSnapshot, Error>] = [:]
+    private var inFlightSnapshots: [SnapshotRequestKey: CodexSharedRead<CodexGitReviewSnapshot>] = [:]
 
     private struct SnapshotRequestKey: Hashable {
         let source: CodexGitReviewSource
@@ -134,28 +137,29 @@ public actor CodexGitRepository {
         baseRef: String? = nil,
         commitRef: String? = nil
     ) async throws -> CodexGitReviewSnapshot {
+        try Task.checkCancellation()
         let key = SnapshotRequestKey(source: source, baseRef: baseRef, commitRef: commitRef)
-        if let inFlight = inFlightSnapshots[key] {
-            return try await inFlight.value
+        let read: CodexSharedRead<CodexGitReviewSnapshot>
+        let consumer: CodexSharedRead<CodexGitReviewSnapshot>.Consumer
+        // Claim before the first suspension. A prior consumer's cancellation
+        // cannot abandon this worker in the gap before value() registers.
+        if let inFlight = inFlightSnapshots[key], let claim = inFlight.claimConsumer() {
+            read = inFlight
+            consumer = claim
+        } else {
+            read = CodexSharedRead {
+                try await self.loadSnapshot(source: source, baseRef: baseRef, commitRef: commitRef)
+            }
+            inFlightSnapshots[key] = read
+            guard let claim = read.claimConsumer() else { throw CancellationError() }
+            consumer = claim
         }
-
-        let task = Task { [weak self] in
-            guard let self else { throw CancellationError() }
-            return try await self.loadSnapshot(
-                source: source,
-                baseRef: baseRef,
-                commitRef: commitRef
-            )
+        defer {
+            if !read.acceptsConsumers, inFlightSnapshots[key] === read {
+                inFlightSnapshots.removeValue(forKey: key)
+            }
         }
-        inFlightSnapshots[key] = task
-        do {
-            let snapshot = try await task.value
-            inFlightSnapshots.removeValue(forKey: key)
-            return snapshot
-        } catch {
-            inFlightSnapshots.removeValue(forKey: key)
-            throw error
-        }
+        return try await consumer.value()
     }
 
     private func loadSnapshot(
@@ -316,6 +320,17 @@ public actor CodexGitRepository {
         guard actual == expectedRevision else {
             throw CodexGitRepositoryError.stale(expected: expectedRevision, actual: actual)
         }
+        do {
+            return try await performMutation(mutation)
+        } catch is CancellationError {
+            throw CodexGitRepositoryError.commandInterrupted(
+                command: mutation.progressTitle,
+                message: "Some steps may have completed. Refresh the repository before retrying; do not repeat a commit or pull request without checking its outcome."
+            )
+        }
+    }
+
+    private func performMutation(_ mutation: CodexGitMutation) async throws -> CodexGitMutationResult {
         switch mutation {
         case .stage(let paths):
             try await run(["add", "--"] + (try await validatedRelativePaths(paths)))
@@ -388,7 +403,16 @@ public actor CodexGitRepository {
         if includeUnstaged {
             try await run(["add", "-A"])
         }
-        try await run(["commit", "-m", trimmed])
+        do {
+            try await run(["commit", "-m", trimmed])
+        } catch {
+            if includeUnstaged {
+                throw CodexGitRepositoryError.partialSuccess(
+                    "Files were staged, but commit did not report completion: \(error.localizedDescription) Refresh before retrying; a commit may already exist."
+                )
+            }
+            throw error
+        }
     }
 
     static func decodePullRequest(_ json: String) throws -> CodexGitPullRequestDetails {
@@ -1024,191 +1048,57 @@ public actor CodexGitRepository {
     ) async throws -> CodexGitCommandResult {
         let root = rootURL ?? requestedWorkspaceURL
         let command = ([executable] + arguments).joined(separator: " ")
-        return try await CodexBoundedProcess.run(
-            executable: executable,
-            arguments: arguments,
-            directory: root,
-            maximumOutputBytes: maximumOutputBytes,
-            allowTruncation: allowTruncation,
-            commandDescription: command
-        )
-    }
-}
-
-private struct CodexGitCommandResult: Sendable {
-    var stdout: String
-    var stderr: String
-    var wasTruncated: Bool
-}
-
-private final class CodexBoundedProcess: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    static func run(
-        executable: String,
-        arguments: [String],
-        directory: URL,
-        maximumOutputBytes: Int,
-        allowTruncation: Bool,
-        commandDescription: String
-    ) async throws -> CodexGitCommandResult {
-        let runner = CodexBoundedProcess()
-        return try await withTaskCancellationHandler {
-            try await runner.start(
+        let result: CodexOwnedProcessResult
+        do {
+            result = try await CodexOwnedProcess.run(
                 executable: executable,
                 arguments: arguments,
-                directory: directory,
-                maximumOutputBytes: maximumOutputBytes,
-                allowTruncation: allowTruncation,
-                commandDescription: commandDescription
+                directory: root,
+                limits: .init(
+                    timeout: Self.commandTimeout(arguments: arguments),
+                    maximumOutputBytes: maximumOutputBytes
+                ),
+                allowTruncation: allowTruncation
             )
-        } onCancel: {
-            runner.cancel()
-        }
-    }
-
-    private func start(
-        executable: String,
-        arguments: [String],
-        directory: URL,
-        maximumOutputBytes: Int,
-        allowTruncation: Bool,
-        commandDescription: String
-    ) async throws -> CodexGitCommandResult {
-        try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            let standardOutput = Pipe()
-            let standardError = Pipe()
-            process.executableURL = executable.hasPrefix("/")
-                ? URL(fileURLWithPath: executable)
-                : URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = executable.hasPrefix("/")
-                ? arguments
-                : [executable] + arguments
-            process.currentDirectoryURL = directory
-            process.standardOutput = standardOutput
-            process.standardError = standardError
-            self.lock.withLock { self.process = process }
-            try process.run()
-            // Process inherits duplicated write descriptors. Closing the
-            // parent's copies is required for the async readers to observe EOF.
-            try standardOutput.fileHandleForWriting.close()
-            try standardError.fileHandleForWriting.close()
-            // FileHandle's synchronous reads must not occupy Swift's
-            // cooperative executor. A snapshot launches several Git commands
-            // concurrently, so two detached blocking readers per command can
-            // otherwise starve the tasks that are responsible for completing
-            // those same reads.
-            let reads = CodexProcessReadPair()
-            let readGroup = DispatchGroup()
-            readGroup.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                reads.setOutput(Result {
-                    try Self.readBounded(
-                        standardOutput.fileHandleForReading,
-                        limit: maximumOutputBytes
-                    )
-                })
-                readGroup.leave()
-            }
-            readGroup.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                reads.setError(Result {
-                    try Self.readBounded(
-                        standardError.fileHandleForReading,
-                        limit: 128 * 1_024
-                    )
-                })
-                readGroup.leave()
-            }
-            await withCheckedContinuation { continuation in
-                readGroup.notify(queue: .global(qos: .userInitiated)) {
-                    continuation.resume()
-                }
-            }
-            let output = try reads.output.get()
-            let error = try reads.error.get()
-            // `Process.waitUntilExit()` can remain blocked on a detached Swift
-            // worker even after both pipes reached EOF and the child was reaped.
-            // Polling `isRunning` keeps this boundary cancellable and avoids
-            // pinning a worker thread indefinitely.
-            while process.isRunning {
-                try Task.checkCancellation()
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            self.lock.withLock { self.process = nil }
-            try Task.checkCancellation()
-            if output.wasTruncated, !allowTruncation {
-                throw CodexGitRepositoryError.outputLimitExceeded(command: commandDescription)
-            }
-            let stdout = String(decoding: output.data, as: UTF8.self)
-            let stderr = String(decoding: error.data, as: UTF8.self)
-            guard process.terminationStatus == 0 else {
-                throw CodexGitRepositoryError.commandFailed(
-                    command: commandDescription,
-                    message: stderr.nilIfBlank ?? stdout.nilIfBlank ?? "Exit \(process.terminationStatus)"
+        } catch CodexOwnedProcessError.outputLimitExceeded {
+            if Self.isMutation(arguments) {
+                throw CodexGitRepositoryError.commandInterrupted(
+                    command: command,
+                    message: "The output limit was exceeded. Some changes may have completed; refresh and check the outcome before retrying."
                 )
             }
-            return CodexGitCommandResult(
-                stdout: stdout,
-                stderr: stderr,
-                wasTruncated: output.wasTruncated
-            )
-        }.value
-    }
-
-    private func cancel() {
-        lock.withLock {
-            guard let process, process.isRunning else { return }
-            process.interrupt()
-            process.terminate()
-        }
-    }
-
-    private static func readBounded(
-        _ handle: FileHandle,
-        limit: Int
-    ) throws -> (data: Data, wasTruncated: Bool) {
-        var data = Data()
-        var truncated = false
-        while true {
-            let chunk = try handle.read(upToCount: 64 * 1_024) ?? Data()
-            guard !chunk.isEmpty else { break }
-            if data.count < limit {
-                let remaining = limit - data.count
-                data.append(chunk.prefix(remaining))
-                if chunk.count > remaining {
-                    truncated = true
-                }
-            } else {
-                truncated = true
+            throw CodexGitRepositoryError.outputLimitExceeded(command: command)
+        } catch let error as CodexOwnedProcessError {
+            if case .launchFailed = error {
+                throw CodexGitRepositoryError.commandFailed(command: command, message: error.localizedDescription)
             }
+            let recovery = Self.isMutation(arguments)
+                ? " The command may have changed the repository or remote. Refresh and check the outcome before retrying."
+                : ""
+            throw CodexGitRepositoryError.commandInterrupted(command: command, message: error.localizedDescription + recovery)
         }
-        return (data, truncated)
+        guard result.terminationStatus == 0 || (allowTruncation && result.wasTruncated) else {
+            throw CodexGitRepositoryError.commandFailed(
+                command: command,
+                message: result.stderr.nilIfBlank ?? result.stdout.nilIfBlank ?? "Exit \(result.terminationStatus)"
+            )
+        }
+        return result
+    }
+
+    private static func commandTimeout(arguments: [String]) -> TimeInterval {
+        if arguments.first == "commit" { return 10 * 60 }
+        if arguments.first == "push" || arguments.first == "worktree" || arguments.prefix(2) == ["pr", "create"] {
+            return 2 * 60
+        }
+        return 30
+    }
+
+    private static func isMutation(_ arguments: [String]) -> Bool {
+        ["add", "restore", "switch", "commit", "push"].contains(arguments.first ?? "")
+            || arguments.prefix(2) == ["pr", "create"]
     }
 }
 
-private final class CodexProcessReadPair: @unchecked Sendable {
-    typealias Capture = (data: Data, wasTruncated: Bool)
 
-    private let lock = NSLock()
-    private var storedOutput: Result<Capture, Error>?
-    private var storedError: Result<Capture, Error>?
-
-    var output: Result<Capture, Error> {
-        lock.withLock { storedOutput! }
-    }
-
-    var error: Result<Capture, Error> {
-        lock.withLock { storedError! }
-    }
-
-    func setOutput(_ result: Result<Capture, Error>) {
-        lock.withLock { storedOutput = result }
-    }
-
-    func setError(_ result: Result<Capture, Error>) {
-        lock.withLock { storedError = result }
-    }
-}
+private typealias CodexGitCommandResult = CodexOwnedProcessResult
