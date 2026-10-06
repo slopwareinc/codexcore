@@ -117,7 +117,7 @@ struct CodexCanonicalFileChangeProjectorTests {
         let live = state(
             revision: 4,
             threadID: threadID,
-            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 4)],
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], status: .inProgress, revision: 4)],
             items: [liveItem]
         )
         let history = state(
@@ -265,7 +265,7 @@ struct CodexCanonicalFileChangeProjectorTests {
         let snapshot = state(
             revision: 2,
             threadID: threadID,
-            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], revision: 2)],
+            turns: [turn(turnID, threadID: threadID, itemIDs: ["patch"], status: .inProgress, revision: 2)],
             items: [item(threadID, turnID, "patch", .fileChange, [
                 "status": .string("inProgress"),
                 "changes": .array([
@@ -282,7 +282,7 @@ struct CodexCanonicalFileChangeProjectorTests {
                         "kind": .dictionary(["type": .string("update")]),
                     ]),
                 ]),
-            ], revision: 2)]
+            ], authority: .started, revision: 2)]
         )
 
         let row = try projectedFileChangeRow(snapshot, threadID: threadID)
@@ -811,11 +811,12 @@ private extension CodexCanonicalFileChangeProjectorTests {
         _ id: TurnID,
         threadID: ThreadID,
         itemIDs: [ItemID] = [],
+        status: CanonicalTurnStatus = .completed,
         revision: UInt64
     ) -> CanonicalTurn {
         .init(
             key: .init(threadID: threadID, turnID: id),
-            status: .completed,
+            status: status,
             duration: DurationMilliseconds(20),
             itemOrder: itemIDs,
             itemsCoverage: .full,
@@ -830,13 +831,14 @@ private extension CodexCanonicalFileChangeProjectorTests {
         _ itemID: ItemID,
         _ kind: ThreadItemKind,
         _ payload: [String: CodexJSONValue] = [:],
+        authority: ItemAuthority = .completed,
         revision: UInt64 = 8
     ) -> CanonicalItem {
         .init(
             key: .init(threadID: threadID, turnID: turnID, itemID: itemID),
             kind: kind,
             payload: payload,
-            authority: .completed,
+            authority: authority,
             consistency: .authoritative,
             lastChangedRevision: StateRevision(revision)
         )

@@ -1,4 +1,5 @@
 import CodexCore
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -59,6 +60,28 @@ public struct CodexWorkBlockViewV2: View {
 
     public var body: some View {
         if shouldRender {
+            if theme.interfaceStyle == .t3Code {
+                VStack(alignment: .leading, spacing: theme.spacing.sm) {
+                    conversationBody(showsNarrative: true)
+                    if case .working = status,
+                       finalAnswer?.text.isEmpty != false {
+                        if let liveTail, !liveTail.isEmpty {
+                            CodexLiveTailV2(text: liveTail)
+                        } else if !narrative.contains(where: { entry in
+                            if case .workGroup(let group) = entry { return group.rows.contains(where: \.isInProgress) }
+                            return false
+                        }) {
+                            CodexLiveTailV2(text: "Thinking")
+                        }
+                    }
+                    if case .failed(let message) = status {
+                        Text(status.interruption.map(Self.interruptedLabel) ?? (message.isEmpty ? "Work failed" : message))
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(theme.colors.danger)
+                    }
+                }
+                .frame(maxWidth: theme.spacing.cardMaxWidth, alignment: .leading)
+            } else {
             VStack(alignment: .leading, spacing: 12) {
                 switch status {
                 case .working(let since):
@@ -110,6 +133,7 @@ public struct CodexWorkBlockViewV2: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -120,7 +144,11 @@ public struct CodexWorkBlockViewV2: View {
     }
 
     private var shouldRender: Bool {
-        switch status {
+        if theme.interfaceStyle == .t3Code {
+            if case .working = status { return true }
+            return hasContent
+        }
+        return switch status {
         case .working:
             // The app-server can announce the final-answer item before its
             // first delta. Keep the active work state visible until text exists.
@@ -136,7 +164,7 @@ public struct CodexWorkBlockViewV2: View {
         if narrative.contains(where: { entry in
             switch entry {
             case .workGroup, .productToolCall, .inlineActivity: true
-            case .prose, .notice: false
+            case .prose, .notice, .proposedPlan, .questions: false
             }
         }) { return true }
         return narrative.count(where: {
@@ -166,7 +194,6 @@ public struct CodexWorkBlockViewV2: View {
                 if let message = segment.steeredMessage {
                     CodexUserMessageBubbleV2(
                         message: message,
-                        presentedAt: clientStartedAt,
                         onOpenThread: onOpenThread
                     )
                 }
@@ -183,6 +210,10 @@ public struct CodexWorkBlockViewV2: View {
     @ViewBuilder
     private func narrativeEntry(_ entry: CodexNarrativeEntry) -> some View {
         switch entry {
+        case .proposedPlan(let plan):
+            CodexStandaloneProposedPlanCardV2(plan: plan)
+        case .questions(let question):
+            CodexAsyncQuestionCardV2(model: question)
         case .prose(let prose):
             CodexAssistantContentView(
                 text: prose.text,

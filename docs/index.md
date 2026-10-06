@@ -25,6 +25,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 - [Custom tool cards](ui/custom-tool-cards.md)
 - [Theming and host boundaries](ui/theming-and-hosts.md)
 - [Design tokens and Liquid Glass](ui/design-tokens.md)
+- [T3 Code presentation](ui/t3-code-presentation.md)
 
 ## Use the app
 
@@ -36,6 +37,7 @@ Use this page as the stable router. Pages are organized by task, not by source d
 
 - [Architecture overview](architecture/overview.md)
 - [Repository design audit and remaining cleanup](audits/repository-design-2026-10-05.md)
+- [T3 Code feature implementation comparison](reference/t3-code-comparison.md)
 - [Workspace tabs own panel lifecycle](adr/0001-workspace-tabs-own-panel-lifecycle.md)
 - [Integration control-plane seams](architecture/integration-control-plane.md)
 - [Configuration reference](reference/configuration.md)

@@ -40,6 +40,12 @@ public struct CodexEmptyTranscriptView: View {
     public init(onSelect: @escaping (String) -> Void) { self.onSelect = onSelect }
 
     public var body: some View {
+        if theme.interfaceStyle == .t3Code {
+            Text("Send a message to start the conversation.")
+                .font(theme.fonts.body)
+                .foregroundStyle(theme.colors.textSecondary.opacity(0.6))
+                .frame(maxWidth: .infinity, minHeight: 440, alignment: .center)
+        } else {
         VStack(spacing: theme.spacing.xl) {
             VStack(spacing: theme.spacing.xs) {
                 Text("What should we work on?")
@@ -67,6 +73,7 @@ public struct CodexEmptyTranscriptView: View {
         }
         .padding(.horizontal, theme.spacing.xl)
         .frame(maxWidth: .infinity, minHeight: 440, alignment: .center)
+        }
     }
 }
 

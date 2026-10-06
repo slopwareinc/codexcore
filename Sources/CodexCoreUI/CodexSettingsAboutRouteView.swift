@@ -1075,7 +1075,7 @@ public struct CodexThemePresetPicker: View {
                 Text("Theme")
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
-                Text("Each theme brings its own light. Glass in the window picks it up.")
+                Text("Choose the colors and surfaces used throughout the app.")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
             }
@@ -1129,7 +1129,7 @@ public struct CodexThemePresetPicker: View {
                 Text("Accent")
                     .font(theme.fonts.label)
                     .foregroundStyle(theme.colors.textPrimary)
-                Text(enabled ? "Re-hue controls and light. Contrast is kept automatically." : "High Contrast keeps its own accent.")
+                Text(enabled ? "Re-hue controls and light. Contrast is kept automatically." : "\(preset.displayName) uses a fixed accent.")
                     .font(theme.fonts.caption)
                     .foregroundStyle(theme.colors.textTertiary)
             }

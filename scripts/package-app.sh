@@ -34,6 +34,8 @@ mkdir -p "${macos_dir}" "${resources_dir}" "${iconset_dir}"
 cp "${bin_dir}/codex-core-app" "${macos_dir}/CodexCore"
 cp "${repo_root}/Sources/CodexCoreApp/Info.plist" "${contents_dir}/Info.plist"
 cp "${themed_icon_master}" "${resources_dir}/CodexAppIconMaster.png"
+cp "${repo_root}/LICENSE" "${resources_dir}/LICENSE"
+cp "${repo_root}/THIRD_PARTY_NOTICES.md" "${resources_dir}/THIRD_PARTY_NOTICES.md"
 
 # SwiftPM links parsers statically but ships their queries in separate resource
 # bundles. Copy those bundles into the app so file previews work after moving

@@ -96,6 +96,7 @@ public struct CodexChatWorkspaceView: View {
     private let subagents: [CodexSubagentState]
     private let subagentCoordinator: CodexSubagentPresentationCoordinator?
     private let workspacePath: String
+    private let workspaceTitle: String?
     private let chatTitle: String
     private let currentThreadID: String?
     private let rateLimitBannerMessage: String?
@@ -136,6 +137,7 @@ public struct CodexChatWorkspaceView: View {
     private let onMentionQueryChanged: ((String?) -> Void)?
     private let onMentionSelected: ((FuzzyFileSearchResult) -> Void)?
     private let onSend: () -> Void
+    private let onSubmitTranscriptUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)?
     private let onInterrupt: () -> Void
     private let dictationState: CodexComposerDictationState
     private let dictationActions: CodexComposerDictationActions?
@@ -171,15 +173,20 @@ public struct CodexChatWorkspaceView: View {
     @State private var isSummaryPanelOpen = true
     @State private var isCompactSummaryPanelPresented = false
     @State private var composerOverlayHeight: CGFloat = 170
+    @State private var isReadingHistory = false
+    @State private var isComposerResting = false
 
     /// Creates a workspace and routes the Subagents surface through the
     /// canonical presentation coordinator when one is supplied.
+    /// `workspaceTitle` is the host's project display name. Pass the selected
+    /// project's name when multiple projects share the same filesystem root.
     public init(
         presentationStore: CodexPresentationStore,
         sideChat: CodexSideChatState? = nil,
         subagents: [CodexSubagentState] = [],
         subagentCoordinator: CodexSubagentPresentationCoordinator? = nil,
         workspacePath: String,
+        workspaceTitle: String? = nil,
         chatTitle: String = "Codex",
         currentThreadID: String? = nil,
         panel: CodexWorkspacePanelState = CodexWorkspacePanelState(),
@@ -222,6 +229,7 @@ public struct CodexChatWorkspaceView: View {
         onMentionQueryChanged: ((String?) -> Void)? = nil,
         onMentionSelected: ((FuzzyFileSearchResult) -> Void)? = nil,
         onSend: @escaping () -> Void,
+        onSubmitTranscriptUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil,
         onInterrupt: @escaping () -> Void,
         dictationState: CodexComposerDictationState = .init(),
         dictationActions: CodexComposerDictationActions? = nil,
@@ -257,6 +265,7 @@ public struct CodexChatWorkspaceView: View {
         self.subagents = subagents
         self.subagentCoordinator = subagentCoordinator
         self.workspacePath = workspacePath
+        self.workspaceTitle = workspaceTitle
         self.chatTitle = chatTitle
         self.currentThreadID = currentThreadID
         self._panel = ObservedObject(wrappedValue: panel)
@@ -300,6 +309,7 @@ public struct CodexChatWorkspaceView: View {
         self.onMentionQueryChanged = onMentionQueryChanged
         self.onMentionSelected = onMentionSelected
         self.onSend = onSend
+        self.onSubmitTranscriptUserMessage = onSubmitTranscriptUserMessage
         self.onInterrupt = onInterrupt
         self.dictationState = dictationState
         self.dictationActions = dictationActions
@@ -407,6 +417,15 @@ public struct CodexChatWorkspaceView: View {
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isCompactSummaryPanelPresented)
         .animation(.spring(response: theme.animations.springResponse, dampingFraction: theme.animations.springDamping), value: isSummaryPanelOpen)
         .background(theme.colors.canvas.opacity(0.001))
+        .onChange(of: theme.interfaceStyle, initial: true) { _, style in
+            if style == .t3Code {
+                isSummaryPanelOpen = false
+            }
+        }
+        .onChange(of: currentThreadID) {
+            isReadingHistory = false
+            isComposerResting = false
+        }
         .task(id: workspaceTabRegistrationFingerprint) { registerAvailableWorkspaceTabs() }
     }
 
@@ -472,6 +491,8 @@ public struct CodexChatWorkspaceView: View {
                 onOpenThread: onOpenThread,
                 onOpenReviewRequest: reviewPanelAction,
                 onEditUserMessage: restoreComposer(from:),
+                onSubmitUserMessage: onSubmitTranscriptUserMessage,
+                onReadingHistoryChanged: { isReadingHistory = $0 },
                 onRetryTurn: { message in
                     restoreComposer(from: message.rawText)
                     onSend()
@@ -522,17 +543,16 @@ public struct CodexChatWorkspaceView: View {
                     }
                 )
             )
-            // Content dissolves as it scrolls beneath the toolbar instead of
-            // being painted over with the canvas color, so the window's
-            // atmosphere stays continuous behind the toolbar's glass.
             .mask {
                 VStack(spacing: 0) {
-                    LinearGradient(
-                        colors: [.black.opacity(0), .black],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: theme.spacing.toolbarHeight + 28)
+                    if theme.interfaceStyle == .t3Code {
+                        Color.clear.frame(height: theme.spacing.toolbarHeight)
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 24)
+                    } else {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: theme.spacing.toolbarHeight + 28)
+                    }
                     Color.black
                 }
                 .ignoresSafeArea()
@@ -551,6 +571,7 @@ public struct CodexChatWorkspaceView: View {
                 CodexChatHeader(
                     title: chatTitle,
                     workspacePath: workspacePath,
+                    workspaceTitle: workspaceTitle,
                     showsSidebarToggle: showsSidebarToggle,
                     isSidebarVisible: isSidebarVisible,
                     leadingTitlebarInset: leadingTitlebarInset,
@@ -574,7 +595,7 @@ public struct CodexChatWorkspaceView: View {
                 VStack(spacing: 0) {
                     if let bottomAccessory {
                         bottomAccessory
-                            .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                            .frame(maxWidth: composerLaneMaxWidth, alignment: .leading)
                             .padding(.horizontal, 14)
                             .padding(.bottom, showsComposer ? 8 : 22)
                             .offset(x: -contentShift)
@@ -582,7 +603,7 @@ public struct CodexChatWorkspaceView: View {
                     if showsComposer {
                     if let rateLimitBannerMessage {
                         CodexRateLimitBanner(message: rateLimitBannerMessage)
-                            .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                            .frame(maxWidth: composerLaneMaxWidth, alignment: .leading)
                             .padding(.horizontal, 14)
                             .padding(.bottom, 6)
                             .offset(x: -contentShift)
@@ -595,7 +616,7 @@ public struct CodexChatWorkspaceView: View {
                             onRemove: onRemoveQueuedFollowUp,
                             onEdit: onEditQueuedFollowUp
                         )
-                        .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                        .frame(maxWidth: composerLaneMaxWidth, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 8)
                         .offset(x: -contentShift)
@@ -607,6 +628,8 @@ public struct CodexChatWorkspaceView: View {
                         placeholder: isGoalPursuitEnabled
                             ? "What should Codex keep working toward?"
                             : "Ask Codex anything about this workspace...",
+                        isReadingHistory: isReadingHistory,
+                        onRestingChanged: { isComposerResting = $0 },
                         approvalSelection: $approvalSelection,
                         isPlanModeEnabled: $isPlanModeEnabled,
                         isGoalPursuitEnabled: isGoalPursuitEnabled,
@@ -643,9 +666,9 @@ public struct CodexChatWorkspaceView: View {
                         onFilesDropped: onFilesDropped,
                         voiceFocusRequest: composerFocusRequest
                     )
-                    .frame(maxWidth: theme.spacing.composerMaxWidth + 32, alignment: .leading)
+                    .frame(maxWidth: composerLaneMaxWidth, alignment: .leading)
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 22)
+                    .padding(.bottom, theme.interfaceStyle == .t3Code ? 16 : 22)
                     .offset(x: -contentShift)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -664,8 +687,15 @@ public struct CodexChatWorkspaceView: View {
         }
         .onPreferenceChange(CodexComposerOverlayHeightKey.self) { height in
             guard height > 0 else { return }
-            composerOverlayHeight = height
+            // T3 keeps the expanded footer's timeline reservation while the
+            // editor rests, so collapsing it never pulls history underneath
+            // the pointer. Returning to the editor measures its current size.
+            composerOverlayHeight = isComposerResting ? max(composerOverlayHeight, height) : height
         }
+    }
+
+    private var composerLaneMaxWidth: CGFloat {
+        theme.spacing.composerMaxWidth + (theme.interfaceStyle == .t3Code ? 0 : 32)
     }
 
     private var dockedOverviewContentShift: CGFloat {
@@ -1024,6 +1054,7 @@ public struct CodexChatHeader: View {
 
     private let title: String
     private let workspacePath: String
+    private let workspaceTitle: String?
     private let showsSidebarToggle: Bool
     private let isSidebarVisible: Bool
     private let leadingTitlebarInset: CGFloat
@@ -1039,6 +1070,7 @@ public struct CodexChatHeader: View {
     public init(
         title: String = "Codex",
         workspacePath: String,
+        workspaceTitle: String? = nil,
         showsSidebarToggle: Bool = false,
         isSidebarVisible: Bool = true,
         leadingTitlebarInset: CGFloat = 0,
@@ -1053,6 +1085,7 @@ public struct CodexChatHeader: View {
     ) {
         self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Codex" : title
         self.workspacePath = workspacePath
+        self.workspaceTitle = workspaceTitle
         self.showsSidebarToggle = showsSidebarToggle
         self.isSidebarVisible = isSidebarVisible
         self.leadingTitlebarInset = max(0, leadingTitlebarInset)
@@ -1067,10 +1100,65 @@ public struct CodexChatHeader: View {
     }
 
     public var body: some View {
-        // The transcript masks itself beneath this row (see `chatColumn`), so
-        // the row draws no scrim of its own over the window's atmosphere.
-        controlsRow
-            .frame(maxWidth: .infinity, alignment: .top)
+        Group {
+            if theme.interfaceStyle == .t3Code {
+                compactControlsRow
+            } else {
+                controlsRow
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    /// T3's header uses a single project / thread breadcrumb and unfilled
+    /// controls. The host still owns every command and the selected workspace.
+    private var compactControlsRow: some View {
+        HStack(spacing: 12) {
+            if leadingTitlebarInset > 0 {
+                Color.clear.frame(width: leadingTitlebarInset)
+            }
+            if showsSidebarToggle {
+                ToolbarIconButton(systemImage: "sidebar.leading", help: "Toggle sidebar", action: onToggleSidebar)
+            }
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(theme.fonts.label)
+                    Text(CodexWorkspaceBreadcrumbContext.projectTitle(workspacePath: workspacePath, workspaceTitle: workspaceTitle))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .foregroundStyle(theme.colors.textSecondary)
+                .frame(maxWidth: 160, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+                .help(codexShortPath(workspacePath))
+                Text("/").foregroundStyle(theme.colors.textTertiary)
+                    .accessibilityHidden(true)
+                ChatActionsMenu(actions: chatActions, onDisconnect: onDisconnect, title: title)
+                    .layoutPriority(1)
+            }
+            .font(theme.fonts.label)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Thread breadcrumb")
+
+            Spacer(minLength: 8)
+            HStack(spacing: 4) {
+                ToolbarIconButton(
+                    systemImage: "list.bullet.rectangle", isActive: isSummaryPanelOpen,
+                    help: "Toggle pinned summary", action: onToggleSummaryPanel
+                )
+                ToolbarIconButton(
+                    systemImage: "sidebar.right", isActive: isPanelOpen, isEnabled: hasPanelTabs,
+                    help: "Toggle side panel", action: onTogglePanel
+                )
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: theme.spacing.toolbarHeight)
+        .background(theme.colors.canvas)
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
+        .allowsWindowActivationEvents(true)
     }
 
     private var controlsRow: some View {
@@ -1169,6 +1257,7 @@ private struct HeaderBubble<Content: View>: View {
 
 private struct ToolbarIconButton: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let systemImage: String
     var isActive = false
@@ -1181,16 +1270,22 @@ private struct ToolbarIconButton: View {
             Image(systemName: systemImage)
                 .font(theme.fonts.label)
                 .foregroundStyle(foreground)
-                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                // Selection is a concentric accent-tinted fill matching the
-                // round button (Liquid Glass selection), not a squircle chip.
-                .background(
-                    isActive ? theme.colors.accent.opacity(0.22) : .clear,
-                    in: Circle()
-                )
+                .frame(width: theme.interfaceStyle == .t3Code ? 28 : theme.spacing.iconLarge,
+                       height: theme.interfaceStyle == .t3Code ? 28 : theme.spacing.iconLarge)
+                .background {
+                    if theme.interfaceStyle == .t3Code {
+                        RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                            .fill(isHovered || isActive ? theme.colors.hover.opacity(theme.effects.hoverOpacity) : .clear)
+                    } else {
+                        Circle().fill(isActive ? theme.colors.accent.opacity(0.22) : .clear)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(help)
+        .accessibilityValue(isActive ? "Shown" : "")
         .help(help)
     }
 
@@ -1198,16 +1293,20 @@ private struct ToolbarIconButton: View {
         if !isEnabled {
             return theme.colors.textTertiary.opacity(theme.effects.textFaintOpacity)
         }
-        // Active glyph brightens to the accent; inactive stays secondary.
+        if theme.interfaceStyle == .t3Code {
+            return isActive || isHovered ? theme.colors.textPrimary : theme.colors.textSecondary
+        }
         return isActive ? theme.colors.accent : theme.colors.textSecondary
     }
 }
 
 private struct ChatActionsMenu: View {
     @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
 
     let actions: CodexChatActionHandlers
     let onDisconnect: () -> Void
+    var title: String? = nil
 
     var body: some View {
         Menu {
@@ -1225,19 +1324,37 @@ private struct ChatActionsMenu: View {
             Divider()
             Button("Disconnect", action: onDisconnect)
         } label: {
-            Image(systemName: "ellipsis")
-                .font(theme.fonts.chat)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
-                .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+            if let title {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(theme.fonts.label)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "chevron.down")
+                        .font(theme.fonts.micro)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .opacity(isHovered ? 1 : 0)
+                }
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            } else {
+                Image(systemName: "ellipsis")
+                    .font(theme.fonts.chat)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .frame(width: theme.spacing.iconLarge, height: theme.spacing.iconLarge)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
+            }
         }
         // Strip the default macOS pop-up bezel + disclosure arrow so the glyph
         // sits cleanly on the glass bubble like the sibling icon buttons,
         // instead of stacking its own gray chrome (the "hybrid" look).
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Chat actions")
+        .fixedSize(horizontal: title == nil, vertical: true)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(title.map { "Thread actions for \($0)" } ?? "Chat actions")
+        .help(title ?? "Chat actions")
     }
 
     private func actionButton(_ item: CodexChatActionMenuItem) -> some View {
@@ -1250,6 +1367,17 @@ private struct ChatActionsMenu: View {
 
 private func codexShortPath(_ path: String) -> String {
     CodexPathFormatter.abbreviatingHome(path)
+}
+
+enum CodexWorkspaceBreadcrumbContext {
+    static func projectTitle(workspacePath: String, workspaceTitle: String?) -> String {
+        let title = workspaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let title, !title.isEmpty { return title }
+        let path = workspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return "Workspace" }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return name.isEmpty || name == "/" ? "Workspace" : name
+    }
 }
 
 private extension CodexSubagentState.Status {

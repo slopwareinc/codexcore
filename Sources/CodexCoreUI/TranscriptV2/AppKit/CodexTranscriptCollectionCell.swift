@@ -190,7 +190,7 @@ final class CodexSelectableTranscriptTextView: NSTextView {
         isAutomaticLinkDetectionEnabled = automaticDetection
         linkTextAttributes = [
             .foregroundColor: theme.accent,
-            .underlineStyle: NSUnderlineStyle.single.rawValue
+            .underlineStyle: theme.interfaceStyle == .t3Code ? 0 : NSUnderlineStyle.single.rawValue
         ]
         displaysLinkToolTips = true
     }
@@ -663,6 +663,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         performAction: @escaping (CodexTranscriptRenderAction) -> Void,
         copy: @escaping (String) -> Void,
         editUserMessage: @escaping (String) -> Void,
+        submitUserMessage: ((String) async -> CodexTranscriptUserMessageReceipt)? = nil,
+        questionPresentationState: CodexAsyncQuestionPresentationState? = nil,
         retryTurn: ((CodexUserMessageV2) -> Void)? = nil,
         forkChat: (() -> Void)?,
         fileNavigationService: any CodexTranscriptFileNavigationService =
@@ -677,6 +679,10 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         let preservesMCPHost = preservesIdentity && self.item?.mcpApp?.id == item.mcpApp?.id
             && self.item?.mcpApp?.revision == item.mcpApp?.revision
             && item.mcpApp != nil && mcpAppHostContext != nil
+        let preservesPlanHost = preservesIdentity && item.proposedPlan != nil
+            && self.item?.proposedPlan?.plan.id == item.proposedPlan?.plan.id
+        let preservesQuestionHost = preservesIdentity && item.questions != nil
+            && self.item?.questions?.id == item.questions?.id
         let selectionToRestore = preservesIdentity && item.allowsTextSelection && textControlsInstalled
             ? selectableTextView.selectedRange()
             : NSRange(location: 0, length: 0)
@@ -698,7 +704,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         self.removeResponseAnnotation = removeResponseAnnotation
         self.selectionChanged = selectionChanged
         self.preferredHeightChanged = preferredHeightChanged
-        if !preservesMCPHost {
+        if !preservesMCPHost && !preservesPlanHost && !preservesQuestionHost {
             hostedView?.removeFromSuperview()
             hostedView = nil
         }
@@ -762,6 +768,49 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             if item.action != nil { ensureActionControl() }
             if case .codeComment = directive.kind, item.preparedText != nil { ensureTextControls() }
             configureDirective(directive, item: item, theme: appKitTheme, preserving: selectionToRestore)
+        } else if let plan = item.proposedPlan {
+            let root = AnyView(CodexProposedPlanCardV2(
+                render: plan,
+                onToggleExpanded: { [weak self] in
+                    guard let action = item.action else { return }
+                    self?.performAction?(action)
+                },
+                onCopy: copy
+            ).codexAgentTheme(swiftUITheme))
+            let hosting: NSHostingView<AnyView>
+            if let existing = hostedView as? NSHostingView<AnyView> {
+                hosting = existing
+                hosting.rootView = root
+            } else {
+                hosting = NSHostingView(rootView: root)
+                hostedView = hosting
+                view.addSubview(hosting)
+            }
+            hosting.setAccessibilityLabel(item.accessibilityLabel)
+        } else if let question = item.questions {
+            let root: AnyView
+            if let questionPresentationState {
+                root = AnyView(CodexAsyncQuestionCardV2(
+                    model: question, presentationState: questionPresentationState,
+                    onSubmitUserMessage: submitUserMessage,
+                    onStageUserMessage: editUserMessage
+                ).codexAgentTheme(swiftUITheme))
+            } else {
+                root = AnyView(CodexAsyncQuestionCardV2(
+                    model: question, onSubmitUserMessage: submitUserMessage,
+                    onStageUserMessage: editUserMessage
+                ).codexAgentTheme(swiftUITheme))
+            }
+            let hosting: NSHostingView<AnyView>
+            if let existing = hostedView as? NSHostingView<AnyView> {
+                hosting = existing
+                hosting.rootView = root
+            } else {
+                hosting = NSHostingView(rootView: root)
+                hostedView = hosting
+                view.addSubview(hosting)
+            }
+            hosting.setAccessibilityLabel(item.accessibilityLabel)
         } else if let turnDiff = item.turnDiff {
             let hosting = NSHostingView(rootView: AnyView(
                 CodexTranscriptTurnDiffCard(
@@ -771,9 +820,12 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                         : nil,
                     onToggleExpanded: { [weak self] in
                         self?.performAction?(.toggleRow(rowID: turnDiff.rowID))
+                    },
+                    onToggleDirectory: { [weak self] rowID in
+                        self?.performAction?(.toggleRow(rowID: rowID))
                     }
                 )
-                .padding(.top, CodexTranscriptTurnDiffCard.topSpacing)
+                .padding(.top, swiftUITheme.interfaceStyle == .t3Code ? 16 : CodexTranscriptTurnDiffCard.topSpacing)
                 .codexAgentTheme(swiftUITheme)
             ))
             hosting.setAccessibilityLabel(item.accessibilityLabel)
@@ -872,22 +924,28 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 Self.chipIconName(row),
                 accessibilityDescription: Self.chipIconAccessibilityDescription(row)
             )
-            chipIconView.contentTintColor = row.style.isSemanticActivity
+            chipIconView.contentTintColor = appKitTheme.interfaceStyle == .t3Code
+                && row.status != .failed && row.status != .declined
+                ? appKitTheme.textTertiary
+                : row.style.isSemanticActivity
                 ? appKitTheme.textTertiary
                 : Self.statusColor(row.status, theme: appKitTheme)
             chipLabel.stringValue = row.label
-            chipLabel.font = appKitTheme.captionFont
+            chipLabel.font = appKitTheme.workFont
             chipLabel.textColor = appKitTheme.textTertiary
             if row.status == .inProgress { chipLabel.startShimmer() }
-            chipDurationLabel.stringValue = row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
+            chipDurationLabel.stringValue = appKitTheme.interfaceStyle == .t3Code
+                ? "" : row.durationMs.map(CodexWorkBlockViewV2.duration) ?? ""
             chipDurationLabel.font = appKitTheme.microFont
             chipDurationLabel.textColor = appKitTheme.textTertiary
             chipStatusLabel.stringValue = row.style.isSemanticActivity
+                || (appKitTheme.interfaceStyle == .t3Code && (row.status == .completed || row.status == .inProgress))
                 ? ""
                 : Self.workStatusTitle(row)
             chipStatusLabel.font = appKitTheme.captionFont
             chipStatusLabel.textColor = Self.statusColor(row.status, theme: appKitTheme)
-            chipDisclosureView.image = Self.chipDisclosureImage(row, isActionable: isActionable)
+            chipDisclosureView.image = appKitTheme.interfaceStyle == .t3Code && row.style == .activitySummary
+                ? nil : Self.chipDisclosureImage(row, isActionable: isActionable)
             chipDisclosureView.contentTintColor = appKitTheme.textTertiary
             if row.isExpanded && item.copyPayload != nil {
                 ensureCopyControl()
@@ -983,7 +1041,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         backgroundView.layer?.cornerRadius = item.textRole == .user ? theme.bubbleRadius : theme.cardRadius
         backgroundView.layer?.backgroundColor = Self.backgroundColor(item: item, theme: theme).cgColor
         backgroundView.layer?.borderColor = Self.borderColor(item: item, theme: theme).cgColor
-        backgroundView.layer?.borderWidth = backgroundView.isHidden ? 0 : 1
+        backgroundView.layer?.borderWidth = backgroundView.isHidden
+            || (theme.interfaceStyle == .t3Code && item.textRole == .user) ? 0 : 1
         glassBackgroundView?.frame = contentFrame
 
         if item.footer != nil {
@@ -1017,7 +1076,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
                 ? CodexTranscriptColumnMetrics.userBubbleHorizontalPadding
                 : (item.textRole == .expandedOutput ? 12 : 0)
             let insetY: CGFloat = item.textRole == .user
-                ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding
+                ? theme.userBubbleVerticalPadding
                 : (item.textRole == .expandedOutput ? 8 : CodexTranscriptColumnMetrics.itemGap / 2)
             let textFrame = contentFrame.insetBy(dx: insetX, dy: insetY)
             layoutSelectableText(
@@ -1041,9 +1100,9 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             let isActionable = item.action != nil
             chipBackground.frame = contentFrame
             let rowMidY = contentFrame.height / 2
-            let disclosureWidth: CGFloat = isActionable ? 14 : 0
-            let iconSize: CGFloat = 15
-            let iconX: CGFloat = 0
+            let disclosureWidth: CGFloat = chipDisclosureView.image != nil ? 14 : 0
+            let iconSize: CGFloat = theme.interfaceStyle == .t3Code ? 16 : 15
+            let iconX: CGFloat = theme.interfaceStyle == .t3Code ? 4 : 0
             chipIconView.frame = NSRect(x: iconX, y: rowMidY - iconSize / 2, width: iconSize, height: iconSize)
 
             chipStatusLabel.sizeToFit()
@@ -1052,8 +1111,8 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
             chipDurationLabel.sizeToFit()
             let durationWidth = chipDurationLabel.stringValue.isEmpty ? 0 : chipDurationLabel.frame.width
             let copyReserve: CGFloat = copyControlInstalled && !copyButton.isHidden ? 34 : 0
-            let labelX = iconX + iconSize + 8
-            let disclosureReserve = isActionable ? disclosureWidth + 8 : 0
+            let labelX = theme.interfaceStyle == .t3Code ? 30 : iconX + iconSize + 8
+            let disclosureReserve = disclosureWidth > 0 ? disclosureWidth + 8 : 0
             let trailingWidth = statusWidth
                 + (durationWidth > 0 ? durationWidth + 10 : 0)
                 + copyReserve
@@ -1111,7 +1170,7 @@ final class CodexTranscriptCollectionItem: NSCollectionViewItem, NSTextViewDeleg
         if let hostedView {
             hostedView.frame = contentFrame
             hostedView.layoutSubtreeIfNeeded()
-            let preferredHeight = max(44, ceil(hostedView.fittingSize.height))
+            let preferredHeight = max(44, ceil(hostedView.fittingSize.height)) + item.bottomSpacing
             if abs(preferredHeight - item.measuredHeight) > 1,
                lastReportedPreferredHeight != preferredHeight {
                 lastReportedPreferredHeight = preferredHeight

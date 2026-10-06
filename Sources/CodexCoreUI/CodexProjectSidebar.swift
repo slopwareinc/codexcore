@@ -19,6 +19,7 @@ enum CodexProjectSidebarEnvironmentLabel {
 
 public struct CodexProjectSidebar: View {
     @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showsOlderProjects = false
     @State private var isPinnedSectionExpanded = true
     @State private var isChatsSectionExpanded = true
@@ -63,6 +64,12 @@ public struct CodexProjectSidebar: View {
     let sectionDestinations: [CodexSidebarSectionSummary]
     let onMoveChat: (CodexThreadSummary, String?) -> Void
     let renderCounter: CodexSidebarMountedRenderCounter?
+    let inboxProjectScope: Binding<String?>?
+    let isInboxProjectCatalogReady: Bool
+    let inboxSearchState: CodexSidebarInboxSearchState?
+    let onSearchInbox: ((String) async -> Void)?
+    let onLoadMoreInboxSearch: (() -> Void)?
+    let onRenameChat: ((CodexThreadSummary, String) -> Void)?
 
     public init(
         serverName: String?,
@@ -101,7 +108,13 @@ public struct CodexProjectSidebar: View {
         onUnarchiveChat: @escaping (CodexThreadSummary) -> Void = { _ in },
         sectionDestinations: [CodexSidebarSectionSummary] = [],
         onMoveChat: @escaping (CodexThreadSummary, String?) -> Void = { _, _ in },
-        renderCounter: CodexSidebarMountedRenderCounter? = nil
+        renderCounter: CodexSidebarMountedRenderCounter? = nil,
+        inboxProjectScope: Binding<String?>? = nil,
+        isInboxProjectCatalogReady: Bool = false,
+        inboxSearchState: CodexSidebarInboxSearchState? = nil,
+        onSearchInbox: ((String) async -> Void)? = nil,
+        onLoadMoreInboxSearch: (() -> Void)? = nil,
+        onRenameChat: ((CodexThreadSummary, String) -> Void)? = nil
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -140,17 +153,24 @@ public struct CodexProjectSidebar: View {
         self.sectionDestinations = sectionDestinations
         self.onMoveChat = onMoveChat
         self.renderCounter = renderCounter
+        self.inboxProjectScope = inboxProjectScope
+        self.isInboxProjectCatalogReady = isInboxProjectCatalogReady
+        self.inboxSearchState = inboxSearchState
+        self.onSearchInbox = onSearchInbox
+        self.onLoadMoreInboxSearch = onLoadMoreInboxSearch
+        self.onRenameChat = onRenameChat
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            Color.clear
-                .frame(height: CodexWindowChromeMetrics.titlebarHeight)
-
+            sidebarTitlebar
+            if theme.interfaceStyle == .t3Code {
+                inboxView
+            } else {
             ScrollView(showsIndicators: true) {
-                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : 16) {
-                    routeRows
-            if let actionErrorMessage = snapshot.actionErrorMessage, !snapshot.isCollapsed {
+                VStack(alignment: .leading, spacing: snapshot.isCollapsed ? 8 : (theme.interfaceStyle == .t3Code ? 8 : 16)) {
+                    if theme.interfaceStyle != .t3Code { routeRows }
+                    if let actionErrorMessage = snapshot.actionErrorMessage, !snapshot.isCollapsed {
                         Text(actionErrorMessage)
                             .font(theme.fonts.sidebar.emptyState.font)
                             .foregroundStyle(theme.colors.danger)
@@ -173,9 +193,10 @@ public struct CodexProjectSidebar: View {
                     }
                     archivedSection
                 }
-                .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-                .padding(.top, 8)
+                .padding(.horizontal, snapshot.isCollapsed || theme.interfaceStyle == .t3Code ? 8 : 12)
+                .padding(.top, theme.interfaceStyle == .t3Code ? 0 : 8)
                 .padding(.bottom, 16)
+            }
             }
 
             utilitySection
@@ -190,15 +211,67 @@ public struct CodexProjectSidebar: View {
         .opacity(snapshot.isCollapsed ? 0 : 1)
         .allowsHitTesting(!snapshot.isCollapsed)
         .accessibilityHidden(snapshot.isCollapsed)
-        // Flush, full-height glass (macOS 27 retired Tahoe's inset floating
-        // sidebar). The theme's atmosphere refracts through it.
-        .codexGlass(Rectangle(), role: .chrome)
+        .modifier(CodexSidebarSurface())
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.colors.border)
                 .frame(width: 1)
         }
         .overlay(alignment: .trailing) { resizeHandle }
+        .codexAgentTheme(sidebarTheme)
+    }
+
+    private var sidebarTheme: CodexAgentTheme {
+        guard theme.interfaceStyle == .t3Code else { return theme }
+        var sidebar = theme
+        sidebar.colors.textPrimary = CodexT3SidebarColors.foreground(for: colorScheme)
+        sidebar.colors.textSecondary = CodexT3SidebarColors.secondary(for: colorScheme)
+        sidebar.colors.textTertiary = sidebar.colors.textSecondary.opacity(0.7)
+        return sidebar
+    }
+
+    private var inboxView: some View {
+        CodexT3SidebarInboxView(
+            snapshot: snapshot, projectScope: inboxProjectScope, isProjectCatalogReady: isInboxProjectCatalogReady,
+            searchState: inboxSearchState, hasMoreActive: hasMoreActiveChats, isLoadingMoreActive: isLoadingMoreActiveChats,
+            sectionDestinations: sectionDestinations,
+            actions: .init(
+                newChat: onNewChat, newProject: onOpenFolder, startProjectChat: onStartProjectChat,
+                selectChat: onSelectChat, togglePin: onTogglePinChat, archive: onArchiveChat, unarchive: onUnarchiveChat,
+                rename: onRenameChat, toggleSelection: onToggleThreadSelection, clearSelection: onClearThreadSelection,
+                moveToSection: onMoveChat, loadArchived: onLoadArchivedChats, loadMoreArchived: onLoadMoreArchivedChats,
+                loadMoreActive: onLoadMoreActiveChats, search: onSearchInbox, loadMoreSearch: onLoadMoreInboxSearch
+            ),
+            bulkSelectionToolbar: { snapshot, visibleIDs in
+                AnyView(CodexSidebarBulkSelectionToolbar(
+                    snapshot: snapshot,
+                    onSelectAll: {
+                        visibleIDs.filter { !snapshot.selectedThreadIDs.contains($0) }.forEach(onToggleThreadSelection)
+                    },
+                    onTogglePinned: onTogglePinnedSelectedChats, onArchive: onArchiveSelectedChats, onClear: onClearThreadSelection
+                ))
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var sidebarTitlebar: some View {
+        if theme.interfaceStyle == .t3Code {
+            HStack(spacing: 4) {
+                Text("Codex").foregroundStyle(theme.colors.textPrimary)
+                Text("Core").foregroundStyle(theme.colors.textSecondary)
+                Spacer(minLength: 0)
+            }
+            .font(theme.fonts.label)
+            .padding(.leading, CodexWindowChromeMetrics.sidebarTrafficLightReserveWidth)
+            .padding(.trailing, 12)
+            .frame(height: CodexWindowChromeMetrics.titlebarHeight)
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture())
+            .allowsWindowActivationEvents(true)
+        } else {
+            Color.clear.frame(height: CodexWindowChromeMetrics.titlebarHeight)
+        }
     }
 
     @ViewBuilder
@@ -285,12 +358,13 @@ public struct CodexProjectSidebar: View {
 
     private var accountFooter: some View {
         let sidebarFonts = theme.fonts.sidebar
-        return HStack(spacing: 12) {
+        return HStack(spacing: theme.interfaceStyle == .t3Code ? 8 : 12) {
             Text(accountSummary.initials)
                 .font(sidebarFonts.accountInitials(isCollapsed: snapshot.isCollapsed))
                 .foregroundStyle(theme.colors.textPrimary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(theme.colors.accentSoft))
+                .frame(width: theme.interfaceStyle == .t3Code ? 26 : 34,
+                       height: theme.interfaceStyle == .t3Code ? 26 : 34)
+                .background(Circle().fill(theme.interfaceStyle == .t3Code ? theme.colors.surfaceElevated : theme.colors.accentSoft))
 
             if !snapshot.isCollapsed {
                 VStack(alignment: .leading, spacing: 2) {
@@ -306,13 +380,31 @@ public struct CodexProjectSidebar: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(height: snapshot.isCollapsed ? sidebarFonts.collapsedAccountFooterHeight : sidebarFonts.accountFooterHeight)
+        .frame(height: theme.interfaceStyle == .t3Code ? 48 : (snapshot.isCollapsed ? sidebarFonts.collapsedAccountFooterHeight : sidebarFonts.accountFooterHeight))
         .frame(maxWidth: .infinity, alignment: snapshot.isCollapsed ? .center : .leading)
         .padding(.horizontal, snapshot.isCollapsed ? 8 : 16)
         .help(accountSummary.displayName)
     }
 
+    @ViewBuilder
     private var routeRows: some View {
+        if theme.interfaceStyle == .t3Code {
+            HStack(spacing: 4) {
+                SidebarCommandRow(
+                    systemImage: CodexAppRoute.search.systemImage,
+                    title: "Search",
+                    isSelected: snapshot.selectedRoute == .search,
+                    action: onOpenSearch
+                )
+                SidebarUtilityButton(systemImage: "folder.badge.plus", title: "Open folder", action: onOpenFolder)
+                SidebarUtilityButton(systemImage: "square.and.pencil", title: "New chat (⌘N)", action: onNewChat)
+            }
+        } else {
+            nativeRouteRows
+        }
+    }
+
+    private var nativeRouteRows: some View {
         VStack(spacing: 2) {
             SidebarCommandRow(
                 systemImage: "square.and.pencil",
@@ -567,6 +659,40 @@ public struct CodexProjectSidebar: View {
     }
 
     private var utilitySection: some View {
+        Group {
+            if theme.interfaceStyle == .t3Code {
+                HStack(spacing: 4) {
+                    SidebarUtilityButton(
+                        systemImage: CodexAppRoute.settingsAbout.systemImage,
+                        title: CodexAppRoute.settingsAbout.title,
+                        isSelected: snapshot.selectedRoute == .settingsAbout,
+                        action: { onSelectRoute(.settingsAbout) }
+                    )
+                    ForEach(CodexAppRoute.primarySidebarRoutes, id: \.rawValue) { route in
+                        SidebarUtilityButton(
+                            systemImage: route.systemImage,
+                            title: route.title,
+                            isSelected: snapshot.selectedRoute == route,
+                            action: { onSelectRoute(route) }
+                        )
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                nativeUtilityRows
+            }
+        }
+        .padding(.horizontal, snapshot.isCollapsed || theme.interfaceStyle == .t3Code ? 8 : 12)
+        .padding(.top, 8)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(theme.colors.border)
+                .frame(height: 1)
+                .padding(.horizontal, snapshot.isCollapsed ? 12 : 18)
+        }
+    }
+
+    private var nativeUtilityRows: some View {
         VStack(spacing: 2) {
             SidebarCommandRow(
                 systemImage: "folder.badge.plus",
@@ -582,18 +708,48 @@ public struct CodexProjectSidebar: View {
                 action: { onSelectRoute(.settingsAbout) }
             )
         }
-        .padding(.horizontal, snapshot.isCollapsed ? 8 : 12)
-        .padding(.top, 8)
-        .overlay(alignment: .top) {
-            // One inset hairline separates the scrolling list from the fixed
-            // footer; the footer itself shares the pane's glass.
-            Rectangle()
-                .fill(theme.colors.border)
-                .frame(height: 1)
-                .padding(.horizontal, snapshot.isCollapsed ? 12 : 18)
-        }
     }
 
+}
+
+private struct CodexSidebarSurface: ViewModifier {
+    @Environment(\.codexAgentTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        if theme.interfaceStyle == .t3Code {
+            content.background(CodexT3SidebarColors.background(for: colorScheme))
+        } else {
+            content.codexGlass(Rectangle(), role: .chrome)
+        }
+    }
+}
+
+private struct SidebarUtilityButton: View {
+    @Environment(\.codexAgentTheme) private var theme
+    @State private var isHovered = false
+
+    let systemImage: String
+    let title: String
+    var isSelected = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(theme.fonts.label)
+                .foregroundStyle(isSelected || isHovered ? theme.colors.textPrimary : theme.colors.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    isSelected || isHovered ? theme.colors.hover.opacity(theme.effects.hoverOpacity) : .clear,
+                    in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(title)
+        .help(title)
+    }
 }
 
 private struct SidebarCommandRow: View {
@@ -609,11 +765,11 @@ private struct SidebarCommandRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
+            HStack(spacing: theme.interfaceStyle == .t3Code ? 8 : 14) {
                 Image(systemName: systemImage)
                     .font(theme.fonts.sidebar.commandIcon.font)
                     .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-                    .frame(width: 20)
+                    .frame(width: theme.interfaceStyle == .t3Code ? 16 : 20)
                 if !isCollapsed {
                     Text(title)
                         .font(theme.fonts.sidebar.commandTitle.font)
@@ -629,13 +785,13 @@ private struct SidebarCommandRow: View {
             }
             .frame(height: theme.fonts.sidebar.commandRowHeight)
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .padding(.horizontal, isCollapsed ? 4 : 6)
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, isCollapsed ? 4 : (theme.interfaceStyle == .t3Code ? 8 : 6))
+            .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         }
         .buttonStyle(.plain)
         .background(
             rowFill,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
         .onHover { isHovered = $0 }
         .accessibilityLabel(CodexSidebarAccessibility.commandRowLabel(title: title, shortcut: shortcut))
@@ -662,6 +818,7 @@ struct SidebarSectionHeader: View {
     let attentionState: CodexSidebarAttentionState
     var icon: String? = nil
     var color: String? = nil
+    var showsAttentionWhenExpanded = false
     let action: () -> Void
 
     var body: some View {
@@ -674,18 +831,27 @@ struct SidebarSectionHeader: View {
                 }
                 Text(title)
                     .font(theme.fonts.sidebar.sectionHeader.font)
-                Spacer(minLength: 0)
+                if theme.interfaceStyle == .t3Code {
+                    Rectangle()
+                        .fill(theme.colors.border.opacity(0.6))
+                        .frame(height: 1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 4)
+                        .accessibilityHidden(true)
+                } else {
+                    Spacer(minLength: 0)
+                }
                 SidebarAttentionIndicator(state: attentionState)
-                    .opacity(isExpanded ? 0 : 1)
-                Image(systemName: "chevron.right")
+                    .opacity(isExpanded && !showsAttentionWhenExpanded ? 0 : 1)
+                Image(systemName: theme.interfaceStyle == .t3Code ? "chevron.down" : "chevron.right")
                     .font(theme.fonts.sidebar.disclosureChevron.font)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .rotationEffect(.degrees(isExpanded ? (theme.interfaceStyle == .t3Code ? 180 : 90) : 0))
                     .frame(width: 14, height: 20)
-                    .opacity(isHovered ? 1 : 0)
+                    .opacity(theme.interfaceStyle == .t3Code || isHovered ? 1 : 0)
             }
             .foregroundStyle(theme.colors.textTertiary)
             .frame(height: theme.fonts.sidebar.sectionHeaderHeight)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, theme.interfaceStyle == .t3Code ? 8 : 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -763,11 +929,11 @@ struct ProjectSidebarGroupView: View {
                         onSelectProject(group.project.id)
                     }
                 } label: {
-                    HStack(spacing: 11) {
-                        Image(systemName: group.isExpanded ? "folder.fill" : "folder")
+                    HStack(spacing: theme.interfaceStyle == .t3Code ? 8 : 11) {
+                        Image(systemName: theme.interfaceStyle == .t3Code ? "folder" : (group.isExpanded ? "folder.fill" : "folder"))
                             .font(theme.fonts.sidebar.projectIcon.font)
                             .foregroundStyle(theme.colors.textSecondary)
-                            .frame(width: 20)
+                            .frame(width: theme.interfaceStyle == .t3Code ? 16 : 20)
                         if !isCollapsed {
                             Text(group.project.displayName)
                                 .font(theme.fonts.sidebar.projectTitle.font)
@@ -786,7 +952,7 @@ struct ProjectSidebarGroupView: View {
                     }
                     .frame(height: isCollapsed ? theme.fonts.sidebar.collapsedProjectRowHeight : theme.fonts.sidebar.projectRowHeight)
                     .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-                    .padding(.leading, isCollapsed ? 4 : 6)
+                    .padding(.leading, isCollapsed ? 4 : (theme.interfaceStyle == .t3Code ? 8 : 6))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -841,7 +1007,7 @@ struct ProjectSidebarGroupView: View {
                     ForEach(group.rows) { row in
                         SidebarChatRow(
                             row: row,
-                            indentation: 28,
+                            indentation: theme.interfaceStyle == .t3Code ? 10 : 28,
                             showsRecency: false,
                             onSelect: { onSelectChat(row.summary) },
                             onTogglePin: { onTogglePinChat(row.summary) },
@@ -935,7 +1101,7 @@ struct ProjectSidebarGroupView: View {
 
     @ViewBuilder
     private var projectRowBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         if isDropTargeted {
             shape.fill(theme.colors.accent.opacity(0.16))
         } else if group.isSelected && !hasSelectedThread {
@@ -1045,10 +1211,11 @@ private struct SidebarChatRowHost: NSViewRepresentable {
             // resolves them itself, against its own live effectiveAppearance,
             // every time it actually needs to paint. See CodexAppKitColor.
             hoverColor: theme.colors.hover.opacity(theme.effects.hoverOpacity),
-            selectionColor: theme.colors.textPrimary.opacity(
-                controlActiveState == .key ? 0.055 : 0.03
-            ),
-            isSelected: row.isSelected
+            selectionColor: theme.interfaceStyle == .t3Code
+                ? theme.colors.selection.opacity(theme.effects.selectionOpacity)
+                : theme.colors.textPrimary.opacity(controlActiveState == .key ? 0.055 : 0.03),
+            isSelected: row.isSelected,
+            cornerRadius: theme.interfaceStyle == .t3Code ? theme.radii.small : 10
         )
     }
 }
@@ -1110,11 +1277,11 @@ private struct SidebarChatRowContent: View {
                 trailingStatus
             }
         }
-        .padding(.leading, 6 + indentation)
+        .padding(.leading, (theme.interfaceStyle == .t3Code ? 10 : 6) + indentation)
         .padding(.trailing, 8)
         .frame(height: theme.fonts.sidebar.chatRowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous))
         .onTapGesture {
             if selectionMode {
                 onToggleSelection()
@@ -1370,13 +1537,15 @@ final class SidebarChatRowContainerView: NSView {
         actions: AnyView,
         hoverColor: Color,
         selectionColor: Color,
-        isSelected: Bool
+        isSelected: Bool,
+        cornerRadius: CGFloat = 10
     ) {
         contentHost.rootView = content
         actionsHost.rootView = actions
         self.hoverColor = hoverColor
         self.selectionColor = selectionColor
         self.isSelected = isSelected
+        layer?.cornerRadius = cornerRadius
         updateChrome()
         needsLayout = true
     }
@@ -1510,8 +1679,6 @@ final class SidebarChatRowContainerView: NSView {
         let appearance = effectiveAppearance
         let resolvedHover = appearance.codexResolve(hoverColor)
         let resolvedSelection = appearance.codexResolve(selectionColor)
-        // These remain translucent semantic tints. The sidebar's live glass
-        // stays underneath instead of being flattened into an opaque surface.
         let background = isSelected
             ? resolvedSelection
             : (isHovered ? resolvedHover : NSColor.clear)
@@ -1525,11 +1692,11 @@ private struct SidebarSelectionBackground: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
+        RoundedRectangle(cornerRadius: theme.interfaceStyle == .t3Code ? theme.radii.small : 7, style: .continuous)
             .fill(
-                theme.colors.textPrimary.opacity(
-                    controlActiveState == .key ? 0.055 : 0.03
-                )
+                theme.interfaceStyle == .t3Code
+                    ? theme.colors.selection.opacity(theme.effects.selectionOpacity)
+                    : theme.colors.textPrimary.opacity(controlActiveState == .key ? 0.055 : 0.03)
             )
     }
 }
@@ -1545,22 +1712,21 @@ enum SidebarChatRowLayout {
 }
 
 private enum SidebarMetrics {
-    static let expandedWidth: CGFloat = 276
     static let resizeHandleHitWidth: CGFloat = 8
 }
 
 public enum CodexWindowChromeMetrics {
     public static let trafficLightLeadingInset: CGFloat = 18
     public static let trafficLightTopInset: CGFloat = 14
-    public static let titlebarHeight: CGFloat = 54
+    public static let titlebarHeight: CGFloat = 52
     public static let sidebarControlTopInset: CGFloat = 7
     public static let sidebarTrafficLightReserveWidth: CGFloat = 104
 }
 
 public extension CodexProjectSidebar {
     /// Default expanded width and the range the resize handle clamps to.
-    static let defaultExpandedWidth: CGFloat = 276
-    static let minExpandedWidth: CGFloat = 220
+    static let defaultExpandedWidth: CGFloat = 256
+    static let minExpandedWidth: CGFloat = 208
     static let maxExpandedWidth: CGFloat = 460
     /// Preserves the 540pt chat workspace beside the narrowest expanded sidebar.
     static let minimumExpandedShellWidth: CGFloat = minExpandedWidth + 540

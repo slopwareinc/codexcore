@@ -1,3 +1,4 @@
+import CodexCore
 import Foundation
 
 /// The complete disposable presentation consumed by transcript renderers.
@@ -50,8 +51,23 @@ public enum CodexThreadLiveStatus: String, Sendable, Equatable {
     case failed
 }
 
+/// A request that currently needs the user's attention. This remains separate
+/// from live lifecycle so a waiting turn does not lose its running state.
+public enum CodexSidebarThreadAttention: Sendable, Equatable {
+    case approval
+    case input
+
+    public static func resolve(_ status: CanonicalThreadStatus) -> Self? {
+        guard case .active(let flags) = status else { return nil }
+        if flags.contains(.waitingOnApproval) { return .approval }
+        if flags.contains(.waitingOnUserInput) { return .input }
+        return nil
+    }
+}
+
 public struct CodexThreadStatusEntry: Sendable, Equatable {
     public var status: CodexThreadLiveStatus
+    public var attention: CodexSidebarThreadAttention?
     public var hasUnreadWhileInactive: Bool
     public var lastEventAt: Date
     public var progress: Double?
@@ -59,12 +75,14 @@ public struct CodexThreadStatusEntry: Sendable, Equatable {
 
     public init(
         status: CodexThreadLiveStatus = .idle,
+        attention: CodexSidebarThreadAttention? = nil,
         hasUnreadWhileInactive: Bool = false,
         lastEventAt: Date = Date(),
         progress: Double? = nil,
         statusText: String? = nil
     ) {
         self.status = status
+        self.attention = attention
         self.hasUnreadWhileInactive = hasUnreadWhileInactive
         self.lastEventAt = lastEventAt
         self.progress = progress.map { min(max($0, 0), 1) }

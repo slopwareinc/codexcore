@@ -115,7 +115,15 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
     let tint: Color?
 
     func body(content: Content) -> some View {
-        if theme.effects.usesLiquidGlass, !reduceTransparency {
+        if theme.interfaceStyle == .t3Code {
+            content
+                .background(t3Fill, in: shape)
+                .overlay {
+                    if role == .panel || role == .sheet || role == .hud {
+                        shape.stroke(theme.colors.border, lineWidth: 1)
+                    }
+                }
+        } else if theme.effects.usesLiquidGlass, !reduceTransparency {
             // Real glass draws its own highlight and shadow. Nothing is layered
             // over or under it here, deliberately.
             content.glassEffect(
@@ -133,6 +141,16 @@ private struct CodexGlassModifier<S: Shape>: ViewModifier {
                     radius: role.fallbackCastsShadow ? theme.effects.shadow.radius : 0,
                     y: role.fallbackCastsShadow ? theme.effects.shadow.y : 0
                 )
+        }
+    }
+
+    private var t3Fill: Color {
+        switch role {
+        case .chrome: theme.colors.surfaceSunken
+        case .panel, .sheet, .hud: theme.colors.surfaceElevated
+        case .control, .controlGroup, .chip:
+            tint.map { theme.colors.surfaceElevated.mix(with: $0, by: theme.effects.tintStrength) }
+                ?? .clear
         }
     }
 

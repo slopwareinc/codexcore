@@ -141,7 +141,7 @@ struct CodexTranscriptColumnMetrics: Sendable, Equatable {
         return switch policy {
         case .full: outerWidth
         case .card: min(outerWidth, theme.cardMaxWidth)
-        case .user: min(outerWidth * 0.77, theme.userBubbleMaxWidth)
+        case .user: min(outerWidth * theme.userBubbleWidthFraction, theme.userBubbleMaxWidth)
         }
     }
 }
@@ -297,6 +297,8 @@ struct CodexTranscriptRenderItem: @unchecked Sendable {
     var agentChips: [CodexTranscriptAgentChipRender]
     var diffPanel: CodexTranscriptDiffPanelRender?
     var turnDiff: CodexTranscriptTurnDiffRender?
+    var proposedPlan: CodexTranscriptProposedPlanRender? = nil
+    var questions: CodexAsyncQuestionV2? = nil
     var code: CodexTranscriptCodeRender?
     var footer: CodexTranscriptFooterRender?
     var productTool: CodexProductToolCallV2?
@@ -358,9 +360,11 @@ struct CodexTranscriptRenderSnapshot: @unchecked Sendable {
 }
 
 struct CodexTranscriptAppKitTheme: @unchecked Sendable {
+    var interfaceStyle: CodexInterfaceStyle
     var bodyFont: NSFont
     var codeFont: NSFont
     var captionFont: NSFont
+    var workFont: NSFont
     var microFont: NSFont
     var textPrimary: NSColor
     var textSecondary: NSColor
@@ -390,6 +394,12 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
     var transcriptOuterMaxWidth: CGFloat
     var fingerprint: String
 
+    var userBubbleWidthFraction: CGFloat { interfaceStyle == .t3Code ? 0.8 : 0.77 }
+    var userBubbleVerticalPadding: CGFloat {
+        interfaceStyle == .t3Code ? 12 : CodexTranscriptColumnMetrics.userBubbleVerticalPadding
+    }
+    var workRowHeight: CGFloat { interfaceStyle == .t3Code ? 24 : CodexTranscriptColumnMetrics.workRowHeight }
+
     /// - Parameter colorScheme: The appearance to resolve against. Required
     ///   because `NSColor(someAdaptiveSwiftUIColor)` resolves against the
     ///   process appearance, not this window's, so an app pinned to light while
@@ -409,9 +419,11 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         //    items on every single update.
         let resolve = CodexTranscriptAppKitTheme.staticColorResolver(for: colorScheme)
 
+        interfaceStyle = theme.interfaceStyle
         bodyFont = theme.fonts.chatNSFont ?? .systemFont(ofSize: 15)
         codeFont = theme.fonts.codeNSFont ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
         captionFont = .systemFont(ofSize: max(10, bodyFont.pointSize - 2))
+        workFont = theme.interfaceStyle == .t3Code ? bodyFont : captionFont
         microFont = .monospacedSystemFont(ofSize: max(9, bodyFont.pointSize - 3), weight: .semibold)
         textPrimary = resolve(theme.colors.textPrimary)
         textSecondary = resolve(theme.colors.textSecondary)
@@ -440,6 +452,7 @@ struct CodexTranscriptAppKitTheme: @unchecked Sendable {
         userBubbleMaxWidth = theme.spacing.userBubbleMaxWidth
         transcriptOuterMaxWidth = theme.spacing.transcriptOuterMaxWidth
         fingerprint = [
+            String(describing: theme.interfaceStyle),
             String(describing: colorScheme),
             bodyFont.fontName, String(describing: bodyFont.pointSize), codeFont.fontName,
             String(describing: codeFont.pointSize),
@@ -631,6 +644,8 @@ actor CodexTranscriptRenderProjector {
                     agentChips: draft.agentChips,
                     diffPanel: draft.diffPanel,
                     turnDiff: draft.turnDiff,
+                    proposedPlan: draft.proposedPlan,
+                    questions: draft.questions,
                     code: draft.code,
                     footer: draft.footer,
                     productTool: draft.productTool,
@@ -673,18 +688,29 @@ actor CodexTranscriptRenderProjector {
                 ) { append(draft) }
             }
 
-            let showsWork = turn.presentationStyle == .realtimeVoice
-                ? false
-                : Self.shouldRenderWork(turn)
-            let tailMode = Self.isWorkTailMode(turn)
-            let workExpanded = Self.workIsExpanded(turn, presentation: presentation)
-            let turnDiff = Self.turnDiffRender(
+            let usesT3Presentation = theme.interfaceStyle == .t3Code
+            let showsWork = turn.presentationStyle == .realtimeVoice ? false
+                : usesT3Presentation ? Self.shouldRenderT3Work(turn) : Self.shouldRenderWork(turn)
+            let tailMode = !usesT3Presentation && Self.isWorkTailMode(turn)
+            let workExpanded = usesT3Presentation || Self.workIsExpanded(turn, presentation: presentation)
+            var turnDiff = Self.turnDiffRender(
                 turn: turn,
                 isExpanded: presentation.expandedRowIDs.contains("turn-diff:\(turn.id)")
             )
+            if usesT3Presentation, var diff = turnDiff {
+                diff.treeRows = CodexChangedFilesTreeV2.rows(
+                    files: diff.files, rowID: diff.rowID, allExpanded: diff.isExpanded,
+                    toggledDirectoryIDs: presentation.expandedRowIDs
+                )
+                turnDiff = diff
+            }
             if showsWork {
                 let header = Self.workHeader(turn, expanded: workExpanded, presentedAt: presentedAt)
-                append(ItemDraft(
+                // T3 leaves commentary and work groups in chronological order.
+                // Only a terminal failure has a turn-level notice; completion
+                // never folds all the readable assistant prose behind a label.
+                if !usesT3Presentation || Self.shouldRenderT3WorkHeader(turn) {
+                    append(ItemDraft(
                     id: "\(sectionID):work-header",
                     fingerprint: "work:\(String(describing: header.state))",
                     workHeader: header,
@@ -692,7 +718,8 @@ actor CodexTranscriptRenderProjector {
                     accessibilityLabel: Self.workHeaderAccessibilityLabel(header),
                     maxWidthKind: .card,
                     fixedHeight: CodexTranscriptColumnMetrics.workHeaderHeight
-                ))
+                    ))
+                }
                 if turn.id == presentation.transcript.turns.last?.id,
                    case .working = turn.status {
                     for prompt in presentation.pendingApprovals {
@@ -749,6 +776,34 @@ actor CodexTranscriptRenderProjector {
                     for entry in segment.narrative {
                         try Task.checkCancellation()
                         switch entry {
+                    case .proposedPlan(let plan):
+                        let rowID = "proposed-plan:\(turn.id):\(plan.id)"
+                        let isExpanded = presentation.expandedRowIDs.contains(rowID)
+                        let render = CodexTranscriptProposedPlanRender(plan: plan, isExpanded: isExpanded)
+                        let prepared = cachedPreparedText(
+                            content: render.displayedMarkdown,
+                            style: "proposed-plan", theme: theme,
+                            cacheHits: &preparedTextCacheHits, cacheMisses: &preparedTextCacheMisses
+                        ) { Self.prepareMarkdown(render.displayedMarkdown, font: theme.bodyFont, color: theme.textPrimary, theme: theme) }
+                        append(ItemDraft(
+                            id: "\(sectionID):plan:\(plan.id)", sourceItemID: plan.id,
+                            fingerprint: "plan:\(plan.markdown):\(plan.isStreaming):\(isExpanded)",
+                            preparedText: prepared, proposedPlan: render,
+                            action: .toggleRow(rowID: rowID),
+                            copyText: plan.markdown,
+                            accessibilityLabel: "Proposed plan: \(CodexProposedPlanPresentation.title(plan.markdown))",
+                            maxWidthKind: .card,
+                            bottomSpacing: CodexTranscriptColumnMetrics.turnGap
+                        ))
+                    case .questions(let question):
+                        append(ItemDraft(
+                            id: "\(sectionID):questions:\(question.id)", sourceItemID: question.id,
+                            fingerprint: "questions:\(String(describing: question))", questions: question,
+                            copyText: question.prompt,
+                            accessibilityLabel: "Question: \(question.prompt)",
+                            maxWidthKind: .card, fixedHeight: 360,
+                            bottomSpacing: CodexTranscriptColumnMetrics.turnGap
+                        ))
                     case .prose(let prose):
                         if tailMode { continue }
                         let sourceID = "\(sectionID):commentary:\(prose.id)"
@@ -762,9 +817,11 @@ actor CodexTranscriptRenderProjector {
                         if rows.isEmpty { continue }
                         let groupHeader = CodexWorkGroupPresentationV2.header(
                             group,
-                            rows: tailMode ? rows : nil
+                            rows: tailMode ? rows : nil,
+                            interfaceStyle: theme.interfaceStyle
                         )
                         let groupIsExpanded = presentation.expandedRowIDs.contains(group.id)
+                        let isStandaloneTool = usesT3Presentation && rows.count == 1 && !group.isLive
                         let groupStatus = CodexWorkGroupPresentationV2.status(
                             rows: rows,
                             isLive: tailMode || group.isLive
@@ -780,7 +837,8 @@ actor CodexTranscriptRenderProjector {
                             hasDetail: true,
                             isSubagentLink: false
                         )
-                        append(ItemDraft(
+                        if !isStandaloneTool {
+                            append(ItemDraft(
                             id: "\(sectionID):group:\(group.id):summary",
                             sourceItemID: group.id,
                             fingerprint: "group-summary:\(String(describing: summaryRender))",
@@ -788,10 +846,11 @@ actor CodexTranscriptRenderProjector {
                             action: .toggleRow(rowID: group.id),
                             accessibilityLabel: "\(groupHeader), \(groupIsExpanded ? "details shown" : "details hidden")",
                             maxWidthKind: .card,
-                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                            fixedHeight: theme.workRowHeight,
                             bottomSpacing: groupIsExpanded ? 2 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
-                        ))
-                        if !groupIsExpanded { continue }
+                            ))
+                        }
+                        if !groupIsExpanded && !isStandaloneTool { continue }
                         let agentChips = rows.compactMap { row -> CodexTranscriptAgentChipRender? in
                             guard case .collabAgent(let agent) = row else { return nil }
                             let threadID = agent.agentThreadIDs.first
@@ -831,7 +890,9 @@ actor CodexTranscriptRenderProjector {
                             let subagentThreadID = Self.subagentThreadID(for: row)
                             let rowRender = CodexTranscriptWorkRowRender(
                                 kind: Self.kind(for: row),
-                                label: Self.label(for: row),
+                                label: usesT3Presentation && Self.kind(for: row) == .fileChange
+                                    ? CodexT3WorkGroupSummary.synthesize(rows: [row])
+                                    : Self.label(for: row),
                                 status: Self.status(for: row),
                                 systemImage: Self.systemImage(for: row),
                                 durationMs: Self.duration(for: row),
@@ -851,7 +912,7 @@ actor CodexTranscriptRenderProjector {
                                 accessibilityLabel: Self.accessibilityLabel(for: row, render: rowRender),
                                 indentation: 0,
                                 maxWidthKind: .card,
-                                fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                                fixedHeight: theme.workRowHeight,
                                 bottomSpacing: rowRender.isExpanded
                                     ? 2
                                     : CodexTranscriptColumnMetrics.interactiveBottomSpacing
@@ -911,7 +972,7 @@ actor CodexTranscriptRenderProjector {
                                     preparedText: prepared,
                                     copyText: detail,
                                     accessibilityLabel: "Expanded output: \(prepared.attributedString.string)",
-                                    indentation: 0,
+                                    indentation: usesT3Presentation ? 28 : 0,
                                     maxWidthKind: .card,
                                     bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing,
                                     isScrollableOutput: true
@@ -930,7 +991,7 @@ actor CodexTranscriptRenderProjector {
                             },
                             accessibilityLabel: CodexProductToolPresentationV2.accessibilityLabel(call),
                             maxWidthKind: .card,
-                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                            fixedHeight: theme.workRowHeight,
                             bottomSpacing: CodexTranscriptColumnMetrics.interactiveBottomSpacing
                         ))
                     case .inlineActivity(let activity):
@@ -967,7 +1028,7 @@ actor CodexTranscriptRenderProjector {
                                 isExpanded: isExpanded
                             ),
                             maxWidthKind: .card,
-                            fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                            fixedHeight: theme.workRowHeight,
                             bottomSpacing: isExpanded
                                 ? 2
                                 : CodexTranscriptColumnMetrics.interactiveBottomSpacing
@@ -1033,13 +1094,16 @@ actor CodexTranscriptRenderProjector {
                         }
                     }
                 }
+                let t3Fallback = usesT3Presentation && !Self.hasInProgressWork(turn)
+                    && turn.finalAnswer?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                    ? "Thinking" : nil
                 if case .working = turn.status,
-                   let tail = turn.liveTail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   let tail = (turn.liveTail ?? t3Fallback)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !tail.isEmpty,
-                   CodexWorkBlockViewV2.shouldRenderLiveTail(
+                   (usesT3Presentation || CodexWorkBlockViewV2.shouldRenderLiveTail(
                        narrative: turn.narrative,
                        liveTail: tail
-                   ) {
+                   )) {
                     append(ItemDraft(
                         id: "\(sectionID):live-tail",
                         fingerprint: "tail:\(tail)",
@@ -1065,7 +1129,8 @@ actor CodexTranscriptRenderProjector {
                 }
             }
 
-            if let turnDiff {
+            func appendTurnDiff() {
+                if let turnDiff {
                 let rowHeight = CodexTranscriptTurnDiffCard.rowHeight
                 let disclosureHeight: CGFloat = turnDiff.hiddenFileCount > 0 || turnDiff.isExpanded
                     ? rowHeight : 0
@@ -1075,7 +1140,9 @@ actor CodexTranscriptRenderProjector {
                     turnDiff: turnDiff,
                     accessibilityLabel: "\(turnDiff.title), \(turnDiff.totalAdded) additions and \(turnDiff.totalRemoved) removals",
                     maxWidthKind: .card,
-                    fixedHeight: CodexTranscriptTurnDiffCard.topSpacing
+                    fixedHeight: usesT3Presentation
+                        ? 16 + 36 + CGFloat(turnDiff.treeRows.count) * 28 + (turnDiff.omittedFileCount > 0 ? 28 : 0)
+                        : CodexTranscriptTurnDiffCard.topSpacing
                         + CodexTranscriptTurnDiffCard.headerHeight
                         + CodexTranscriptTurnDiffCard.listVerticalInset * 2
                         + CGFloat(turnDiff.visibleFiles.count) * rowHeight
@@ -1086,6 +1153,9 @@ actor CodexTranscriptRenderProjector {
                 ))
             }
 
+            }
+            if !usesT3Presentation { appendTurnDiff() }
+
             if let answer = turn.finalAnswer, !answer.text.isEmpty {
                 let sourceID = "\(sectionID):final:\(answer.id)"
                 for var draft in contentDrafts(
@@ -1094,6 +1164,7 @@ actor CodexTranscriptRenderProjector {
                     cacheMisses: &preparedTextCacheMisses, markdownProjections: &markdownProjections
                 ) { draft.sourceItemID = answer.id; append(draft) }
             }
+            if usesT3Presentation { appendTurnDiff() }
             for image in turn.generatedImages {
                 let label = CodexTranscriptImageSource.localFilePath(image.source)
                     .map { URL(fileURLWithPath: $0).lastPathComponent }
@@ -1268,6 +1339,8 @@ private extension CodexTranscriptRenderProjector {
         var agentChips: [CodexTranscriptAgentChipRender]
         var diffPanel: CodexTranscriptDiffPanelRender?
         var turnDiff: CodexTranscriptTurnDiffRender?
+        var proposedPlan: CodexTranscriptProposedPlanRender?
+        var questions: CodexAsyncQuestionV2?
         var code: CodexTranscriptCodeRender?
         var footer: CodexTranscriptFooterRender?
         var productTool: CodexProductToolCallV2?
@@ -1297,6 +1370,8 @@ private extension CodexTranscriptRenderProjector {
             agentChips: [CodexTranscriptAgentChipRender] = [],
             diffPanel: CodexTranscriptDiffPanelRender? = nil,
             turnDiff: CodexTranscriptTurnDiffRender? = nil,
+            proposedPlan: CodexTranscriptProposedPlanRender? = nil,
+            questions: CodexAsyncQuestionV2? = nil,
             code: CodexTranscriptCodeRender? = nil,
             footer: CodexTranscriptFooterRender? = nil,
             productTool: CodexProductToolCallV2? = nil,
@@ -1326,6 +1401,8 @@ private extension CodexTranscriptRenderProjector {
             self.agentChips = agentChips
             self.diffPanel = diffPanel
             self.turnDiff = turnDiff
+            self.proposedPlan = proposedPlan
+            self.questions = questions
             self.code = code
             self.footer = footer
             self.productTool = productTool
@@ -1350,7 +1427,7 @@ private extension CodexTranscriptRenderProjector {
             switch maxWidthKind {
             case .full: contentWidth
             case .card: min(contentWidth, theme.cardMaxWidth)
-            case .user: min(contentWidth * 0.77, theme.userBubbleMaxWidth)
+            case .user: min(contentWidth * theme.userBubbleWidthFraction, theme.userBubbleMaxWidth)
             }
         }
     }
@@ -1720,7 +1797,7 @@ private extension CodexTranscriptRenderProjector {
                 theme: theme
             )
         }
-        let userMaxWidth = min(contentWidth * 0.77, theme.userBubbleMaxWidth)
+        let userMaxWidth = min(contentWidth * theme.userBubbleWidthFraction, theme.userBubbleMaxWidth)
         let horizontalPadding = CodexTranscriptColumnMetrics.userBubbleHorizontalPadding * 2
         let textBounds = prepared.attributedString.boundingRect(
             with: NSSize(
@@ -1750,7 +1827,7 @@ private extension CodexTranscriptRenderProjector {
                 accessibilityLabel: "Sent by Codex from another chat. Open source chat",
                 isTrailingAligned: true,
                 maxWidthKind: .user,
-                fixedHeight: CodexTranscriptColumnMetrics.workRowHeight,
+                fixedHeight: theme.workRowHeight,
                 bottomSpacing: 2
             ))
         }
@@ -1892,6 +1969,14 @@ private extension CodexTranscriptRenderProjector {
         theme: CodexTranscriptAppKitTheme
     ) -> CGFloat {
         if let fixedHeight = draft.fixedHeight { return fixedHeight + draft.bottomSpacing }
+        if let plan = draft.proposedPlan {
+            let bodyHeight = draft.preparedText?.attributedString.boundingRect(
+                with: NSSize(width: max(80, width - 32), height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            ).height ?? 0
+            let disclosureHeight: CGFloat = CodexProposedPlanPresentation.canCollapse(plan.plan.markdown) ? 44 : 0
+            return ceil(bodyHeight) + 80 + disclosureHeight + draft.bottomSpacing
+        }
         if !draft.agentChips.isEmpty {
             return agentChipClusterHeight(
                 draft.agentChips,
@@ -1928,7 +2013,7 @@ private extension CodexTranscriptRenderProjector {
             let verticalPadding: CGFloat = isCodeComment
                 ? 64
                 : (draft.textRole == .user
-                    ? CodexTranscriptColumnMetrics.userBubbleVerticalPadding * 2
+                    ? theme.userBubbleVerticalPadding * 2
                     : (draft.textRole == .expandedOutput
                         ? 16
                         : CodexTranscriptColumnMetrics.itemGap + 2))
@@ -1996,6 +2081,15 @@ private extension CodexTranscriptRenderProjector {
         case .prose(_, let text, _), .htmlFallback(_, let text):
             return prepareMarkdown(text, font: theme.bodyFont, color: color(for: role, theme: theme), theme: theme)
         case .heading(_, let level, let text, _):
+            if theme.interfaceStyle == .t3Code {
+                // T3 offsets message headings below the author heading. They
+                // keep the body's text-sm size and differ through weight.
+                let descriptor = theme.bodyFont.fontDescriptor.addingAttributes([
+                    .traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.semibold.rawValue]
+                ])
+                let font = NSFont(descriptor: descriptor, size: theme.bodyFont.pointSize) ?? theme.bodyFont
+                return preparePlain(text, font: font, color: theme.textPrimary, theme: theme)
+            }
             let size: CGFloat = switch level { case 1: 20; case 2: 17; case 3: 15; default: 14 }
             let font = NSFontManager.shared.convert(.systemFont(ofSize: size), toHaveTrait: .boldFontMask)
             return preparePlain(text, font: font, color: theme.textPrimary, theme: theme)
@@ -2014,10 +2108,14 @@ private extension CodexTranscriptRenderProjector {
                 let style = NSMutableParagraphStyle()
                 style.lineSpacing = theme.lineSpacing
                 style.paragraphSpacing = 4
-                let indent = CGFloat(item.depth) * 24
+                let baseGutter: CGFloat = theme.interfaceStyle == .t3Code ? theme.bodyFont.pointSize * (20 / 14) : 24
+                let markerWidth = (marker.trimmingCharacters(in: .whitespaces) as NSString)
+                    .size(withAttributes: [.font: theme.bodyFont]).width
+                let gutter = theme.interfaceStyle == .t3Code ? max(baseGutter, markerWidth + 6) : baseGutter
+                let indent = CGFloat(item.depth) * baseGutter
                 style.firstLineHeadIndent = indent
-                style.headIndent = indent + 24
-                style.tabStops = [NSTextTab(textAlignment: .left, location: indent + 24)]
+                style.headIndent = indent + gutter
+                style.tabStops = [NSTextTab(textAlignment: .left, location: indent + gutter)]
                 let line = NSMutableAttributedString(string: marker, attributes: [
                     .font: theme.bodyFont,
                     .foregroundColor: color(for: role, theme: theme),
@@ -2132,7 +2230,7 @@ private extension CodexTranscriptRenderProjector {
             guard value != nil else { return }
             result.addAttributes([
                 .foregroundColor: theme.accent,
-                .underlineStyle: NSUnderlineStyle.single.rawValue
+                .underlineStyle: theme.interfaceStyle == .t3Code ? 0 : NSUnderlineStyle.single.rawValue
             ], range: range)
         }
         // Foundation's presentation intents describe Markdown structure. The
@@ -2278,7 +2376,21 @@ private extension CodexTranscriptRenderProjector {
         if turn.finalAnswer?.isStreaming == true { return true }
         return turn.narrative.contains { entry in
             if case .prose(let prose) = entry { return prose.isStreaming }
+            if case .proposedPlan(let plan) = entry { return plan.isStreaming }
+            if case .questions(let question) = entry { return question.isStreaming }
             return false
+        }
+    }
+
+    static func shouldRenderT3WorkHeader(_ turn: CodexTurnV2) -> Bool {
+        if case .failed = turn.status { return true }
+        return false
+    }
+
+    static func shouldRenderT3Work(_ turn: CodexTurnV2) -> Bool {
+        switch turn.status {
+        case .working, .failed: true
+        case .done: !turn.narrative.isEmpty || turn.liveTail != nil
         }
     }
 
@@ -2372,6 +2484,7 @@ private extension CodexTranscriptRenderProjector {
         case .fileChange(let value):
             return fileChangeLabel(value)
         case .mcpToolCall(let value):
+            if let presentation = value.presentation { return presentation.title }
             let app = value.appName.isEmpty ? value.server : value.appName
             let base = "Called \(app) · \(value.tool)"
             return value.errorFirstLine.map { base + " — " + $0 } ?? base
@@ -2382,6 +2495,7 @@ private extension CodexTranscriptRenderProjector {
     }
 
     static func systemImage(for row: CodexWorkRowV2) -> String? {
+        if case .mcpToolCall(let call) = row { return call.presentation?.symbolName }
         guard case .command(let value) = row else { return nil }
         return switch value.action {
         case .read: "book"
@@ -2422,11 +2536,7 @@ private extension CodexTranscriptRenderProjector {
         case .command(let value): return value.output?.codexAppKitNilIfEmpty
         case .fileChange: return nil
         case .mcpToolCall(let value):
-            let parts = [
-                value.arguments.map { "Arguments\n\($0.description)" },
-                value.result.map { "Result\n\($0.description)" }
-            ].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return value.transcriptDetail
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames
@@ -2500,6 +2610,9 @@ private extension CodexTranscriptRenderProjector {
             }
             for entry in segment.narrative {
                 switch entry {
+                case .proposedPlan(let plan): work.append(plan.markdown)
+                case .questions(let question):
+                    work.append(([question.prompt] + question.questions.map { $0.title + "\n" + $0.options.joined(separator: "\n") }).joined(separator: "\n\n"))
                 case .prose(let prose): if !prose.text.isEmpty { work.append(prose.text) }
                 case .workGroup(let group):
                     work.append(group.header)

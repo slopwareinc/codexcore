@@ -47,6 +47,8 @@ public struct CodexComposerBar: View {
     private let onFilesDropped: (@MainActor @Sendable ([URL]) -> Void)?
     private let placeholder: String
     private let isCompact: Bool
+    private let isReadingHistory: Bool
+    private let onRestingChanged: ((Bool) -> Void)?
     private let voiceFocusRequest: Int
     @FocusState private var focused: Bool
     @State private var slashPaletteSelection = CodexComposerPaletteSelection()
@@ -55,6 +57,7 @@ public struct CodexComposerBar: View {
     @State private var isSlashPaletteDismissed = false
     @State private var isMCPStatusPalettePresented = false
     @State private var isFileDropTargeted = false
+    @State private var hasInteractedSinceHistoryScroll = false
 
     public init(
         draft: Binding<String>,
@@ -62,6 +65,8 @@ public struct CodexComposerBar: View {
         responseAnnotations: Binding<[CodexResponseTextAnnotation]> = .constant([]),
         placeholder: String = "Ask Codex anything about this workspace...",
         isCompact: Bool = false,
+        isReadingHistory: Bool = false,
+        onRestingChanged: ((Bool) -> Void)? = nil,
         approvalSelection: Binding<CodexApprovalSelection> = .constant(.askForApproval),
         isPlanModeEnabled: Binding<Bool> = .constant(false),
         isGoalPursuitEnabled: Bool = false,
@@ -103,6 +108,8 @@ public struct CodexComposerBar: View {
         self._responseAnnotations = responseAnnotations
         self.placeholder = placeholder
         self.isCompact = isCompact
+        self.isReadingHistory = isReadingHistory
+        self.onRestingChanged = onRestingChanged
         self.voiceFocusRequest = voiceFocusRequest
         self._approvalSelection = approvalSelection
         self._isPlanModeEnabled = isPlanModeEnabled
@@ -200,15 +207,13 @@ public struct CodexComposerBar: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(theme.fonts.chat)
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .lineLimit(1...(isCompact ? 3 : 6))
-                    .focused($focused)
-                    .onSubmit(handleSubmit)
-                    .padding(.leading, 6)
-                    .padding(.vertical, isCompact ? 3 : 6)
+                HStack(alignment: .top, spacing: theme.spacing.sm) {
+                    composerEditor
+                    if isResting {
+                        ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                        primaryActions
+                    }
+                }
 
                 if dictationState.isRecording, let dictationActions {
                     ComposerDictationFooter(
@@ -218,7 +223,11 @@ public struct CodexComposerBar: View {
                     )
                 } else {
                     HStack(spacing: isCompact ? 5 : 8) {
-                        ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                        if theme.interfaceStyle == .t3Code {
+                            modelControl
+                        } else {
+                            ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                        }
                         ForEach(composerChips) { chip in
                             ComposerModeChip(chip: chip) {
                                 clearComposerChip(chip.kind)
@@ -236,35 +245,20 @@ public struct CodexComposerBar: View {
                                 .transition(.opacity)
                         }
 
-                        ComposerModelMenu(
-                            model: $modelSelection,
-                            modelOptions: modelOptions,
-                            serviceTier: $serviceTierSelection,
-                            reasoning: $reasoningSelection,
-                            isPresented: $isModelMenuPresented
-                        )
-                        ComposerMicrophoneButton(
-                            phase: dictationState.phase,
-                            actions: dictationActions
-                        )
-
-                        if isSending {
-                            // The composer stays live during a run: send steers or
-                            // queues the draft, stop interrupts the turn.
-                            SendButton(enabled: canSend, action: onSend)
-                            ComposerStopButton(action: onInterrupt)
-                        } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                                  referencedFiles.isEmpty,
-                                  responseAnnotations.isEmpty,
-                                  let onStartVoiceChat {
-                            ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
-                        } else {
-                            SendButton(enabled: canSend, action: onSend)
+                        if !isResting {
+                            if theme.interfaceStyle == .t3Code {
+                                ComposerAddMenu(canUsePlanMode: canUsePlanMode, onRoute: handleAddMenuRoute)
+                            } else {
+                                modelControl
+                            }
+                            ComposerMicrophoneButton(phase: dictationState.phase, actions: dictationActions)
+                            primaryActions
                         }
                     }
                 }
             }
-            .padding(isCompact ? 6 : 12)
+            .padding(.horizontal, isCompact ? 6 : theme.interfaceStyle == .t3Code ? 16 : 12)
+            .padding(.vertical, isCompact ? 6 : isResting ? 8 : theme.interfaceStyle == .t3Code ? 16 : 12)
             // Focus warms the glass with a breath of the accent instead of
             // drawing a ring around it; glass owns its own edge.
             .codexGlass(
@@ -284,11 +278,19 @@ public struct CodexComposerBar: View {
             consumeFocusRequest()
             if voiceFocusRequest > 0 { focused = true }
         }
+        .onChange(of: isReadingHistory) { _, reading in
+            hasInteractedSinceHistoryScroll = !reading
+        }
+        .onChange(of: focused) { _, focused in
+            if focused { hasInteractedSinceHistoryScroll = true }
+        }
+        .onChange(of: isResting, initial: true) { _, resting in onRestingChanged?(resting) }
         .onChange(of: focusRequest) { _, _ in consumeFocusRequest() }
         .onChange(of: voiceFocusRequest) { _, _ in
             focused = true
         }
         .onChange(of: draft) { _, _ in
+            hasInteractedSinceHistoryScroll = true
             isSlashPaletteDismissed = false
             reconcilePaletteSelections()
         }
@@ -317,6 +319,52 @@ public struct CodexComposerBar: View {
             #else
             EmptyView()
             #endif
+        }
+    }
+
+    private var isResting: Bool {
+        theme.interfaceStyle == .t3Code && !isCompact && isReadingHistory
+            && !hasInteractedSinceHistoryScroll && !draft.contains("\n")
+            && !isAnyPaletteVisible && !isFileDropTargeted && !dictationState.isRecording
+            && dictationState.errorMessage == nil
+    }
+
+    private var composerEditor: some View {
+        TextField(placeholder, text: $draft, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(theme.fonts.chat)
+            .foregroundStyle(theme.colors.textPrimary)
+            .lineLimit(1...(isResting ? 1 : isCompact ? 3 : 6))
+            .focused($focused)
+            .onSubmit(handleSubmit)
+            .onTapGesture { hasInteractedSinceHistoryScroll = true }
+            .padding(.leading, theme.interfaceStyle == .t3Code ? 0 : 6)
+            .padding(.vertical, theme.interfaceStyle == .t3Code ? 0 : isCompact ? 3 : 6)
+            .frame(minHeight: theme.interfaceStyle == .t3Code && !isCompact ? isResting ? 32 : 70 : 0,
+                   alignment: .topLeading)
+    }
+
+    private var modelControl: some View {
+        ComposerModelMenu(
+            model: $modelSelection, modelOptions: modelOptions,
+            serviceTier: $serviceTierSelection, reasoning: $reasoningSelection,
+            isPresented: $isModelMenuPresented
+        )
+    }
+
+    @ViewBuilder
+    private var primaryActions: some View {
+        if isSending {
+            if canSend || theme.interfaceStyle != .t3Code {
+                SendButton(enabled: canSend, action: onSend)
+            }
+            ComposerStopButton(action: onInterrupt)
+        } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  referencedFiles.isEmpty, responseAnnotations.isEmpty,
+                  let onStartVoiceChat {
+            ComposerVoiceButton(label: voiceChatLabel, action: onStartVoiceChat)
+        } else {
+            SendButton(enabled: canSend, action: onSend)
         }
     }
 
@@ -859,7 +907,8 @@ private struct ComposerApprovalMenu: View {
                 }
             }
         } label: {
-            ComposerChipLabel(systemImage: "exclamationmark.shield", title: selection.displayName, tint: .orange)
+            ComposerChipLabel(systemImage: "exclamationmark.shield", title: selection.displayName,
+                              tint: theme.interfaceStyle == .t3Code ? nil : .orange)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -960,9 +1009,9 @@ private struct ComposerStopButton: View {
         } label: {
             Image(systemName: "stop.fill")
                 .font(theme.fonts.label)
-                .foregroundStyle(theme.colors.danger)
+                .foregroundStyle(theme.interfaceStyle == .t3Code ? theme.colors.onAccent : theme.colors.danger)
                 .frame(width: theme.spacing.iconLarge + 4, height: theme.spacing.iconLarge + 4)
-                .background(theme.colors.danger.opacity(0.16), in: Circle())
+                .background(theme.colors.danger.opacity(theme.interfaceStyle == .t3Code ? 0.9 : 0.16), in: Circle())
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)

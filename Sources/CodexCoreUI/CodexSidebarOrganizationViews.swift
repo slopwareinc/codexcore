@@ -74,7 +74,7 @@ struct CodexSidebarBulkSelectionToolbar: View {
         .frame(height: theme.fonts.sidebar.disclosureRowHeight)
         .background(
             theme.colors.selection.opacity(theme.effects.selectionOpacity),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            in: RoundedRectangle(cornerRadius: theme.radii.small, style: .continuous)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Chat selection mode")
@@ -97,7 +97,7 @@ struct CodexSidebarCustomSectionsView: View {
     @ViewBuilder
     var body: some View {
         if !snapshot.sections.isEmpty && !snapshot.isCollapsed {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.interfaceStyle == .t3Code ? 8 : 2) {
                 ForEach(snapshot.sections) { section in
                     VStack(alignment: .leading, spacing: 2) {
                         SidebarSectionHeader(
@@ -156,37 +156,43 @@ struct CodexSidebarArchivedSectionView: View {
     var body: some View {
         if !snapshot.isCollapsed {
             VStack(alignment: .leading, spacing: 2) {
-                Button {
-                    showsArchivedChats.toggle()
-                    if showsArchivedChats && snapshot.archivedLoadState == .idle {
-                        onLoadArchived()
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: showsArchivedChats ? "chevron.down" : "chevron.right")
-                            .font(theme.fonts.sidebar.disclosureChevron.font)
-                            .frame(width: 14)
-                        Image(systemName: "archivebox")
-                            .font(theme.fonts.sidebar.chatActionIcon.font)
-                        Text("Archived")
-                            .font(theme.fonts.sidebar.disclosureTitle.font)
-                        if !snapshot.archivedRows.isEmpty {
-                            Text("\(snapshot.archivedRows.count)")
-                                .font(theme.fonts.sidebar.disclosureCount.font)
-                                .foregroundStyle(theme.colors.textTertiary)
+                if theme.interfaceStyle == .t3Code {
+                    SidebarSectionHeader(
+                        title: snapshot.archivedRows.isEmpty ? "Archived" : "Archived (\(snapshot.archivedRows.count))",
+                        isExpanded: showsArchivedChats,
+                        attentionState: snapshot.archivedLoadState.isLoading ? .running : .idle,
+                        icon: "archivebox",
+                        showsAttentionWhenExpanded: true,
+                        action: toggleArchivedChats
+                    )
+                } else {
+                    Button(action: toggleArchivedChats) {
+                        HStack(spacing: 8) {
+                            Image(systemName: showsArchivedChats ? "chevron.down" : "chevron.right")
+                                .font(theme.fonts.sidebar.disclosureChevron.font)
+                                .frame(width: 14)
+                            Image(systemName: "archivebox")
+                                .font(theme.fonts.sidebar.chatActionIcon.font)
+                            Text("Archived")
+                                .font(theme.fonts.sidebar.disclosureTitle.font)
+                            if !snapshot.archivedRows.isEmpty {
+                                Text("\(snapshot.archivedRows.count)")
+                                    .font(theme.fonts.sidebar.disclosureCount.font)
+                                    .foregroundStyle(theme.colors.textTertiary)
+                            }
+                            Spacer(minLength: 0)
+                            if snapshot.archivedLoadState.isLoading {
+                                CodexSpinner(color: theme.colors.textTertiary, size: .small)
+                            }
                         }
-                        Spacer(minLength: 0)
-                        if snapshot.archivedLoadState.isLoading {
-                            CodexSpinner(color: theme.colors.textTertiary, size: .small)
-                        }
+                        .foregroundStyle(theme.colors.textTertiary)
+                        .frame(height: theme.fonts.sidebar.disclosureRowHeight)
+                        .padding(.horizontal, 2)
+                        .contentShape(Rectangle())
                     }
-                    .foregroundStyle(theme.colors.textTertiary)
-                    .frame(height: theme.fonts.sidebar.disclosureRowHeight)
-                    .padding(.horizontal, 2)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(showsArchivedChats ? "Hide" : "Show") archived chats")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(showsArchivedChats ? "Hide" : "Show") archived chats")
 
                 if showsArchivedChats {
                     if let message = snapshot.archivedLoadState.errorMessage {
@@ -227,6 +233,13 @@ struct CodexSidebarArchivedSectionView: View {
                 }
             }
             .onAppear { renderCounter?.record(sectionID: "archived") }
+        }
+    }
+
+    private func toggleArchivedChats() {
+        showsArchivedChats.toggle()
+        if showsArchivedChats && snapshot.archivedLoadState == .idle {
+            onLoadArchived()
         }
     }
 }

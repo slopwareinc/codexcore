@@ -44,7 +44,7 @@ final class CodexCoreAppModel {
 
     var workspacePath = defaultWorkspacePath()
     var apiKey = ""
-    var appearanceSettings: CodexAppearanceSettings = .official {
+    var appearanceSettings: CodexAppearanceSettings = .t3Code {
         didSet {
             CodexAppearanceSettingsStorage.saveAppearanceSettings(appearanceSettings, to: preferenceStore)
         }
@@ -79,6 +79,7 @@ final class CodexCoreAppModel {
     private(set) var isLoadingThreadSections = false
     private(set) var threadSectionsError: String?
     private(set) var sidebarActionError: String?
+    private(set) var sidebarInboxProjectScopeID: String?
     private(set) var pendingSidebarMutationIDs: Set<String> = []
     private(set) var hooksCatalog = CodexHooksCatalog()
     private(set) var isLoadingHooks = false
@@ -126,7 +127,12 @@ final class CodexCoreAppModel {
     private var integrationCatalogRefreshGeneration: UInt64 = 0
     private var activeTurnCompletionTask: Task<Void, Never>?
     private var sideChatTurnCompletionTask: Task<Void, Never>?
-    private var pendingSteerSubmissions: [CodexComposerSubmission] = []
+    private struct ScopedSteerSubmission {
+        let submission: CodexComposerSubmission
+        let codex: Codex
+        let accountRevision: Int
+    }
+    private var pendingSteerSubmissions: [ScopedSteerSubmission] = []
     private var pendingSteerSubmissionHead = 0
     private var isProcessingSteerSubmissions = false
     private var processActivityTokens: [String: NSObjectProtocol] = [:]
@@ -218,6 +224,7 @@ final class CodexCoreAppModel {
         self.preferenceStore = preferenceStore
         self.appearanceSettings = CodexAppearanceSettingsStorage.loadAppearanceSettings(from: preferenceStore)
         self.newThreadHistoryMode = CodexNewThreadHistoryModeStorage.load(from: preferenceStore)
+        self.sidebarInboxProjectScopeID = CodexSidebarInboxScopeStorage.load(from: preferenceStore)
         self.pinnedThreadIDs = CodexPinnedThreadStorage.loadPinnedThreadIDs(from: preferenceStore)
         self.unreadState = CodexThreadUnreadState(
             unreadThreadIDs: CodexUnreadThreadStorage.loadUnreadThreadIDs(from: preferenceStore)
@@ -622,13 +629,17 @@ final class CodexCoreAppModel {
 
     /// Handles send while a turn is already running: steer it immediately or
     /// queue the message for the next turn, per `followUpBehavior`.
-    private func sendFollowUp(submission: CodexComposerSubmission) async {
+    @discardableResult
+    private func sendFollowUp(
+        submission: CodexComposerSubmission,
+        restoreDraftOnFailure: Bool = true
+    ) async -> CodexTranscriptUserMessageReceipt {
         if followUpBehavior == .steer {
             await enqueueSteerSubmission(submission)
-            return
+            return .accepted
         }
 
-        await addDurableQueuedFollowUp(submission)
+        return await addDurableQueuedFollowUp(submission, restoreDraftOnFailure: restoreDraftOnFailure)
     }
 
     func steerQueuedFollowUp(clientID: String) async {
@@ -637,7 +648,11 @@ final class CodexCoreAppModel {
                   clientID: clientID,
                   threadID: currentThreadID
               ) else { return }
-        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+        guard let queueID = submission.queueID else {
+            await enqueueSteerSubmission(submission)
+            return
+        }
+        guard let codex, let threadID = currentThreadID else {
             composerSession.requeueFollowUp(submission)
             return
         }
@@ -652,11 +667,21 @@ final class CodexCoreAppModel {
         }
     }
 
-    private func addDurableQueuedFollowUp(_ incoming: CodexComposerSubmission) async {
-        guard let codex, let threadID = currentThreadID else {
-            composerSession.restore(incoming)
-            return
+    @discardableResult
+    private func addDurableQueuedFollowUp(
+        _ incoming: CodexComposerSubmission,
+        restoreDraftOnFailure: Bool = true
+    ) async -> CodexTranscriptUserMessageReceipt {
+        guard let codex, let threadID = incoming.threadID ?? currentThreadID else {
+            let message = "Codex is no longer connected."
+            if restoreDraftOnFailure {
+                composerSession.restore(incoming)
+                return .rejected(message: message)
+            }
+            composerSession.requeueFollowUp(incoming)
+            return .retainedForRetry(message: message)
         }
+        let submissionAccountRevision = accountContextRevision
         var submission = incoming
         submission.threadID = threadID
         pendingDurableQueueSubmissions[submission.clientID] = submission
@@ -666,34 +691,52 @@ final class CodexCoreAppModel {
                 input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
                 threadID: threadID
             )))
+            guard self.codex === codex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
             submission.queueID = response.queuedSubmission.id
             submission.queuedInput = response.queuedSubmission.input.map {
                 CodexInput(jsonValue: $0.rawValue)
             }
             pendingDurableQueueSubmissions[submission.clientID] = submission
             await refreshDurableQueue(threadID: threadID)
+            guard self.codex === codex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
             pendingDurableQueueSubmissions.removeValue(forKey: submission.clientID)
+            return .accepted
         } catch {
+            guard self.codex === codex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
             pendingDurableQueueSubmissions.removeValue(forKey: submission.clientID)
             _ = composerSession.takeQueuedFollowUpSubmission(
                 clientID: submission.clientID,
                 threadID: threadID
             )
-            composerSession.restore(submission)
+            let message = friendlyError(error)
+            if restoreDraftOnFailure {
+                composerSession.restore(submission)
+                return .rejected(message: message)
+            }
+            composerSession.requeueFollowUp(submission)
+            return .retainedForRetry(message: message)
         }
     }
 
     private func refreshDurableQueue(threadID: String) async {
         guard let codex else { return }
+        let accountRevision = accountContextRevision
         do {
             let response = try await codex.perform(CodexRequest.threadQueueList(.init(
                 cursor: nil,
                 limit: 100,
                 threadID: threadID
             )))
-            guard !Task.isCancelled, currentThreadID == threadID else { return }
-            let existing = composerSession
-                .queuedFollowUpSubmissions(for: threadID)
+            guard !Task.isCancelled, self.codex === codex, accountRevision == accountContextRevision,
+                  currentThreadID == threadID else { return }
+            let existingSubmissions = composerSession.queuedFollowUpSubmissions(for: threadID)
+            let existing = existingSubmissions
                 .reduce(into: [String: CodexComposerSubmission]()) {
                     $0[$1.clientID] = $1
                 }
@@ -706,7 +749,11 @@ final class CodexCoreAppModel {
                 submission.queuedInput = queued.input.map { CodexInput(jsonValue: $0.rawValue) }
                 return submission
             }
-            composerSession.replaceQueuedFollowUps(submissions, for: threadID)
+            let serverClientIDs = Set(submissions.map(\.clientID))
+            let retainedSubmissions = existingSubmissions.filter {
+                $0.queueID == nil && !serverClientIDs.contains($0.clientID)
+            }
+            composerSession.replaceQueuedFollowUps(retainedSubmissions + submissions, for: threadID)
         } catch {
             guard !Task.isCancelled, currentThreadID == threadID else { return }
         }
@@ -716,7 +763,11 @@ final class CodexCoreAppModel {
     /// event reducer. This also prevents a terminal notification from draining
     /// the ordinary follow-up queue while a steer race is still being resolved.
     private func enqueueSteerSubmission(_ submission: CodexComposerSubmission) async {
-        pendingSteerSubmissions.append(submission)
+        guard let codex else {
+            composerSession.requeueFollowUp(submission)
+            return
+        }
+        pendingSteerSubmissions.append(.init(submission: submission, codex: codex, accountRevision: accountContextRevision))
         guard !isProcessingSteerSubmissions else { return }
 
         isProcessingSteerSubmissions = true
@@ -733,15 +784,21 @@ final class CodexCoreAppModel {
         pendingSteerSubmissionHead = 0
     }
 
-    private func processSteerSubmission(_ submission: CodexComposerSubmission) async {
+    private func isCurrentSteerSubmission(_ scoped: ScopedSteerSubmission) -> Bool {
+        codex === scoped.codex && accountContextRevision == scoped.accountRevision
+    }
+
+    private func processSteerSubmission(_ scoped: ScopedSteerSubmission) async {
+        guard isCurrentSteerSubmission(scoped) else { return }
+        let submission = scoped.submission
         guard let turn = activeTurnLease else {
-            await startSubmissionAfterSteerRace(submission, replacing: nil)
+            await startSubmissionAfterSteerRace(scoped, replacing: nil)
             return
         }
         let submissionThreadID = submission.threadID ?? currentThreadID
         guard submissionThreadID == turn.key.threadID.rawValue else {
             requeueFailedSteer(
-                submission,
+                scoped,
                 message: "The selected thread changed before the steer could be sent."
             )
             return
@@ -754,22 +811,24 @@ final class CodexCoreAppModel {
                 input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
                 threadID: turn.key.threadID.rawValue
             ))
+            guard isCurrentSteerSubmission(scoped) else { return }
             restoreAcceptedSteerLeaseIfNeeded(turn)
         } catch {
+            guard isCurrentSteerSubmission(scoped) else { return }
             switch classifyCodexTurnSteerRace(error) {
             case .noActiveTurn:
-                await startSubmissionAfterSteerRace(submission, replacing: turn)
+                await startSubmissionAfterSteerRace(scoped, replacing: turn)
 
             case .expectedTurnMismatch(let actualTurnID)
                 where actualTurnID != turn.key.turnID.rawValue:
                 await retrySteerSubmission(
-                    submission,
+                    scoped,
                     replacing: turn,
                     actualTurnID: actualTurnID
                 )
 
             case .expectedTurnMismatch, nil:
-                requeueFailedSteer(submission, error: error)
+                requeueFailedSteer(scoped, error: error)
             }
         }
     }
@@ -777,15 +836,17 @@ final class CodexCoreAppModel {
     /// App-server includes its current active turn ID in a mismatch error. The
     /// TUI retries exactly once with that ID, without another read/poll RPC.
     private func retrySteerSubmission(
-        _ submission: CodexComposerSubmission,
+        _ scoped: ScopedSteerSubmission,
         replacing staleTurn: CodexTurnLease,
         actualTurnID: String
     ) async {
+        guard isCurrentSteerSubmission(scoped) else { return }
+        let submission = scoped.submission
         guard let thread = currentThreadLease,
               thread.id == staleTurn.key.threadID
         else {
             requeueFailedSteer(
-                submission,
+                scoped,
                 message: "The selected thread changed before the steer retry."
             )
             return
@@ -798,14 +859,18 @@ final class CodexCoreAppModel {
                 input: submission.turnInput.map { CodexSchemaUserInput($0.jsonValue) },
                 threadID: thread.id.rawValue
             ))
-            activeTurnLease = recoveredTurn
-            runtimeSession.startMainTurn(id: recoveredTurn.key.turnID.rawValue)
-            monitorMainTurn(recoveredTurn)
+            guard isCurrentSteerSubmission(scoped) else { return }
+            if currentThreadID == recoveredTurn.key.threadID.rawValue {
+                activeTurnLease = recoveredTurn
+                runtimeSession.startMainTurn(id: recoveredTurn.key.turnID.rawValue)
+                monitorMainTurn(recoveredTurn)
+            }
         } catch {
+            guard isCurrentSteerSubmission(scoped) else { return }
             if classifyCodexTurnSteerRace(error) == .noActiveTurn {
-                await startSubmissionAfterSteerRace(submission, replacing: staleTurn)
+                await startSubmissionAfterSteerRace(scoped, replacing: staleTurn)
             } else {
-                requeueFailedSteer(submission, error: error)
+                requeueFailedSteer(scoped, error: error)
             }
         }
     }
@@ -815,13 +880,15 @@ final class CodexCoreAppModel {
     /// `turn/start` with the same input. Do the same without waiting for a later
     /// projection tick or losing queue order.
     private func startSubmissionAfterSteerRace(
-        _ submission: CodexComposerSubmission,
+        _ scoped: ScopedSteerSubmission,
         replacing staleTurn: CodexTurnLease?
     ) async {
+        guard isCurrentSteerSubmission(scoped) else { return }
+        let submission = scoped.submission
         let submissionThreadID = submission.threadID ?? currentThreadID
         guard submissionThreadID == currentThreadID else {
             requeueFailedSteer(
-                submission,
+                scoped,
                 message: "The selected thread changed before the follow-up could start."
             )
             return
@@ -845,12 +912,15 @@ final class CodexCoreAppModel {
         monitorMainTurn(turn)
     }
 
-    private func requeueFailedSteer(_ submission: CodexComposerSubmission, error: Error) {
-        requeueFailedSteer(submission, message: friendlyError(error))
+    private func requeueFailedSteer(_ scoped: ScopedSteerSubmission, error: Error) {
+        requeueFailedSteer(scoped, message: friendlyError(error))
     }
 
-    private func requeueFailedSteer(_ submission: CodexComposerSubmission, message: String) {
-        Task { [weak self] in await self?.addDurableQueuedFollowUp(submission) }
+    private func requeueFailedSteer(_ scoped: ScopedSteerSubmission, message: String) {
+        Task { [weak self] in
+            guard let self, isCurrentSteerSubmission(scoped) else { return }
+            await addDurableQueuedFollowUp(scoped.submission, restoreDraftOnFailure: false)
+        }
     }
 
     func removeQueuedFollowUp(clientID: String) async {
@@ -859,7 +929,8 @@ final class CodexCoreAppModel {
             clientID: clientID,
             threadID: currentThreadID
         ) else { return }
-        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+        guard let queueID = submission.queueID else { return }
+        guard let codex, let threadID = currentThreadID else {
             composerSession.requeueFollowUp(submission)
             return
         }
@@ -880,7 +951,11 @@ final class CodexCoreAppModel {
             clientID: clientID,
             threadID: currentThreadID
         ) else { return }
-        guard let codex, let threadID = currentThreadID, let queueID = submission.queueID else {
+        guard let queueID = submission.queueID else {
+            composerSession.restore(submission)
+            return
+        }
+        guard let codex, let threadID = currentThreadID else {
             composerSession.requeueFollowUp(submission)
             return
         }
@@ -896,38 +971,61 @@ final class CodexCoreAppModel {
         }
     }
 
+    @discardableResult
     private func startMainTurn(
         _ incomingSubmission: CodexComposerSubmission,
         restoreDraftOnFailure: Bool
-    ) async {
+    ) async -> CodexTranscriptUserMessageReceipt {
+        let submissionCodex = codex
+        let submissionAccountRevision = accountContextRevision
+        let originThreadLease = currentThreadLease
+        let permissionConfiguration = approvalSelection.permissionProfileWireConfiguration
         var submission = incomingSubmission
         _ = runtimeSession.beginMainTurnSubmission(submission)
         do {
-            let thread = try await ensureThread()
+            let thread: CodexThreadLease
+            if let originThreadLease, !originThreadLease.isClosed,
+               submission.threadID == originThreadLease.id.rawValue {
+                thread = originThreadLease
+            } else {
+                thread = try await ensureThread()
+            }
+            guard codex === submissionCodex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
             if submission.threadID == nil {
                 submission.threadID = thread.id.rawValue
             }
-            let permissionConfiguration =
-                approvalSelection.permissionProfileWireConfiguration
             let lease = try await thread.startTurn(turnStartParameters(
                 threadID: thread.id,
                 input: submission.turnInput,
                 clientUserMessageID: submission.clientID,
                 permissionConfiguration: permissionConfiguration
             ))
-            configurationSession.markPermissionProfileActive(
-                permissionConfiguration
-            )
-            activeTurnLease = lease
-            runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
-            monitorMainTurn(lease)
+            guard codex === submissionCodex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
+            if currentThreadID == thread.id.rawValue {
+                configurationSession.markPermissionProfileActive(permissionConfiguration)
+                activeTurnLease = lease
+                runtimeSession.startMainTurn(id: lease.key.turnID.rawValue)
+                monitorMainTurn(lease)
+            }
+            return .accepted
         } catch {
+            guard codex === submissionCodex, submissionAccountRevision == accountContextRevision else {
+                return .rejected(message: "The connected Codex account changed before the answer completed.")
+            }
+            let message = friendlyError(error)
             if restoreDraftOnFailure {
                 composerSession.restore(submission)
             } else {
                 composerSession.requeueFollowUp(submission)
             }
-            _ = runtimeSession.failMainTurnSubmission(message: friendlyError(error))
+            if currentThreadID == submission.threadID {
+                _ = runtimeSession.failMainTurnSubmission(message: message)
+            }
+            return restoreDraftOnFailure ? .rejected(message: message) : .retainedForRetry(message: message)
         }
     }
 
@@ -1514,6 +1612,7 @@ final class CodexCoreAppModel {
             }
             entries[summary.id.rawValue] = .init(
                 status: status,
+                attention: CodexSidebarThreadAttention.resolve(summary.status),
                 hasUnreadWhileInactive: unreadState.isUnread(summary.id),
                 lastEventAt: Date()
             )
@@ -1577,6 +1676,7 @@ final class CodexCoreAppModel {
         }
         canonicalThreadStatusEntries[threadID] = CodexThreadStatusEntry(
             status: liveStatus,
+            attention: thread.flatMap { CodexSidebarThreadAttention.resolve($0.status) },
             hasUnreadWhileInactive: unreadState.isUnread(id),
             lastEventAt: Date()
         )
@@ -3073,6 +3173,41 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.clearThreadSelection()
     }
 
+    func setSidebarInboxProjectScope(_ projectID: String?) {
+        guard sidebarInboxProjectScopeID != projectID else { return }
+        guard CodexSidebarInboxScopeStorage.save(projectID, to: preferenceStore) else {
+            sidebarActionError = "The sidebar project filter could not be saved."
+            return
+        }
+        sidebarInboxProjectScopeID = projectID
+        sidebarNavigationSession.clearThreadSelection()
+        sidebarActionError = nil
+    }
+
+    func renameSidebarChat(_ chat: CodexThreadSummary, to name: String, expectedAccountRevision: Int? = nil) async {
+        guard expectedAccountRevision == nil || expectedAccountRevision == accountContextRevision else { return }
+        guard let codex, isConnected, isAuthenticated, accountFeatures.canUseAuthenticatedRequests,
+              !pendingSidebarMutationIDs.contains(chat.id) else { return }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let accountRevision = accountContextRevision
+        pendingSidebarMutationIDs.insert(chat.id)
+        defer {
+            if self.codex === codex, accountRevision == accountContextRevision {
+                pendingSidebarMutationIDs.remove(chat.id)
+            }
+        }
+        do {
+            _ = try await codex.perform(CodexRequest.threadNameSet(.init(name: name, threadID: chat.id)))
+            guard self.codex === codex, accountRevision == accountContextRevision else { return }
+            renameChatInSidebar(chat.id, title: name)
+            sidebarActionError = nil
+        } catch {
+            guard self.codex === codex, accountRevision == accountContextRevision else { return }
+            sidebarActionError = friendlyError(error)
+        }
+    }
+
     func togglePinnedSelectedSidebarChats() {
         let selectedIDs = sidebarNavigationSession.selectedThreadIDs
         guard !selectedIDs.isEmpty else { return }
@@ -3356,12 +3491,30 @@ final class CodexCoreAppModel {
     }
 
     func sendMCPAppMessage(_ text: String, threadID: String?, expectedAccountRevision: Int) async {
+        guard let threadID else { return }
+        _ = await sendTranscriptUserMessage(text, expectedThreadID: threadID, expectedAccountRevision: expectedAccountRevision)
+    }
+
+    /// Sends an explicit answer without replacing the user's in-progress draft.
+    func sendTranscriptUserMessage(
+        _ text: String, expectedThreadID: String, expectedAccountRevision: Int
+    ) async -> CodexTranscriptUserMessageReceipt {
         guard expectedAccountRevision == accountContextRevision,
-              let threadID, currentThreadID == threadID, isConnected, isAuthenticated,
-              accountFeatures.canUseAuthenticatedRequests, text.utf8.count <= 32_768 else { return }
-        let submission = CodexComposerSubmission(prompt: text, threadID: threadID)
-        if isSending { await sendFollowUp(submission: submission) }
-        else { await startMainTurn(submission, restoreDraftOnFailure: false) }
+              currentThreadID == expectedThreadID else {
+            return .rejected(message: "The selected chat or account changed.")
+        }
+        guard isConnected, isAuthenticated,
+              currentThreadLease?.id.rawValue == expectedThreadID, currentThreadLease?.isClosed == false,
+              accountFeatures.canUseAuthenticatedRequests else {
+            return .rejected(message: "Connect to Codex before sending an answer.")
+        }
+        guard text.utf8.count <= 32_768,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .rejected(message: "The answer must contain text and be no larger than 32 KB.")
+        }
+        let submission = CodexComposerSubmission(prompt: text, threadID: expectedThreadID)
+        if isSending { return await sendFollowUp(submission: submission, restoreDraftOnFailure: false) }
+        return await startMainTurn(submission, restoreDraftOnFailure: false)
     }
 
     private func mcpContextInputs(threadID: String) -> [CodexInput] {
@@ -3650,6 +3803,7 @@ final class CodexCoreAppModel {
 
     func threadStartParameters() -> CodexSchemaThreadStartParams {
         var parameters = configurationSession.wireSelection.applying(to: CodexSchemaThreadStartParams(
+            config: CodexTranscriptRuntimePolicy.threadConfig,
             cwd: workspacePath,
             dynamicTools: Self.threadTaskToolSpecs,
             historyMode: CodexSchemaThreadHistoryMode(rawValue: newThreadHistoryMode.rawValue),
@@ -3709,6 +3863,7 @@ final class CodexCoreAppModel {
             for: threadID,
             explicitTierOnly: true
         ).applying(to: CodexSchemaThreadResumeParams(
+            config: CodexTranscriptRuntimePolicy.threadConfig,
             cwd: workspacePath,
             runtimeWorkspaceRoots: protocolWorkspaceRoots,
             threadID: threadID
@@ -3726,6 +3881,7 @@ final class CodexCoreAppModel {
             protocolWorkspaceRoots
         }
         var parameters = taskWireSelection(for: threadID).applying(to: CodexSchemaThreadForkParams(
+            config: CodexTranscriptRuntimePolicy.threadConfig,
             cwd: cwd,
             ephemeral: ephemeral,
             runtimeWorkspaceRoots: roots,
@@ -3813,6 +3969,7 @@ final class CodexCoreAppModel {
             input: (input + mcpContextInputs(threadID: threadID.rawValue)).map { CodexSchemaUserInput($0.jsonValue) },
             multiAgentMode: Self.explicitRequestOnlyMultiAgentMode,
             runtimeWorkspaceRoots: roots,
+            summary: CodexTranscriptRuntimePolicy.reasoningSummary,
             threadID: threadID.rawValue
         ))
         permissionConfiguration.apply(to: &parameters)

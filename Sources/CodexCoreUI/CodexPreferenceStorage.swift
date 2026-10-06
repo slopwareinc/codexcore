@@ -200,6 +200,21 @@ public enum CodexPinnedThreadStorage {
     }
 }
 
+/// Inbox filtering is independent of workspace and selected-chat navigation.
+/// An empty preference means All projects.
+public enum CodexSidebarInboxScopeStorage {
+    private static let key = "CodexCoreApp.sidebarInboxProjectScope.v1"
+
+    public static func load(from store: any CodexStringListPreferenceStore) -> String? {
+        store.loadStrings(forKey: key).first?.nilIfBlank
+    }
+
+    @discardableResult
+    public static func save(_ projectID: String?, to store: any CodexStringListPreferenceStore) -> Bool {
+        CodexPreferenceStorageCodec.saveStrings(projectID?.nilIfBlank.map { [$0] } ?? [], forKey: key, to: store)
+    }
+}
+
 public enum CodexSelectedThreadStorage {
     public static let key = "CodexCoreApp.selectedThreadID.v1"
 
@@ -299,7 +314,7 @@ public enum CodexAppearanceSettingsStorage {
             from: store,
             onFailure: onFailure
         ) else {
-            return .official
+            return .t3Code
         }
         if stored.sourceKey != key {
             _ = saveAppearanceSettings(stored.value.settings, to: store, onFailure: onFailure)

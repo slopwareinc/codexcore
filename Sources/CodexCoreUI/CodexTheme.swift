@@ -93,7 +93,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     public var accentHue: Double?
 
     public init(
-        preset: CodexAgentThemePreset = .officialDark,
+        preset: CodexAgentThemePreset = .t3Code,
         appearanceMode: CodexAppearanceMode? = nil,
         reduceMotion: Bool = false,
         uiFontSize: Double = 14,
@@ -121,7 +121,7 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     /// decode and silently reset every stored appearance preference.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let preset = try container.decodeIfPresent(CodexAgentThemePreset.self, forKey: .preset) ?? .officialDark
+        let preset = try container.decodeIfPresent(CodexAgentThemePreset.self, forKey: .preset) ?? .t3Code
         self.init(
             preset: preset,
             appearanceMode: try container.decodeIfPresent(CodexAppearanceMode.self, forKey: .appearanceMode),
@@ -136,7 +136,11 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
     }
 
     public static var official: CodexAppearanceSettings {
-        CodexAppearanceSettings()
+        CodexAppearanceSettings(preset: .officialDark)
+    }
+
+    public static var t3Code: CodexAppearanceSettings {
+        CodexAppearanceSettings(preset: .t3Code)
     }
 
     public func agentTheme(uiFontSize: Double, reduceMotion: Bool) -> CodexAgentTheme {
@@ -146,6 +150,11 @@ public struct CodexAppearanceSettings: Codable, Equatable, Sendable {
             textFamily: textFontFamily,
             monoFamily: monoFontFamily
         )
+        if preset == .t3Code {
+            let text = CodexFontFamily.text(textFontFamily)
+            theme.fonts.chat = text.font(size: CGFloat(uiFontSize))
+            theme.fonts.chatNSFont = text.nsFont(size: CGFloat(uiFontSize)) ?? NSFont.systemFont(ofSize: CGFloat(uiFontSize))
+        }
         theme.animations = reduceMotion ? .reduced : .official
         return theme
     }
@@ -301,6 +310,13 @@ private extension Color {
     }
 }
 
+/// Presentation conventions independent of a theme's colors.
+public enum CodexInterfaceStyle: Sendable, Equatable {
+    case native
+    /// The compact, flat presentation ported from the MIT-licensed T3 Code UI.
+    case t3Code
+}
+
 /// Shared design tokens for Codex chat UI components.
 public struct CodexAgentTheme {
     public var colors: Colors
@@ -311,6 +327,7 @@ public struct CodexAgentTheme {
     public var animations: Animations
     /// The light behind the window's glass. See `CodexBackdrop`.
     public var atmosphere: CodexAtmosphere
+    public var interfaceStyle: CodexInterfaceStyle
 
     public init(
         colors: Colors,
@@ -319,7 +336,8 @@ public struct CodexAgentTheme {
         radii: Radii = .official,
         effects: Effects = .official,
         animations: Animations = .official,
-        atmosphere: CodexAtmosphere = CodexThemeSeed.graphite.atmosphere
+        atmosphere: CodexAtmosphere = CodexThemeSeed.graphite.atmosphere,
+        interfaceStyle: CodexInterfaceStyle = .native
     ) {
         self.colors = colors
         self.fonts = fonts
@@ -328,6 +346,7 @@ public struct CodexAgentTheme {
         self.effects = effects
         self.animations = animations
         self.atmosphere = atmosphere
+        self.interfaceStyle = interfaceStyle
     }
 
     public struct Colors {
@@ -882,6 +901,20 @@ public struct CodexAgentTheme {
                 chipPadding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
             )
         }
+
+        /// T3's shared 46rem chat lane and 52px workspace top bar.
+        public static var t3Code: Spacing {
+            var spacing = official
+            spacing.transcriptOuterMaxWidth = 736
+            spacing.cardMaxWidth = 736
+            spacing.userBubbleMaxWidth = 736 * 0.8
+            spacing.toolbarHeight = 52
+            spacing.rowGap = 8
+            spacing.panelPadding = 16
+            spacing.sectionGap = 16
+            spacing.chatLineSpacing = 7
+            return spacing
+        }
     }
 
     public struct Radii {
@@ -921,6 +954,10 @@ public struct CodexAgentTheme {
                 bubble: 16,
                 pill: 999
             )
+        }
+
+        public static var t3Code: Radii {
+            Radii(small: 8, medium: 10, large: 14, panel: 16, composer: 22, bubble: 16, pill: 999)
         }
     }
 
@@ -1065,6 +1102,7 @@ public extension View {
 /// legacy alias of `officialDark` (the same family, implying light appearance)
 /// and is not offered in the picker.
 public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, Sendable {
+    case t3Code
     case officialDark
     case nativeLight
     case midnight
@@ -1079,11 +1117,12 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
 
     /// The families offered in the theme picker, in display order.
     public static let pickerCases: [CodexAgentThemePreset] = [
-        .officialDark, .midnight, .aurora, .sage, .warmMinimal, .rose, .violet, .highContrast
+        .t3Code, .officialDark, .midnight, .aurora, .sage, .warmMinimal, .rose, .violet, .highContrast
     ]
 
     public var displayName: String {
         switch self {
+        case .t3Code: return "T3 Code"
         case .officialDark, .nativeLight: return "Graphite"
         case .midnight: return "Tide"
         case .warmMinimal: return "Ember"
@@ -1098,6 +1137,7 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     /// A one-line character description for the settings picker.
     public var summary: String {
         switch self {
+        case .t3Code: return "Compact neutral surfaces and a blue primary action."
         case .officialDark, .nativeLight: return "Neutral graphite, indigo light."
         case .midnight: return "Deep water, cyan light."
         case .warmMinimal: return "Paper and lamplight."
@@ -1110,10 +1150,10 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     }
 
     /// The seed this family is generated from. `nil` only for High Contrast,
-    /// which is specified by hand because its whole point is to sit outside
-    /// the generator's tonal recipe.
+    /// and T3 Code, which are specified by hand to preserve their source values.
     public var seed: CodexThemeSeed? {
         switch self {
+        case .t3Code: return nil
         case .officialDark, .nativeLight: return .graphite
         case .midnight: return .tide
         case .warmMinimal: return .ember
@@ -1131,11 +1171,13 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     public var palette: CodexPaletteSpec { palette(accentHue: nil) }
 
     public func palette(accentHue: Double?) -> CodexPaletteSpec {
+        if self == .t3Code { return .t3Code }
         guard let seed = seed(accentHue: accentHue) else { return .highContrast }
         return seed.palette
     }
 
     public func atmosphere(accentHue: Double?) -> CodexAtmosphere {
+        if self == .t3Code { return .flat(CodexPaletteSpec.t3Code.canvas) }
         guard let seed = seed(accentHue: accentHue) else { return .flat(CodexPaletteSpec.highContrast.canvas) }
         return seed.atmosphere
     }
@@ -1162,8 +1204,12 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     public func theme(accentHue: Double?) -> CodexAgentTheme {
         CodexAgentTheme(
             colors: CodexAgentTheme.Colors(spec: palette(accentHue: accentHue)),
+            fonts: fonts,
+            spacing: self == .t3Code ? .t3Code : .official,
+            radii: self == .t3Code ? .t3Code : .official,
             effects: effects,
-            atmosphere: atmosphere(accentHue: accentHue)
+            atmosphere: atmosphere(accentHue: accentHue),
+            interfaceStyle: self == .t3Code ? .t3Code : .native
         )
     }
 
@@ -1172,13 +1218,29 @@ public enum CodexAgentThemePreset: String, CaseIterable, Codable, Identifiable, 
     public func theme(resolvedFor scheme: ColorScheme, accentHue: Double? = nil) -> CodexAgentTheme {
         CodexAgentTheme(
             colors: CodexAgentTheme.Colors(spec: palette(accentHue: accentHue), resolvedFor: scheme),
+            fonts: fonts,
+            spacing: self == .t3Code ? .t3Code : .official,
+            radii: self == .t3Code ? .t3Code : .official,
             effects: effects,
-            atmosphere: atmosphere(accentHue: accentHue)
+            atmosphere: atmosphere(accentHue: accentHue),
+            interfaceStyle: self == .t3Code ? .t3Code : .native
         )
+    }
+
+    private var fonts: CodexAgentTheme.Fonts {
+        var fonts = CodexAgentTheme.Fonts.official
+        if self == .t3Code {
+            fonts.chat = .system(size: 14)
+            fonts.chatNSFont = NSFont.systemFont(ofSize: 14)
+        }
+        return fonts
     }
 
     private var effects: CodexAgentTheme.Effects {
         switch self {
+        case .t3Code:
+            return .init(usesLiquidGlass: false, surfaceOpacity: 1, glowOpacity: 0,
+                         shadow: .init(opacity: 0.08, radius: 14, y: 6), selectionOpacity: 0.06)
         case .highContrast:
             // The only family that opts out of glass, because its whole purpose
             // is flat maximum contrast. Reduce Transparency covers every other

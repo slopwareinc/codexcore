@@ -219,6 +219,8 @@ public enum CodexTurnStatusV2: Sendable, Equatable {
 
 public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
     case prose(CodexAssistantTextV2)
+    case proposedPlan(CodexProposedPlanV2)
+    case questions(CodexAsyncQuestionV2)
     case workGroup(CodexWorkGroupV2)
     case productToolCall(CodexProductToolCallV2)
     case inlineActivity(CodexInlineActivityV2)
@@ -227,6 +229,8 @@ public enum CodexNarrativeEntry: Identifiable, Sendable, Equatable {
     public var id: String {
         switch self {
         case .prose(let value): value.id
+        case .proposedPlan(let value): value.id
+        case .questions(let value): value.id
         case .workGroup(let value): value.id
         case .productToolCall(let value): value.id
         case .inlineActivity(let value): value.id
@@ -309,6 +313,21 @@ public struct CodexMCPToolCallRowV2: Identifiable, Sendable, Equatable {
     public var readOnlyHint: Bool?
     public var appDescriptor: CodexMCPAppDescriptor? = nil
     public var appContext: CodexJSONValue? = nil
+    /// Optional provider-authored browser/computer/tool display metadata.
+    public var presentation: CodexMCPToolPresentationV2? = nil
+}
+
+extension CodexMCPToolCallRowV2 {
+    /// Display metadata supplements the unchanged provider arguments/result.
+    var transcriptDetail: String? {
+        let parts = [
+            presentation.map { "Source\n\($0.sourceName)" },
+            presentation?.pageURL.map { "Page\n\($0)" },
+            arguments.map { "Arguments\n\($0.description)" },
+            result.map { "Result\n\($0.description)" },
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
 }
 public struct CodexWebSearchRowV2: Identifiable, Sendable, Equatable {
     public var id: String; public var query: String; public var status: CodexWorkItemStatusV2

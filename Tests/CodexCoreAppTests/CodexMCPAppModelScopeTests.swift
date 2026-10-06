@@ -6,6 +6,177 @@ import Testing
 
 @MainActor
 struct CodexMCPAppModelScopeTests {
+    @Test(arguments: ["turn/start", "thread/queue/add", "turn/steer", "turn/steer-retry"], [false, true])
+    func delayedReplyCannotMutateReplacementAccountSession(method: String, fails: Bool) async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        let previousCodex = try #require(model.codex)
+        if method == "thread/queue/add" { model.runtimeSession.startMainTurn(id: "running-turn") }
+        let isSteer = method.hasPrefix("turn/steer")
+        let actualMethod = isSteer ? "turn/steer" : method
+        if isSteer {
+            let seedReceipt = await model.sendTranscriptUserMessage("Start the original turn", expectedThreadID: "thread", expectedAccountRevision: model.accountContextRevision)
+            #expect(seedReceipt == .accepted)
+            model.followUpBehavior = .steer
+        }
+        if method == "turn/steer-retry" {
+            await fixture.transport.failNextRequest(method: actualMethod, message: "expected active turn id `turn` but found `recovered-turn`")
+            await fixture.transport.delayRequests(method: actualMethod, afterRequests: 1)
+        } else {
+            await fixture.transport.delayRequests(method: actualMethod)
+        }
+        let revision = model.accountContextRevision
+        let pending = Task {
+            await model.sendTranscriptUserMessage("Old account answer", expectedThreadID: "thread", expectedAccountRevision: revision)
+        }
+        await fixture.transport.waitForDelayedRequest()
+
+        // Replace the runtime while the old request remains pending. Closing
+        // only the lease leaves the transport alive to deliver its late reply.
+        await model.currentThreadLease?.close()
+        let replacement = MCPModelScopeTransport()
+        try await connect(model, transport: replacement)
+        model.draft = "Replacement account draft"
+        if fails { await fixture.transport.failRequests(method: actualMethod) }
+        try await fixture.transport.releaseDelayedRequests()
+        let receipt = await pending.value
+        if isSteer {
+            // The FIFO accepted processing before the runtime was replaced.
+            #expect(receipt == .accepted)
+        } else {
+            guard case .rejected = receipt else {
+                Issue.record("Late reply changed session ownership: \(receipt)")
+                await previousCodex.close()
+                await model.disconnect()
+                return
+            }
+        }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(model.codex !== previousCodex)
+        #expect(model.draft == "Replacement account draft")
+        #expect(model.composerSession.queuedFollowUpSubmissions(for: "thread").isEmpty)
+        #expect(!model.isSending)
+        #expect(await replacement.turnStartCount == 0)
+        #expect(await replacement.queueAddCount == 0)
+        await previousCodex.close()
+        await model.disconnect()
+    }
+
+    @Test func asyncQuestionReplyPreservesDraftAndUsesOrdinaryTurnInput() async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        #expect(model.currentThreadLease != nil)
+        #expect(model.currentThreadLease?.isClosed == false)
+        #expect(model.currentThreadLease?.id.rawValue == "thread")
+        #expect(model.isSending == false)
+        model.draft = "Keep my unfinished request"
+        let receipt = await model.sendTranscriptUserMessage(
+            "Which branch?\nmain", expectedThreadID: "thread",
+            expectedAccountRevision: model.accountContextRevision
+        )
+        #expect(receipt == .accepted)
+        let turnStartCount = await fixture.transport.turnStartCount
+        let lastTurnInput = await fixture.transport.lastTurnInput
+        #expect(turnStartCount == 1)
+        #expect(lastTurnInput == ["Which branch?\nmain"])
+        #expect(model.draft == "Keep my unfinished request")
+        await model.disconnect()
+    }
+
+    @Test func asyncQuestionReplyRejectsStaleThreadAccountAndInvalidInput() async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        let revision = model.accountContextRevision
+        model.draft = "Keep my draft"
+        for (text, thread, account) in [
+            ("main", "other-thread", revision), ("main", "thread", revision - 1),
+            (" \n\t", "thread", revision), (String(repeating: "x", count: 32_769), "thread", revision),
+        ] {
+            let receipt = await model.sendTranscriptUserMessage(text, expectedThreadID: thread, expectedAccountRevision: account)
+            guard case .rejected = receipt else {
+                Issue.record("Invalid answer unexpectedly accepted: \(receipt)")
+                continue
+            }
+        }
+        #expect(await fixture.transport.turnStartCount == 0)
+        #expect(model.draft == "Keep my draft")
+        await model.disconnect()
+    }
+
+    @Test func failedDirectAnswerRemainsInFollowUpQueueAndPreservesDraft() async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        await fixture.transport.failRequests(method: "turn/start")
+        model.draft = "Keep my unfinished request"
+        let receipt = await model.sendTranscriptUserMessage(
+            "Which branch?\nmain", expectedThreadID: "thread",
+            expectedAccountRevision: model.accountContextRevision
+        )
+        guard case .retainedForRetry = receipt else {
+            Issue.record("Failed answer was not retained: \(receipt)")
+            await model.disconnect()
+            return
+        }
+        #expect(model.draft == "Keep my unfinished request")
+        let queued = model.composerSession.queuedFollowUpSubmissions(for: "thread")
+        #expect(queued.map(\.prompt) == ["Which branch?\nmain"])
+        let answer = try #require(queued.first)
+        await model.removeQueuedFollowUp(clientID: answer.clientID)
+        #expect(model.composerSession.queuedFollowUpSubmissions(for: "thread").isEmpty)
+        #expect(model.draft == "Keep my unfinished request")
+        await model.disconnect()
+    }
+
+    @Test func failedQueuedQuestionAndMCPRepliesPreserveDraftAndRemainEditable() async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        await fixture.transport.failRequests(method: "thread/queue/add")
+        model.runtimeSession.startMainTurn(id: "running-turn")
+        model.draft = "Keep my unfinished request"
+        let receipt = await model.sendTranscriptUserMessage(
+            "Which branch?\nmain", expectedThreadID: "thread",
+            expectedAccountRevision: model.accountContextRevision
+        )
+        guard case .retainedForRetry = receipt else {
+            Issue.record("Failed queued answer was not retained: \(receipt)")
+            await model.disconnect()
+            return
+        }
+        await model.sendMCPAppMessage("Widget answer", threadID: "thread", expectedAccountRevision: model.accountContextRevision)
+        #expect(model.draft == "Keep my unfinished request")
+        let queued = model.composerSession.queuedFollowUpSubmissions(for: "thread")
+        #expect(Set(queued.map(\.prompt)) == ["Which branch?\nmain", "Widget answer"])
+        let answer = try #require(queued.first(where: { $0.prompt == "Which branch?\nmain" }))
+        #expect(answer.queueID == nil)
+        await model.editQueuedFollowUp(clientID: answer.clientID)
+        #expect(model.draft == "Which branch?\nmain\n\nKeep my unfinished request")
+        #expect(model.composerSession.queuedFollowUpSubmissions(for: "thread").map(\.prompt) == ["Widget answer"])
+        await model.disconnect()
+    }
+
+    @Test func refreshingServerQueueKeepsLocallyRetainedAnswersAndRetryUsesOriginalMessage() async throws {
+        let fixture = try await connectedFixture()
+        let model = fixture.model
+        model.runtimeSession.startMainTurn(id: "running-turn")
+        model.draft = "Keep my unfinished request"
+        await fixture.transport.failRequests(method: "thread/queue/add")
+        _ = await model.sendTranscriptUserMessage("Retained answer", expectedThreadID: "thread", expectedAccountRevision: model.accountContextRevision)
+        await fixture.transport.allowRequests(method: "thread/queue/add")
+        let receipt = await model.sendTranscriptUserMessage("Server queued answer", expectedThreadID: "thread", expectedAccountRevision: model.accountContextRevision)
+        #expect(receipt == .accepted)
+        let queued = model.composerSession.queuedFollowUpSubmissions(for: "thread")
+        #expect(queued.map(\.prompt) == ["Retained answer", "Server queued answer"])
+        let retained = try #require(queued.first)
+        #expect(retained.queueID == nil)
+        #expect(queued.last?.queueID != nil)
+        _ = model.runtimeSession.finishMainTurn(id: "running-turn")
+        await model.steerQueuedFollowUp(clientID: retained.clientID)
+        #expect(await fixture.transport.lastTurnInput == ["Retained answer"])
+        #expect(model.composerSession.queuedFollowUpSubmissions(for: "thread").map(\.prompt) == ["Server queued answer"])
+        #expect(model.draft == "Keep my unfinished request")
+        await model.disconnect()
+    }
+
     @Test func staleWidgetCallbacksCannotChangeContextOrSendInCurrentChat() async throws {
         let fixture = try await connectedFixture()
         let model = fixture.model
@@ -112,6 +283,35 @@ private actor MCPModelScopeTransport: CodexFrameTransport {
     nonisolated let homePath = "/private/tmp/codexcore-mcp-scope-\(UUID().uuidString)"
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private(set) var turnStartCount = 0
+    private(set) var queueAddCount = 0
+    private(set) var lastTurnInput: [String] = []
+    private var failingMethods: Set<String> = []
+    private var serverQueue: [CodexSchemaQueuedSubmission] = []
+    private var delayedMethods: Set<String> = []
+    private var requestsBeforeDelay: [String: Int] = [:]
+    private var nextErrors: [String: String] = [:]
+    private var delayedFrames: [Data] = []
+    private var delayedRequestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func failRequests(method: String) { failingMethods.insert(method) }
+    func allowRequests(method: String) { failingMethods.remove(method) }
+    func delayRequests(method: String, afterRequests: Int = 0) {
+        delayedMethods.insert(method)
+        requestsBeforeDelay[method] = afterRequests
+    }
+    func failNextRequest(method: String, message: String) { nextErrors[method] = message }
+
+    func waitForDelayedRequest() async {
+        if !delayedFrames.isEmpty { return }
+        await withCheckedContinuation { delayedRequestWaiters.append($0) }
+    }
+
+    func releaseDelayedRequests() throws {
+        delayedMethods.removeAll()
+        let frames = delayedFrames
+        delayedFrames.removeAll()
+        for frame in frames { try write(frame) }
+    }
 
     func open() -> AsyncThrowingStream<Data, Error> {
         let pair = AsyncThrowingStream<Data, Error>.makeStream()
@@ -124,6 +324,23 @@ private actor MCPModelScopeTransport: CodexFrameTransport {
         guard let fields = request.objectValue,
               case .string(let method)? = fields["method"], let rawID = fields["id"] else { return }
         let id = try CodexJSONRPCID(jsonValue: rawID)
+        if delayedMethods.contains(method), requestsBeforeDelay[method, default: 0] > 0 {
+            requestsBeforeDelay[method, default: 0] -= 1
+        } else if delayedMethods.contains(method) {
+            delayedFrames.append(frame)
+            let waiters = delayedRequestWaiters
+            delayedRequestWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+            return
+        }
+        if let message = nextErrors.removeValue(forKey: method) {
+            continuation?.yield(try CodexJSONRPCCodec.encodeError(id: id, error: .init(code: -32000, message: message)))
+            return
+        }
+        if failingMethods.contains(method) {
+            continuation?.yield(try CodexJSONRPCCodec.encodeError(id: id, error: .init(code: -32000, message: "Test request failed.")))
+            return
+        }
         let result: CodexJSONValue
         switch method {
         case "initialize":
@@ -132,6 +349,10 @@ private actor MCPModelScopeTransport: CodexFrameTransport {
         case "account/gatewayOAuth/read":
             result = try CodexJSONValue(encoding: CodexSchemaGatewayOAuthReadResponse(providerID: "openai", providerName: "OpenAI", required: false))
         case "thread/read": result = .dictionary(["thread": thread])
+        case "thread/backgroundTerminals/list":
+            result = try CodexJSONValue(encoding: CodexSchemaThreadBackgroundTerminalsListResponse(data: []))
+        case "thread/unsubscribe":
+            result = try CodexJSONValue(encoding: CodexSchemaThreadUnsubscribeResponse(status: .unsubscribed))
         case "thread/resume":
             result = .dictionary([
                 "approvalPolicy": .string("on-request"), "approvalsReviewer": .string("user"),
@@ -141,7 +362,22 @@ private actor MCPModelScopeTransport: CodexFrameTransport {
             ])
         case "turn/start":
             turnStartCount += 1
+            if case .array(let input) = fields["params"]?.objectValue?["input"] {
+                lastTurnInput = input.compactMap { CodexJSONCoercion.string(from: $0.objectValue?["text"]) }
+            }
             result = .dictionary(["turn": .dictionary(["id": .string("turn"), "status": .string("inProgress"), "items": .array([])])])
+        case "turn/steer":
+            result = try CodexJSONValue(encoding: CodexSchemaTurnSteerResponse(turnID: CodexJSONCoercion.string(from: fields["params"]?.objectValue?["expectedTurnId"]) ?? "turn"))
+        case "thread/queue/add":
+            queueAddCount += 1
+            let params = try #require(fields["params"]?.objectValue)
+            let clientID = try #require(CodexJSONCoercion.string(from: params["clientUserMessageId"]))
+            let input = try #require(params["input"]).decode([CodexSchemaUserInput].self)
+            let queued = CodexSchemaQueuedSubmission(clientUserMessageID: clientID, id: "queue-\(clientID)", input: input)
+            serverQueue.append(queued)
+            result = try CodexJSONValue(encoding: CodexSchemaThreadQueueAddResponse(queuedSubmission: queued))
+        case "thread/queue/list":
+            result = try CodexJSONValue(encoding: CodexSchemaThreadQueueListResponse(data: serverQueue))
         default: result = .dictionary([:])
         }
         continuation?.yield(try CodexJSONRPCCodec.encodeResult(id: id, result: result))

@@ -13,6 +13,10 @@ struct CodexWorkGroupViewV2: View {
     }
 
     var body: some View {
+        if theme.interfaceStyle == .t3Code && group.rows.count == 1 && !group.isLive,
+           let row = group.rows.first {
+            CodexWorkRowViewV2(row: row, onOpenSubagent: onOpenSubagent)
+        } else {
         VStack(alignment: .leading, spacing: 5) {
             Button {
                 withAnimation(.snappy(duration: theme.animations.snappyDuration)) {
@@ -21,7 +25,7 @@ struct CodexWorkGroupViewV2: View {
             } label: {
                 CodexInlineActivityViewV2(activity: .init(
                     id: group.id,
-                    label: CodexWorkGroupPresentationV2.header(group),
+                    label: CodexWorkGroupPresentationV2.header(group, interfaceStyle: theme.interfaceStyle),
                     systemImage: CodexWorkGroupPresentationV2.systemImage(rows: group.rows),
                     status: CodexWorkGroupPresentationV2.status(
                         rows: group.rows,
@@ -39,9 +43,10 @@ struct CodexWorkGroupViewV2: View {
                         CodexWorkRowViewV2(row: $0, onOpenSubagent: onOpenSubagent)
                     }
                 }
-                .padding(.leading, 22)
+                .padding(.leading, theme.interfaceStyle == .t3Code ? 0 : 22)
                 .transition(.opacity)
             }
+        }
         }
     }
 }
@@ -59,10 +64,17 @@ private struct CodexWorkRowViewV2: View {
                 else if hasDetail { isExpanded.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
+                    if theme.interfaceStyle == .t3Code {
+                        Image(systemName: systemImage)
+                            .font(theme.fonts.caption)
+                            .foregroundStyle(status == .failed ? theme.colors.danger : theme.colors.textTertiary)
+                            .frame(width: 24)
+                    } else {
+                        Text(codexStatusGlyphV2(status)).foregroundStyle(statusColor)
+                    }
                     label
-                    if let durationMs { Text(CodexWorkBlockViewV2.duration(durationMs)).font(theme.fonts.micro) }
-                    if case .command(let value) = row {
+                    if theme.interfaceStyle != .t3Code, let durationMs { Text(CodexWorkBlockViewV2.duration(durationMs)).font(theme.fonts.micro) }
+                    if case .command(let value) = row, theme.interfaceStyle != .t3Code || status == .failed {
                         Text(value.executionStateLabel)
                             .font(theme.fonts.micro)
                             .foregroundStyle(statusColor)
@@ -112,13 +124,13 @@ private struct CodexWorkRowViewV2: View {
                         .foregroundStyle(theme.colors.textTertiary)
                 }
             }
-            .padding(.leading, 18)
+            .padding(.leading, theme.interfaceStyle == .t3Code ? 28 : 18)
         } else if let detail = expandedDetail {
             Text(ANSITerminalStyle.makeAttributedString(from: ANSIParser().parse(detail)))
                 .font(theme.fonts.code)
                 .foregroundStyle(theme.colors.textSecondary)
                 .textSelection(.enabled)
-                .padding(.leading, 18)
+                .padding(.leading, theme.interfaceStyle == .t3Code ? 28 : 18)
         }
     }
 
@@ -126,10 +138,10 @@ private struct CodexWorkRowViewV2: View {
         switch row {
         case .command(let value):
             Text(value.label.codexDisplayPrefix(limit: 280))
-                .font(value.action == .run ? theme.fonts.code : theme.fonts.caption)
+                .font(theme.interfaceStyle == .t3Code ? theme.fonts.body : value.action == .run ? theme.fonts.code : theme.fonts.caption)
             .lineLimit(1)
             .truncationMode(.middle)
-        default: Text(rowLabel).font(theme.fonts.caption).lineLimit(2)
+        default: Text(rowLabel).font(theme.interfaceStyle == .t3Code ? theme.fonts.body : theme.fonts.caption).lineLimit(2)
         }
     }
 
@@ -137,6 +149,7 @@ private struct CodexWorkRowViewV2: View {
         switch row {
         case .command(let value): return value.label.codexDisplayPrefix(limit: 280)
         case .fileChange(let value):
+            if theme.interfaceStyle == .t3Code { return CodexT3WorkGroupSummary.synthesize(rows: [row]) }
             let paths = value.changes.isEmpty
                 ? Array(value.files.prefix(3))
                 : value.changes.prefix(3).map(\.displayPath)
@@ -144,6 +157,7 @@ private struct CodexWorkRowViewV2: View {
             let remainder = max(0, value.fileCount - 3)
             return remainder == 0 ? "Edited \(visible)" : "Edited \(visible) · +\(remainder) more"
         case .mcpToolCall(let value):
+            if let presentation = value.presentation { return presentation.title }
             if let error = value.errorFirstLine, !error.isEmpty { return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool) — \(error)" }
             return "Called \(value.appName.isEmpty ? value.server : value.appName) · \(value.tool)"
         case .webSearch(let value): return "Searched \(value.query)"
@@ -173,7 +187,7 @@ private struct CodexWorkRowViewV2: View {
         case .fileChange(let value):
             value.hasPreparedDetail
         case .mcpToolCall(let value):
-            value.arguments != nil || value.result != nil
+            value.transcriptDetail != nil
         case .collabAgent(let value):
             (value.action == .waited || value.action == .sentInput)
                 && (value.instructions?.isEmpty == false || !value.agentMessages.isEmpty)
@@ -186,8 +200,7 @@ private struct CodexWorkRowViewV2: View {
         switch row {
         case .command(let v): return v.output?.nilIfEmpty?.codexDisplayPrefix(limit: 20_000)
         case .mcpToolCall(let v):
-            let parts = [(v.arguments.map { "Arguments\n\($0.description)" }), (v.result.map { "Result\n\($0.description)" })].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+            return v.transcriptDetail
         case .collabAgent(let value):
             guard value.action == .waited || value.action == .sentInput else { return nil }
             let ordered = value.orderedMessageAgentNames
@@ -216,6 +229,23 @@ private struct CodexWorkRowViewV2: View {
         case .completed: theme.colors.success
         case .failed: theme.colors.danger
         case .declined, .unknown: theme.colors.warning
+        }
+    }
+
+    private var systemImage: String {
+        switch row {
+        case .command(let command):
+            switch command.action {
+            case .read, .list, .loadedTool: "doc.text"
+            case .search, .webSearch: "magnifyingglass"
+            case .edit: "pencil"
+            default: "terminal"
+            }
+        case .fileChange: "pencil"
+        case .mcpToolCall(let call): call.presentation?.symbolName ?? "app.connected.to.app.below.fill"
+        case .webSearch: "globe"
+        case .collabAgent: "person.2"
+        case .other: "wrench.and.screwdriver"
         }
     }
 }

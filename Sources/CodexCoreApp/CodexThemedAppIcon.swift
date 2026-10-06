@@ -75,7 +75,7 @@ enum CodexThemedAppIcon {
         colorScheme: ColorScheme
     ) -> UInt32 {
         switch settings.preset {
-        case .officialDark, .nativeLight:
+        case .t3Code, .officialDark, .nativeLight:
             slateTint
         default:
             settings.palette.accent.value(for: iconColorScheme(settings, fallback: colorScheme))
