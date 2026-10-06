@@ -142,7 +142,9 @@ completed mutations refresh the catalog from app-server state.
 
 ## Projects and chats
 
-The sidebar groups chats by project and server-owned custom section. Chats can be
+The default T3 sidebar shows a flat project-scoped inbox with independent unsent
+Draft cards. Other native presets group chats by project and server-owned custom
+section. Chats can be
 pinned, selected in bulk, archived, restored from the lazy **Archived** list,
 renamed, forked, copied, searched, and resumed. Projects can be selected,
 grouped, pinned, reordered, edited, removed, revealed in Finder, or used to
@@ -155,6 +157,22 @@ projectless task in a generated `Documents/Codex/Chats` workspace; use a
 project's new-chat action when the task should inherit that project's folders.
 Projectless identity is persisted separately from `cwd`, so generated workspaces
 do not appear as projects.
+
+Starting another chat preserves the text, files, annotations, skills and file
+mentions in the original draft. Select its Draft card to recover it; Discard
+draft is an explicit context-menu action. The app stores drafts under its Codex
+home, with account scoping and visible load/save failures; see
+[draft recovery](../ui/composer-drafts.md).
+
+Image attachments are sent as native Codex image inputs for ordinary, queued
+and steered messages. Other files remain path context. A model explicitly
+declaring no image support leaves the draft intact and asks for another model.
+
+Fork on an assistant response uses that response's inclusive turn boundary;
+the chat menu's Fork still forks the current head. Stop, Fork and code-review
+request failures appear beside the composer. Switching chats suppresses late
+feedback from the earlier selection, and repeated Fork clicks share one pending
+operation instead of creating extra threads.
 
 Unread state is local app state, not app-server protocol state. A chat becomes
 unread only when the running app receives a completed assistant message for

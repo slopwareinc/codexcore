@@ -498,6 +498,7 @@ public struct CodexChatWorkspaceView: View {
                     onSend()
                 },
                 onForkChat: chatActions.forkChat,
+                onForkResponse: chatActions.forkFromResponse,
                 agentDisplayNameByThreadID: Dictionary(
                     uniqueKeysWithValues: subagents.map { ($0.id, $0.name) }
                 ),

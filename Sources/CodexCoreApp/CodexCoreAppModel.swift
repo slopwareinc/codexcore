@@ -79,6 +79,9 @@ final class CodexCoreAppModel {
     private(set) var isLoadingThreadSections = false
     private(set) var threadSectionsError: String?
     private(set) var sidebarActionError: String?
+    private(set) var chatActionError: String?
+    @ObservationIgnored private var chatActionFeedbackRevision: UInt64 = 0
+    @ObservationIgnored private var pendingForkLeaseIDs: Set<ObjectIdentifier> = []
     private(set) var sidebarInboxProjectScopeID: String?
     private(set) var pendingSidebarMutationIDs: Set<String> = []
     private(set) var hooksCatalog = CodexHooksCatalog()
@@ -159,7 +162,20 @@ final class CodexCoreAppModel {
     var projectSourceFoldersByPrimaryPath: [String: [String]]
     private var hasStoredExpandedProjectState: Bool
     var configurationSession = CodexChatConfigurationSession()
-    var composerSession = CodexComposerStateSession(followUpBehavior: .queue)
+    var composerSession = CodexComposerStateSession(followUpBehavior: .queue) {
+        didSet { composerDraftsDidChange() }
+    }
+    let draftPersistence: CodexAppDraftPersistence?
+    var draftPersistenceError: String?
+    var isRestoringDrafts = false
+    @ObservationIgnored var draftAccountScope: String?
+    @ObservationIgnored var draftStorageReady = false
+    @ObservationIgnored var draftMutationRevision: UInt64 = 0
+    @ObservationIgnored var draftScopeGeneration: UInt64 = 0
+    @ObservationIgnored var draftSaveTask: Task<Void, Never>?
+    @ObservationIgnored var draftLoadTask: Task<Void, Never>?
+    @ObservationIgnored var unsavedDraftsByAccount: [String: CodexComposerStateSession] = [:]
+    @ObservationIgnored var unsavedDraftRevisionByAccount: [String: UInt64] = [:]
     let runtimeSession = CodexChatRuntimeSession()
     let promptRuntime = CodexPromptRuntimeSession()
     private let mentionSearchSession = CodexMentionSearchSession()
@@ -208,9 +224,11 @@ final class CodexCoreAppModel {
         codexHome: CodexHome = .default,
         clipboardService: any CodexClipboardService,
         preferenceStore: any CodexStringListPreferenceStore,
-        pluginCatalogActionProvider: (any CodexPluginCatalogActionProvider)? = nil
+        pluginCatalogActionProvider: (any CodexPluginCatalogActionProvider)? = nil,
+        draftStorageDirectory: URL? = nil
     ) {
         self.codexHome = codexHome
+        self.draftPersistence = draftStorageDirectory.map { CodexAppDraftPersistence(rootURL: $0) }
         self.automationStore = CodexAutomationFileStore(
             directoryURL: codexHome.directoryURL.appendingPathComponent("automations", isDirectory: true)
         )
@@ -408,6 +426,7 @@ final class CodexCoreAppModel {
         guard !isDisconnecting else { return }
         isDisconnecting = true
         defer { isDisconnecting = false }
+        await flushComposerDrafts()
         connectionGeneration += 1
         let disconnectedCodex = codex
         codex = nil
@@ -607,7 +626,12 @@ final class CodexCoreAppModel {
     }
 
     func sendDraft() async {
-        guard isConnected, isAuthenticated, accountFeatures.canUseAuthenticatedRequests else { return }
+        guard !isRestoringDrafts, isConnected, isAuthenticated, accountFeatures.canUseAuthenticatedRequests else { return }
+        if referencedFiles.contains(where: \.isImage), modelSelection.inputModalities?.contains(.image) == false {
+            chatActionError = "\(modelSelection.displayName) does not accept images. Choose an image-capable model or remove the image."
+            return
+        }
+        chatActionError = nil
         syncComposerThreadID()
         let route = CodexTurnSubmissionSession.consumeDraft(
             composerSession: &composerSession,
@@ -1022,7 +1046,8 @@ final class CodexCoreAppModel {
             } else {
                 composerSession.requeueFollowUp(submission)
             }
-            if currentThreadID == submission.threadID {
+            if currentThreadID == submission.threadID,
+               submission.threadID != nil || submission.draftID == composerSession.activeDraftID {
                 _ = runtimeSession.failMainTurnSubmission(message: message)
             }
             return restoreDraftOnFailure ? .rejected(message: message) : .retainedForRetry(message: message)
@@ -1381,7 +1406,7 @@ final class CodexCoreAppModel {
                 threadID: lease.id.rawValue
             )
         }
-        if let previous, previous !== lease {
+        if let previous, previous !== lease, currentThreadLease !== previous {
             await previous.close()
         }
     }
@@ -1561,6 +1586,11 @@ final class CodexCoreAppModel {
             }
         }
         canonicalAccountIdentity = identity
+        if let draftIdentity = Self.composerDraftAccountIdentity(authMode: account.authMode, accountFields: fields) {
+            bindComposerDraftAccount(identity: draftIdentity)
+        } else if account.authMode == nil {
+            bindComposerDraftAccount(identity: nil)
+        }
         accountFeatures.applyCanonicalAccount(account)
         guard account.lastChangedRevision != .zero
                 || account.authMode != nil
@@ -2356,6 +2386,7 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.startNewChat(workspacePath: workspacePath, projectID: project.serverID)
         saveExpandedSidebarProjects()
         clearThreadState()
+        composerSession.newDraft(workspacePath: workspacePath, projectID: project.serverID)
         applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
@@ -2420,9 +2451,44 @@ final class CodexCoreAppModel {
         sidebarNavigationSession.startNewProjectlessChat()
         saveExpandedSidebarProjects()
         clearThreadState()
+        composerSession.newDraft(workspacePath: workspacePath, isProjectless: true)
         applyPreferredModel(for: nil)
         guard codex != nil else { return }
         await refreshRecentChats()
+    }
+
+    /// Applies a recovered draft before any asynchronous catalog refresh.
+    func activateComposerDraft(_ record: CodexComposerDraftSnapshot) {
+        applyComposerDraftWorkspace(record)
+        invalidatePendingChatSelection()
+        if record.isProjectless {
+            sidebarNavigationSession.startNewProjectlessChat()
+        } else {
+            sidebarNavigationSession.startNewChat(workspacePath: workspacePath, projectID: record.projectID)
+        }
+        clearThreadState()
+        composerSession.setActiveDraftID(record.draftID, workspacePath: record.workspacePath,
+                                        projectID: record.projectID, isProjectless: record.isProjectless)
+        applyPreferredModel(for: nil)
+        saveExpandedSidebarProjects()
+        selectAppRoute(.chat)
+    }
+
+    func applyComposerDraftWorkspace(_ record: CodexComposerDraftSnapshot) {
+        isProjectlessDraft = record.isProjectless
+        projectlessDraftPaths = record.isProjectless && record.threadID != nil
+            ? CodexProjectlessThreadPaths(resumingCWD: record.workspacePath) : nil
+        if let path = record.workspacePath {
+            let normalized = CodexProjectSummary.normalizedPath(path)
+            if workspacePath != normalized {
+                workspacePath = normalized
+                refreshGitBranch()
+            }
+        }
+        if let threadID = record.threadID {
+            if record.isProjectless { sidebarNavigationSession.selectProjectlessChat(threadID) }
+            else { sidebarNavigationSession.selectChat(threadID, workspacePath: record.workspacePath, projectID: record.projectID) }
+        }
     }
 
     func startVoiceChat() async {
@@ -3611,13 +3677,34 @@ final class CodexCoreAppModel {
         await resumeChat(id: result.thread.id)
     }
 
-    func forkCurrentChat() async {
+    func forkChat(from request: CodexTranscriptForkRequest) async {
+        guard request.threadID == currentThreadID,
+              !request.lastTurnID.isEmpty,
+              let snapshot = selectedThreadSessionSnapshot,
+              let turn = snapshot.canonical.turns[TurnKey(threadID: ThreadID(request.threadID), turnID: TurnID(request.lastTurnID))],
+              turn.status != .inProgress
+        else { return }
+        await forkCurrentChat(lastTurnID: request.lastTurnID)
+    }
+
+    func forkCurrentChat(lastTurnID: String? = nil) async {
         guard let codex, let source = currentThreadLease else { return }
+        let sourceIdentity = ObjectIdentifier(source)
+        guard pendingForkLeaseIDs.insert(sourceIdentity).inserted else { return }
+        defer { pendingForkLeaseIDs.remove(sourceIdentity) }
+        let context = beginChatActionContext()
         let sourceSelectionGeneration = chatSelectionGeneration
         let sourceID = source.id.rawValue
         do {
-            let fork = try await source.fork(threadForkParameters(threadID: sourceID))
-            guard chatSelectionGeneration == sourceSelectionGeneration else { return }
+            var parameters = threadForkParameters(threadID: sourceID)
+            parameters.lastTurnID = lastTurnID
+            let fork = try await source.fork(parameters)
+            guard self.codex === codex, let context, isCurrentChatAction(context),
+                  currentThreadLease === source,
+                  chatSelectionGeneration == sourceSelectionGeneration else {
+                await fork.close()
+                return
+            }
             hydrateModelPreference(
                 for: fork.id.rawValue,
                 modelID: fork.modelIdentifier,
@@ -3628,7 +3715,8 @@ final class CodexCoreAppModel {
             let forkSelectionGeneration = chatSelectionGeneration
             clearThreadState(keepCurrentThread: true)
             await activateThread(fork)
-            guard chatSelectionGeneration == forkSelectionGeneration else { return }
+            guard self.codex === codex, context.accountRevision == accountContextRevision,
+                  currentThreadLease === fork, chatSelectionGeneration == forkSelectionGeneration else { return }
             applyPreferredModel(for: fork.id.rawValue)
             if isProjectlessDraft {
                 rememberProjectlessThread(fork.id.rawValue)
@@ -3641,6 +3729,7 @@ final class CodexCoreAppModel {
             }
             await refreshRecentChats(using: codex)
         } catch {
+            if let context { reportChatActionFailure("Fork chat", error: error, context: context) }
         }
     }
 
@@ -3707,8 +3796,25 @@ final class CodexCoreAppModel {
             isServiceTierExplicit:
                 lastManualModelPreference?.isServiceTierExplicit ?? false
         )
-        let thread = try await codex.startThread(threadStartParametersForCurrentDraft())
+        let generation = chatSelectionGeneration
+        let accountRevision = accountContextRevision
+        let draftID = composerSession.activeDraftID
+        let wasProjectless = isProjectlessDraft
+        let parameters = try threadStartParametersForCurrentDraft()
+        let thread = try await codex.startThread(parameters)
+        guard self.codex === codex, accountRevision == accountContextRevision,
+              generation == chatSelectionGeneration, composerSession.activeDraftID == draftID else {
+            await thread.close()
+            throw CancellationError()
+        }
+        composerSession.setActiveDraftID(draftID, workspacePath: parameters.cwd,
+                                        projectID: parameters.projectID, isProjectless: wasProjectless)
+        composerSession.promoteDraft(draftID, to: thread.id.rawValue)
         await activateThread(thread)
+        guard self.codex === codex, accountRevision == accountContextRevision,
+              generation == chatSelectionGeneration, currentThreadLease === thread else {
+            throw CancellationError()
+        }
         hydrateModelPreference(
             for: thread.id.rawValue,
             modelID: thread.modelIdentifier,
@@ -4009,11 +4115,36 @@ final class CodexCoreAppModel {
     }
 
     func interrupt() async {
-        guard let activeTurnLease else { return }
+        guard let activeTurnLease, let context = beginChatActionContext() else { return }
         do {
             try await activeTurnLease.interrupt()
         } catch {
+            reportChatActionFailure("Stop", error: error, context: context)
         }
+    }
+
+    func clearChatActionError() {
+        chatActionFeedbackRevision &+= 1
+        chatActionError = nil
+    }
+
+    func beginChatActionContext() -> CodexChatActionContext? {
+        guard let codex, let threadID = currentThreadID else { return nil }
+        chatActionFeedbackRevision &+= 1
+        chatActionError = nil
+        return .init(codex: codex, threadID: threadID, accountRevision: accountContextRevision,
+                     selectionGeneration: chatSelectionGeneration, feedbackRevision: chatActionFeedbackRevision)
+    }
+
+    func isCurrentChatAction(_ context: CodexChatActionContext) -> Bool {
+        codex === context.codex && accountContextRevision == context.accountRevision
+            && chatSelectionGeneration == context.selectionGeneration && currentThreadID == context.threadID
+    }
+
+    func reportChatActionFailure(_ operation: String, error: any Error, context: CodexChatActionContext) {
+        guard isCurrentChatAction(context), context.feedbackRevision == chatActionFeedbackRevision,
+              !(error is CancellationError) else { return }
+        chatActionError = "\(operation): \(friendlyError(error))"
     }
 
     func openSideChat() {
@@ -4272,6 +4403,7 @@ final class CodexCoreAppModel {
         keepCurrentThread: Bool = false,
         preserveActiveTranscript: Bool = false
     ) {
+        chatActionError = nil
         dictationSession.abort()
         if !keepCurrentThread {
             cancelCurrentThreadObservation()
@@ -4305,6 +4437,10 @@ final class CodexCoreAppModel {
 
     private func syncComposerThreadID() {
         composerSession.setActiveThreadID(currentThreadID)
+        composerSession.setActiveDraftID(composerSession.activeDraftID, threadID: currentThreadID,
+                                        workspacePath: workspacePath,
+                                        projectID: isProjectlessDraft ? nil : sidebarNavigationSession.selectedProjectID,
+                                        isProjectless: isProjectlessDraft)
     }
 
     private func resetSessionState() async {

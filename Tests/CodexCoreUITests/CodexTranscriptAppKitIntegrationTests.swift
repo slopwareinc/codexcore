@@ -2067,6 +2067,80 @@ struct CodexTranscriptAppKitIntegrationTests {
         #expect((preferredProductHeight ?? 0) >= 120)
     }
 
+    @Test func forkAvailabilityReconfiguresUnchangedCanonicalResponse() async throws {
+        let coordinator = CodexTranscriptListHost.Coordinator()
+        let container = CodexTranscriptCollectionContainerView(
+            frame: NSRect(x: 0, y: 0, width: 860, height: 500)
+        )
+        let window = NSWindow(contentRect: container.frame, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        coordinator.attach(to: container)
+        defer { coordinator.detach(); window.close() }
+        let store = CodexPresentationStore()
+        let presentation = CodexThreadUIPresentation(
+            threadID: "thread",
+            transcript: .init(turns: [.init(
+                id: "turn",
+                finalAnswer: .init(id: "answer", text: "Completed answer", isStreaming: false),
+                status: .done(durationMs: 1)
+            )])
+        )
+        let renderUpdate = CodexCanonicalTranscriptRenderUpdate(
+            threadID: ThreadID("thread"), sourceRevision: StateRevision(1), requestSourceRevision: 0,
+            turnOrder: nil, upsertedTurns: [], removedTurnIDs: [], dirtyTurnIDs: [],
+            pendingRequests: [], isFullRebuild: false
+        )
+        var requests: [CodexTranscriptForkRequest] = []
+        func update(_ onForkResponse: ((CodexTranscriptForkRequest) -> Void)?) {
+            coordinator.update(
+                presentation: presentation, renderUpdate: renderUpdate, presentationStore: store,
+                bottomContentInset: 0, contentHorizontalOffset: 0,
+                swiftUITheme: .officialDark, colorScheme: .dark,
+                clipboardService: CodexNoopClipboardService(), productToolRenderer: nil,
+                onOpenSubagent: { _ in }, onEditUserMessage: { _ in }, onForkChat: nil,
+                onForkResponse: onForkResponse
+            )
+        }
+        func forkButton(in view: NSView) -> NSButton? {
+            if let button = view as? NSButton, button.toolTip == "Fork chat" { return button }
+            for subview in view.subviews {
+                if let button = forkButton(in: subview) { return button }
+            }
+            return nil
+        }
+        func hoveredFooter(_ id: CodexTranscriptRenderItemID) throws -> CodexTranscriptCollectionItem {
+            let cell = try #require(coordinator.collectionItemForTesting(id))
+            cell.setHoveredForTesting(false)
+            cell.setHoveredForTesting(true)
+            return cell
+        }
+
+        update(nil)
+        await coordinator.waitForProjectionForTesting()
+        let footerID = try #require(coordinator.renderedItemIDsForTesting.first {
+            coordinator.renderedItemForTesting($0)?.footer?.kind == .finalAnswer
+        })
+        let initialCell = try hoveredFooter(footerID)
+        #expect(try #require(forkButton(in: initialCell.view)).isHidden)
+        initialCell.forkChatForTesting()
+        #expect(requests.isEmpty)
+
+        update { requests.append($0) }
+        await coordinator.waitForProjectionForTesting()
+        let enabledCell = try hoveredFooter(footerID)
+        #expect(!(try #require(forkButton(in: enabledCell.view))).isHidden)
+        enabledCell.forkChatForTesting()
+        #expect(requests == [.init(threadID: "thread", lastTurnID: "turn")])
+
+        update(nil)
+        await coordinator.waitForProjectionForTesting()
+        let disabledCell = try hoveredFooter(footerID)
+        #expect(try #require(forkButton(in: disabledCell.view)).isHidden)
+        disabledCell.forkChatForTesting()
+        #expect(requests.count == 1)
+    }
+
     @Test func warmThreadSwapRestoresExactRawOffset() async throws {
         let coordinator = CodexTranscriptListHost.Coordinator()
         let container = CodexTranscriptCollectionContainerView(frame: NSRect(x: 0, y: 0, width: 860, height: 700))

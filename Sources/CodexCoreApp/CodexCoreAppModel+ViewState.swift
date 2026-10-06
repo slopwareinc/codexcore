@@ -399,7 +399,7 @@ extension CodexCoreAppModel {
     }
 
     var canSend: Bool {
-        if case .connected = connectionState,
+        if !isRestoringDrafts, case .connected = connectionState,
            isAuthenticated,
            accountFeatures.canUseAuthenticatedRequests,
            (

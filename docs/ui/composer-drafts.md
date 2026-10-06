@@ -71,7 +71,8 @@ Snapshots reject unknown schema versions, duplicate identities/thread bindings,
 invalid context metadata, and invalid annotation ranges. They permit up to 128
 drafts, 256 KiB of prompt text per draft, and 64 entries of each context kind.
 Encoded JSON is capped at 4 MiB. `CodexComposerDraftFileStorage` bounds reads and
-writes atomically; a rejected save leaves the prior file intact. Hosts can inject
+writes atomically; snapshot validation and encoding failures leave the prior file
+intact. Hosts can inject
 a different `CodexComposerDraftStorage` implementation without changing composer
 ownership.
 

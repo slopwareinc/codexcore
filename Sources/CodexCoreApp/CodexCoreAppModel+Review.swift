@@ -2,15 +2,17 @@ import CodexCore
 
 extension CodexCoreAppModel {
     func startCodeReview(_ target: CodexReviewTarget) async {
-        guard let codex, let threadID = currentThreadID else {
+        guard let context = beginChatActionContext() else {
             return
         }
         do {
-            _ = try await codex.perform(CodexRequest.reviewStart(.init(
+            _ = try await context.codex.perform(CodexRequest.reviewStart(.init(
                 delivery: .inline,
                 target: target.schemaValue,
-                threadID: threadID
+                threadID: context.threadID
             )))
-        } catch {}
+        } catch {
+            reportChatActionFailure("Start review", error: error, context: context)
+        }
     }
 }
