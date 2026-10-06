@@ -8,6 +8,9 @@ rows, project monograms, and the provider vector mark from
 [pingdotgg/t3code](https://github.com/pingdotgg/t3code), revision
 `3e6b45028ceec5820dacb37dc3852470ebdc9411`.
 
+Independent draft-card presentation also follows revision
+`7bf6de174171ffcf0215bf55556f0e3ee7e6d78f` of the same project.
+
 MIT License
 
 Copyright (c) 2026 T3 Tools Inc.

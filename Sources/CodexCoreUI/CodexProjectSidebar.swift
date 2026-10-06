@@ -70,6 +70,10 @@ public struct CodexProjectSidebar: View {
     let onSearchInbox: ((String) async -> Void)?
     let onLoadMoreInboxSearch: (() -> Void)?
     let onRenameChat: ((CodexThreadSummary, String) -> Void)?
+    let drafts: [CodexComposerDraftSnapshot]
+    let activeDraftID: CodexComposerDraftID?
+    let onSelectDraft: ((CodexComposerDraftID) -> Void)?
+    let onDiscardDraft: ((CodexComposerDraftID) -> Void)?
 
     public init(
         serverName: String?,
@@ -114,7 +118,11 @@ public struct CodexProjectSidebar: View {
         inboxSearchState: CodexSidebarInboxSearchState? = nil,
         onSearchInbox: ((String) async -> Void)? = nil,
         onLoadMoreInboxSearch: (() -> Void)? = nil,
-        onRenameChat: ((CodexThreadSummary, String) -> Void)? = nil
+        onRenameChat: ((CodexThreadSummary, String) -> Void)? = nil,
+        drafts: [CodexComposerDraftSnapshot] = [],
+        activeDraftID: CodexComposerDraftID? = nil,
+        onSelectDraft: ((CodexComposerDraftID) -> Void)? = nil,
+        onDiscardDraft: ((CodexComposerDraftID) -> Void)? = nil
     ) {
         self.serverName = serverName
         self.accountSummary = accountSummary
@@ -159,6 +167,10 @@ public struct CodexProjectSidebar: View {
         self.onSearchInbox = onSearchInbox
         self.onLoadMoreInboxSearch = onLoadMoreInboxSearch
         self.onRenameChat = onRenameChat
+        self.drafts = drafts
+        self.activeDraftID = activeDraftID
+        self.onSelectDraft = onSelectDraft
+        self.onDiscardDraft = onDiscardDraft
     }
 
     public var body: some View {
@@ -181,6 +193,7 @@ public struct CodexProjectSidebar: View {
                     if snapshot.isBulkSelectionMode && !snapshot.isCollapsed {
                         bulkSelectionToolbar
                     }
+                    if !snapshot.isCollapsed { draftSection }
                     pinnedSection
                     customSectionsSection
                     projectlessSection
@@ -235,6 +248,7 @@ public struct CodexProjectSidebar: View {
             snapshot: snapshot, projectScope: inboxProjectScope, isProjectCatalogReady: isInboxProjectCatalogReady,
             searchState: inboxSearchState, hasMoreActive: hasMoreActiveChats, isLoadingMoreActive: isLoadingMoreActiveChats,
             sectionDestinations: sectionDestinations,
+            drafts: drafts, activeDraftID: activeDraftID, onSelectDraft: onSelectDraft, onDiscardDraft: onDiscardDraft,
             actions: .init(
                 newChat: onNewChat, newProject: onOpenFolder, startProjectChat: onStartProjectChat,
                 selectChat: onSelectChat, togglePin: onTogglePinChat, archive: onArchiveChat, unarchive: onUnarchiveChat,
@@ -252,6 +266,15 @@ public struct CodexProjectSidebar: View {
                 ))
             }
         )
+    }
+
+    private var draftSection: some View {
+        let projects = snapshot.inboxProjects.isEmpty
+            ? (snapshot.pinnedProjects + snapshot.projects + snapshot.olderProjects).map(\.project)
+            : snapshot.inboxProjects
+        let items = CodexSidebarDraftProjection(drafts: drafts, projects: projects,
+            projectScopeID: inboxProjectScope?.wrappedValue, activeDraftID: activeDraftID).items
+        return CodexSidebarDraftList(items: items, showsHeading: true, onSelect: onSelectDraft, onDiscard: onDiscardDraft)
     }
 
     @ViewBuilder
