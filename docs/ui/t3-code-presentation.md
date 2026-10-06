@@ -25,8 +25,9 @@ application's Resources directory.
 | `provider/Drivers/CodexDriver.ts`, `CodexAdapterV2.ts` | App checklist and reasoning-summary opt-ins; typed asynchronous questions |
 | `provider/CodexToolPresentation.ts`, `McpToolPresentation.ts` | Bounded browser/computer tool source labels and page context |
 
-The [Codex adapter comparison](../reference/t3-code-comparison.md) records the
-runtime behaviors found in source and the application boundaries.
+The [feature implementation comparison](../reference/t3-code-comparison.md)
+traces the later T3 source audit across runtime, inbox, composer, workspace,
+integrations and host services, with native gaps and implementation priorities.
 
 The shared lane is 736 points, the header is 52 points, and the composer has
 22-point corners with 16-point expanded insets. The palette preserves T3's
